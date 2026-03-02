@@ -38,6 +38,44 @@ pub enum ItemType {
     WoodShield,
     WoodBow,
     Arrow,
+    // Phase 3 biome resources
+    CactusFiber,
+    IceShard,
+    MushroomCap,
+    Spore,
+    Reed,
+    Sulfur,
+    CrystalShard,
+    AlpineHerb,
+    Peat,
+    ObsidianShard,
+    // Tier 3 materials
+    IronOre,
+    Coal,
+    StoneBlock,
+    IronIngot,
+    SteelAlloy,
+    // Tier 3 equipment
+    Forge,
+    Anvil,
+    IronAxe,
+    IronPickaxe,
+    IronSword,
+    IronShield,
+    IronHelmet,
+    IronChestplate,
+    StoneWall,
+    // Farming tools & seeds
+    Hoe,
+    WheatSeed,
+    CarrotSeed,
+    // Crops
+    Wheat,
+    Carrot,
+    // Cooked foods
+    CookedBerry,
+    BakedWheat,
+    CookedCarrot,
 }
 
 impl ItemType {
@@ -68,6 +106,38 @@ impl ItemType {
             ItemType::WoodShield => "Wood Shield",
             ItemType::WoodBow => "Wood Bow",
             ItemType::Arrow => "Arrow",
+            ItemType::CactusFiber => "Cactus Fiber",
+            ItemType::IceShard => "Ice Shard",
+            ItemType::MushroomCap => "Mushroom Cap",
+            ItemType::Spore => "Spore",
+            ItemType::Reed => "Reed",
+            ItemType::Sulfur => "Sulfur",
+            ItemType::CrystalShard => "Crystal Shard",
+            ItemType::AlpineHerb => "Alpine Herb",
+            ItemType::Peat => "Peat",
+            ItemType::ObsidianShard => "Obsidian",
+            ItemType::IronOre => "Iron Ore",
+            ItemType::Coal => "Coal",
+            ItemType::StoneBlock => "Stone Block",
+            ItemType::IronIngot => "Iron Ingot",
+            ItemType::SteelAlloy => "Steel Alloy",
+            ItemType::Forge => "Forge",
+            ItemType::Anvil => "Anvil",
+            ItemType::IronAxe => "Iron Axe",
+            ItemType::IronPickaxe => "Iron Pickaxe",
+            ItemType::IronSword => "Iron Sword",
+            ItemType::IronShield => "Iron Shield",
+            ItemType::IronHelmet => "Iron Helmet",
+            ItemType::IronChestplate => "Iron Chestplate",
+            ItemType::StoneWall => "Stone Wall",
+            ItemType::Hoe => "Hoe",
+            ItemType::WheatSeed => "Wheat Seed",
+            ItemType::CarrotSeed => "Carrot Seed",
+            ItemType::Wheat => "Wheat",
+            ItemType::Carrot => "Carrot",
+            ItemType::CookedBerry => "Cooked Berry",
+            ItemType::BakedWheat => "Baked Wheat",
+            ItemType::CookedCarrot => "Cooked Carrot",
         }
     }
 
@@ -75,7 +145,10 @@ impl ItemType {
         match self {
             ItemType::WoodAxe | ItemType::WoodPickaxe |
             ItemType::StoneAxe | ItemType::StonePickaxe |
-            ItemType::WoodSword | ItemType::WoodShield | ItemType::WoodBow => 1,
+            ItemType::WoodSword | ItemType::WoodShield | ItemType::WoodBow |
+            ItemType::IronAxe | ItemType::IronPickaxe | ItemType::IronSword |
+            ItemType::IronShield | ItemType::IronHelmet | ItemType::IronChestplate |
+            ItemType::Hoe => 1,
             _ => 64,
         }
     }
@@ -86,6 +159,10 @@ impl ItemType {
             ItemType::WoodPickaxe => Some(50),
             ItemType::StoneAxe => Some(100),
             ItemType::StonePickaxe => Some(100),
+            ItemType::IronAxe => Some(200),
+            ItemType::IronPickaxe => Some(200),
+            ItemType::IronSword => Some(150),
+            ItemType::Hoe => Some(75),
             _ => None,
         }
     }

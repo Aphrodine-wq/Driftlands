@@ -11,6 +11,10 @@ mod combat;
 mod death;
 mod saveload;
 mod minimap;
+mod dungeon;
+mod season;
+mod weather;
+mod farming;
 
 use bevy::prelude::*;
 
@@ -42,7 +46,13 @@ fn main() {
             combat::CombatPlugin,
             death::DeathPlugin,
             saveload::SaveLoadPlugin,
+        ))
+        .add_plugins((
             minimap::MinimapPlugin,
+            dungeon::DungeonPlugin,
+            season::SeasonPlugin,
+            weather::WeatherPlugin,
+            farming::FarmingPlugin,
         ))
         .run();
 }

@@ -3,6 +3,9 @@ use rand::Rng;
 use crate::player::{Player, Health};
 use crate::daynight::{DayNightCycle, DayPhase};
 use crate::inventory::{Inventory, ItemType};
+use crate::world::chunk::Chunk;
+use crate::world::generation::Biome;
+use crate::world::{CHUNK_WORLD_SIZE};
 
 pub struct CombatPlugin;
 
@@ -37,6 +40,43 @@ pub struct Enemy {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum EnemyType {
     ShadowCrawler,
+    FeralWolf,
+    CaveSpider,
+    FungalZombie,
+    LavaElemental,
+    IceWraith,
+    BogLurker,
+    SandScorpion,
+}
+
+impl EnemyType {
+    pub fn stats(&self) -> (f32, f32, f32, f32, Color, Vec2) {
+        // (health, damage, speed, aggro_range, color, size)
+        match self {
+            EnemyType::ShadowCrawler => (30.0, 5.0, 80.0, 150.0, Color::srgb(0.4, 0.1, 0.5), Vec2::new(10.0, 10.0)),
+            EnemyType::FeralWolf => (40.0, 8.0, 100.0, 180.0, Color::srgb(0.5, 0.5, 0.5), Vec2::new(12.0, 10.0)),
+            EnemyType::CaveSpider => (20.0, 4.0, 120.0, 120.0, Color::srgb(0.3, 0.2, 0.15), Vec2::new(8.0, 8.0)),
+            EnemyType::FungalZombie => (50.0, 6.0, 40.0, 100.0, Color::srgb(0.3, 0.5, 0.2), Vec2::new(12.0, 14.0)),
+            EnemyType::LavaElemental => (60.0, 12.0, 50.0, 130.0, Color::srgb(0.9, 0.3, 0.1), Vec2::new(14.0, 14.0)),
+            EnemyType::IceWraith => (35.0, 7.0, 70.0, 160.0, Color::srgb(0.7, 0.85, 1.0), Vec2::new(10.0, 12.0)),
+            EnemyType::BogLurker => (45.0, 6.0, 60.0, 100.0, Color::srgb(0.25, 0.4, 0.2), Vec2::new(12.0, 12.0)),
+            EnemyType::SandScorpion => (30.0, 8.0, 90.0, 140.0, Color::srgb(0.7, 0.55, 0.3), Vec2::new(10.0, 8.0)),
+        }
+    }
+
+    pub fn for_biome(biome: Biome) -> Self {
+        match biome {
+            Biome::Forest => EnemyType::FeralWolf,
+            Biome::Coastal => EnemyType::ShadowCrawler,
+            Biome::Swamp => EnemyType::BogLurker,
+            Biome::Desert => EnemyType::SandScorpion,
+            Biome::Tundra => EnemyType::IceWraith,
+            Biome::Volcanic => EnemyType::LavaElemental,
+            Biome::Fungal => EnemyType::FungalZombie,
+            Biome::CrystalCave => EnemyType::CaveSpider,
+            Biome::Mountain => EnemyType::FeralWolf,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -64,18 +104,16 @@ fn spawn_night_enemies(
     cycle: Res<DayNightCycle>,
     player_query: Query<&Transform, With<Player>>,
     enemy_query: Query<&Enemy>,
+    chunk_query: Query<&Chunk>,
 ) {
-    // Only spawn during Night phase
     if cycle.phase() != DayPhase::Night {
         return;
     }
 
-    // Max 5 enemies
     if enemy_query.iter().count() >= 5 {
         return;
     }
 
-    // Spawn chance per frame (roughly 1 enemy per 2-3 seconds)
     let mut rng = rand::thread_rng();
     if rng.gen::<f32>() > 0.01 {
         return;
@@ -84,26 +122,36 @@ fn spawn_night_enemies(
     let Ok(player_tf) = player_query.get_single() else { return };
     let player_pos = player_tf.translation.truncate();
 
-    // Random position 300-500px from player
+    // Determine biome at player position
+    let player_chunk_x = (player_tf.translation.x / CHUNK_WORLD_SIZE).floor() as i32;
+    let player_chunk_y = (player_tf.translation.y / CHUNK_WORLD_SIZE).floor() as i32;
+    let biome = chunk_query.iter()
+        .find(|c| c.position.x == player_chunk_x && c.position.y == player_chunk_y)
+        .map(|c| c.biome)
+        .unwrap_or(Biome::Forest);
+
+    let enemy_type = EnemyType::for_biome(biome);
+    let (health, damage, speed, aggro_range, color, size) = enemy_type.stats();
+
     let angle = rng.gen::<f32>() * std::f32::consts::TAU;
     let dist = rng.gen_range(300.0..500.0);
     let spawn_pos = player_pos + Vec2::new(angle.cos(), angle.sin()) * dist;
 
     commands.spawn((
         Enemy {
-            enemy_type: EnemyType::ShadowCrawler,
-            health: 30.0,
-            max_health: 30.0,
-            damage: 5.0,
-            speed: 80.0,
-            aggro_range: 150.0,
+            enemy_type,
+            health,
+            max_health: health,
+            damage,
+            speed,
+            aggro_range,
             state: EnemyState::Idle,
             patrol_target: spawn_pos,
             attack_cooldown: Timer::from_seconds(1.0, TimerMode::Once),
         },
         Sprite {
-            color: Color::srgb(0.4, 0.1, 0.5),
-            custom_size: Some(Vec2::new(10.0, 10.0)),
+            color,
+            custom_size: Some(size),
             ..default()
         },
         Transform::from_xyz(spawn_pos.x, spawn_pos.y, 5.0),

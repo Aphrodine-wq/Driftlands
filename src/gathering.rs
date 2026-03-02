@@ -69,6 +69,45 @@ fn gather_resources(
                     inventory.add_item(ItemType::PlantFiber, 2);
                     inventory.add_item(ItemType::Berry, 1);
                 }
+                WorldObjectType::Cactus => {
+                    inventory.add_item(ItemType::CactusFiber, 2);
+                    inventory.add_item(ItemType::Stick, 1);
+                }
+                WorldObjectType::IceCrystal => {
+                    inventory.add_item(ItemType::IceShard, 2);
+                }
+                WorldObjectType::Mushroom => {
+                    inventory.add_item(ItemType::MushroomCap, 2);
+                    inventory.add_item(ItemType::Spore, 1);
+                }
+                WorldObjectType::GiantMushroom => {
+                    inventory.add_item(ItemType::MushroomCap, 4);
+                    inventory.add_item(ItemType::Spore, 2);
+                    inventory.add_item(ItemType::Wood, 2);
+                }
+                WorldObjectType::ReedClump => {
+                    inventory.add_item(ItemType::Reed, 3);
+                    inventory.add_item(ItemType::Peat, 1);
+                }
+                WorldObjectType::SulfurDeposit => {
+                    inventory.add_item(ItemType::Sulfur, 2);
+                    inventory.add_item(ItemType::Stone, 1);
+                }
+                WorldObjectType::CrystalNode => {
+                    inventory.add_item(ItemType::CrystalShard, 2);
+                    inventory.add_item(ItemType::Stone, 1);
+                }
+                WorldObjectType::AlpineFlower => {
+                    inventory.add_item(ItemType::AlpineHerb, 1);
+                }
+                WorldObjectType::IronVein => {
+                    inventory.add_item(ItemType::IronOre, 2);
+                    inventory.add_item(ItemType::Stone, 1);
+                }
+                WorldObjectType::CoalDeposit => {
+                    inventory.add_item(ItemType::Coal, 2);
+                    inventory.add_item(ItemType::Stone, 1);
+                }
             }
             // Consume tool durability
             inventory.use_selected_tool();

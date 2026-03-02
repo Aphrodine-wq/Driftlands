@@ -5,6 +5,8 @@ use crate::daynight::DayNightCycle;
 use crate::building::BuildingState;
 use crate::player::{Player, Health, Hunger};
 use crate::saveload::SaveMessage;
+use crate::season::SeasonCycle;
+use crate::weather::WeatherSystem;
 
 pub struct HudPlugin;
 
@@ -114,16 +116,20 @@ fn update_hud(
     crafting: Res<CraftingSystem>,
     cycle: Res<DayNightCycle>,
     building_state: Res<BuildingState>,
+    season: Res<SeasonCycle>,
+    weather: Res<WeatherSystem>,
     mut hud_query: Query<&mut Text, (With<HudText>, Without<CraftingHudText>, Without<StatusHudText>)>,
     mut craft_hud_query: Query<&mut Text, (With<CraftingHudText>, Without<HudText>, Without<StatusHudText>)>,
 ) {
     // Main HUD
     if let Ok(mut text) = hud_query.get_single_mut() {
         let mut lines = vec![
-            format!("Day {} | {} | {:.0}%",
+            format!("Day {} | {} | {:.0}% | {} | {}",
                 cycle.day_count,
                 cycle.phase_name(),
                 cycle.time_of_day * 100.0,
+                season.current.name(),
+                weather.current.name(),
             ),
             String::new(),
         ];
@@ -175,9 +181,10 @@ fn update_hud(
             return;
         }
 
-        // Determine workbench access (simplified: check inventory for now)
         let near_workbench = inventory.has_items(ItemType::Workbench, 1);
-        let available = crafting.available_recipes(near_workbench);
+        let near_forge = inventory.has_items(ItemType::Forge, 1);
+        let near_campfire = inventory.has_items(ItemType::Campfire, 1);
+        let available = crafting.available_recipes(near_workbench, near_forge, near_campfire);
 
         let mut lines = vec!["== CRAFTING ==".to_string(), String::new()];
 

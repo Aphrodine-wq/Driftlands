@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use super::tile::TileType;
+use super::generation::Biome;
 
 pub const CHUNK_SIZE: usize = 32;
 
@@ -7,6 +8,7 @@ pub const CHUNK_SIZE: usize = 32;
 pub struct Chunk {
     pub position: IVec2,
     pub tiles: [[TileType; CHUNK_SIZE]; CHUNK_SIZE],
+    pub biome: Biome,
 }
 
 impl Chunk {
@@ -14,6 +16,7 @@ impl Chunk {
         Self {
             position,
             tiles: [[TileType::Grass; CHUNK_SIZE]; CHUNK_SIZE],
+            biome: Biome::Forest,
         }
     }
 

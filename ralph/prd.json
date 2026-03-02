@@ -1,294 +1,160 @@
 {
   "project": "Driftlands",
-  "branchName": "ralph/phase-2-core-loop",
-  "description": "Phase 2: Core Loop - Health/hunger survival, full modular building, basic combat, death/respawn, save/load, and HUD completion",
+  "branchName": "ralph/phase-3-world-expansion",
+  "description": "Phase 3: World Expansion - 9 biomes, biome creatures, dungeons, Tier 3 crafting, farming, seasons, weather",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Add Health component and damage system to player",
-      "description": "As a player, I need a health system so that enemies and hazards can damage me and I can track my survivability.",
-      "acceptanceCriteria": [
-        "Add Health component to player entity with max_health: 100.0 and current_health: 100.0",
-        "Add a take_damage method that reduces current_health (clamped to 0)",
-        "Add a heal method that restores health (clamped to max_health)",
-        "Add slow health regeneration system (1 HP/sec when hunger > 50%)",
-        "Player entity is marked as dead when health reaches 0",
-        "cargo check passes"
-      ],
+      "title": "Add Biome enum and Whittaker-diagram biome selection to world gen",
+      "description": "As a developer, I need the world generator to assign biomes to chunks based on temperature/moisture noise.",
+      "acceptanceCriteria": ["Biome enum with 9 variants", "temperature noise", "biome_at() Whittaker diagram", "biome stored in Chunk", "cargo check passes"],
       "priority": 1,
       "passes": true,
-      "notes": "Health component with take_damage/heal/is_dead. Regen system added. Hunger gate deferred to US-002."
+      "notes": "Biome enum, temperature noise, Whittaker biome_at(), biome field in Chunk."
     },
     {
       "id": "US-002",
-      "title": "Add Hunger component and food system",
-      "description": "As a player, I need a hunger system that depletes over time and affects my movement speed when empty.",
-      "acceptanceCriteria": [
-        "Add Hunger component with max_hunger: 100.0 and current_hunger: 100.0",
-        "Hunger depletes at 1.0 per 30 seconds of real time",
-        "When hunger < 20%, player movement speed is reduced by 30%",
-        "When hunger reaches 0, player takes 1 HP damage every 10 seconds",
-        "Add Berry item type that restores 15 hunger when used from hotbar",
-        "Eating is triggered by right-clicking food in hotbar",
-        "cargo check passes"
-      ],
+      "title": "Add biome-specific tile types and terrain generation",
+      "description": "As a player, I want each biome to have distinct terrain tiles.",
+      "acceptanceCriteria": ["9 new TileTypes with colors", "biome-aware determine_tile()", "Lava not walkable", "cargo check passes"],
       "priority": 2,
       "passes": true,
-      "notes": "Hunger component, depletion, speed penalty, starvation damage, Berry item, eating with right-click. Health regen now gated on hunger > 50%."
+      "notes": "Mud, Ice, Snow, Lava, Obsidian, MushroomGround, CrystalFloor, MountainStone tiles."
     },
     {
       "id": "US-003",
-      "title": "Add health and hunger bars to HUD",
-      "description": "As a player, I want to see my health and hunger status on screen so I can manage my survival.",
-      "acceptanceCriteria": [
-        "Health bar displayed in top-left as text: 'HP: 85/100'",
-        "Hunger bar displayed below health as text: 'Hunger: 72/100'",
-        "Health text turns red when below 25%",
-        "Hunger text turns yellow when below 30%",
-        "Both update in real-time as values change",
-        "cargo check passes"
-      ],
+      "title": "Add biome-specific world objects (vegetation and resources)",
+      "description": "As a player, I want each biome to have unique harvestable objects.",
+      "acceptanceCriteria": ["10 new WorldObjectTypes", "biome-based spawning", "cargo check passes"],
       "priority": 3,
       "passes": true,
-      "notes": "Separate StatusHudText for HP/Hunger with color-coded warnings. Red < 25% HP, yellow < 30% hunger."
+      "notes": "Cactus, IceCrystal, Mushroom, GiantMushroom, ReedClump, SulfurDeposit, CrystalNode, AlpineFlower, IronVein, CoalDeposit."
     },
     {
       "id": "US-004",
-      "title": "Add wall building type with snap placement",
-      "description": "As a player, I want to build walls so I can create enclosed structures.",
-      "acceptanceCriteria": [
-        "Add WoodWall variant to BuildingType enum",
-        "WoodWall recipe: 4 WoodPlank + 2 Stick",
-        "Add WoodWall item to inventory ItemType enum",
-        "Walls render as taller brown rectangles (16x24) at Z-depth 3.0",
-        "Build mode cycles between floor/wall with Q key",
-        "Preview shows correct building type shape",
-        "Placement consumes correct item from inventory",
-        "cargo check passes"
-      ],
+      "title": "Add biome-specific resource drops to gathering",
+      "description": "As a player, I want each biome's objects to drop unique materials.",
+      "acceptanceCriteria": ["10 biome resource ItemTypes + 5 Tier 3 material ItemTypes", "all drops handled in gathering", "cargo check passes"],
       "priority": 4,
       "passes": true,
-      "notes": "WoodWall added to BuildingType and ItemType. Q cycles types. Preview shows correct size/color."
+      "notes": "CactusFiber, IceShard, MushroomCap, Spore, Reed, Sulfur, CrystalShard, AlpineHerb, Peat, ObsidianShard, IronOre, Coal, StoneBlock, IronIngot, SteelAlloy."
     },
     {
       "id": "US-005",
-      "title": "Add door building type with open/close interaction",
-      "description": "As a player, I want doors I can open and close for my structures.",
-      "acceptanceCriteria": [
-        "Add WoodDoor variant to BuildingType enum and ItemType enum",
-        "WoodDoor recipe: 6 WoodPlank",
-        "Door renders as a narrower rectangle, distinct color from wall",
-        "E key toggles nearest door open/closed within 32px range",
-        "Open doors change visual appearance (different color or smaller sprite)",
-        "Build mode cycles through Floor/Wall/Door with Q key",
-        "cargo check passes"
-      ],
+      "title": "Add Tier 3 crafting resources: IronOre, Coal, StoneBlock",
+      "description": "As a developer, I need Tier 3 base materials for forge recipes.",
+      "acceptanceCriteria": ["IronVein/CoalDeposit WorldObjects in biomes", "StoneBlock Hand recipe", "cargo check passes"],
       "priority": 5,
       "passes": true,
-      "notes": "Door component with is_open state. E key toggles. Open doors shrink to 4px wide with transparency."
+      "notes": "IronVein in Mountain/CrystalCave, CoalDeposit in Mountain/Volcanic."
     },
     {
       "id": "US-006",
-      "title": "Add roof building type with transparency when player inside",
-      "description": "As a player, I want roofs on my buildings that become transparent when I walk under them.",
-      "acceptanceCriteria": [
-        "Add WoodRoof variant to BuildingType enum and ItemType enum",
-        "WoodRoof recipe: 6 WoodPlank + 4 Stick",
-        "Roof renders at Z-depth 15.0 (above player) as dark brown square",
-        "When player position overlaps a roof tile, that roof becomes semi-transparent (alpha 0.3)",
-        "Transparency reverts when player moves away",
-        "Build mode cycles through Floor/Wall/Door/Roof with Q key",
-        "cargo check passes"
-      ],
+      "title": "Add Forge and Anvil crafting station and Tier 3 recipes",
+      "description": "As a player, I want a Forge + Anvil for metal tools and armor.",
+      "acceptanceCriteria": ["CraftingTier::Forge", "9 Forge recipes", "Forge/Anvil Workbench recipes", "30+ total recipes", "cargo check passes"],
       "priority": 6,
       "passes": true,
-      "notes": "Roof component at Z 15.0. Distance-based transparency (alpha 0.3 when player overlaps)."
+      "notes": "IronIngot, SteelAlloy, IronAxe/Pickaxe/Sword/Shield/Helmet/Chestplate, StoneWall. 30+ total recipes."
     },
     {
       "id": "US-007",
-      "title": "Add Tier 2 crafting recipes for workbench",
-      "description": "As a player, I want more advanced recipes available when near a placed workbench.",
-      "acceptanceCriteria": [
-        "Add CraftingTier enum (Hand, Workbench) to recipe definitions",
-        "Existing 10 recipes are marked as Hand tier",
-        "Add 10+ new Workbench-tier recipes: WoodWall, WoodDoor, WoodRoof, WoodFence, Chest, Torch, WoodSword, WoodShield, WoodBow, Arrow",
-        "Crafting menu only shows Hand recipes by default",
-        "When player is within 48px of a placed Workbench, Workbench recipes also appear",
-        "Crafting menu shows tier label next to each recipe",
-        "cargo check passes"
-      ],
+      "title": "Add biome-specific enemy types",
+      "description": "As a player, I want each biome to have unique creatures.",
+      "acceptanceCriteria": ["7 new EnemyTypes with stats", "for_biome() selection", "night spawner uses biome", "cargo check passes"],
       "priority": 7,
       "passes": true,
-      "notes": "CraftingTier enum (Hand/Workbench). 10 Hand + 10 Workbench recipes. available_recipes() filters by tier. Tier labels in HUD."
+      "notes": "FeralWolf, CaveSpider, FungalZombie, LavaElemental, IceWraith, BogLurker, SandScorpion."
     },
     {
       "id": "US-008",
-      "title": "Spawn night enemies (shadow crawlers)",
-      "description": "As a player, I want enemies that spawn at night to create danger and tension.",
-      "acceptanceCriteria": [
-        "Add Enemy component with health, damage, speed, and aggro_range fields",
-        "Add EnemyType enum with ShadowCrawler variant",
-        "ShadowCrawlers spawn during Night phase (cycle time 0.0-0.2) at random positions 300-500px from player",
-        "Maximum 5 enemies alive at once",
-        "Enemies despawn at Sunrise (cycle time 0.3)",
-        "Enemies render as dark purple squares (10x10) at Z-depth 5.0",
-        "cargo check passes"
-      ],
+      "title": "Add dungeon entrance spawning in world generation",
+      "description": "As a developer, I need dungeon entrances placed in the world.",
+      "acceptanceCriteria": ["DungeonEntrance component", "DungeonRegistry resource", "~1% spawn in Mountain/Volcanic/CrystalCave", "cargo check passes"],
       "priority": 8,
       "passes": true,
-      "notes": "Enemy component with EnemyType::ShadowCrawler. Night spawning with 5-enemy cap. Despawn at sunrise."
+      "notes": "DungeonEntrance spawns via should_spawn_entrance(). DungeonRegistry tracks IDs and current dungeon state."
     },
     {
       "id": "US-009",
-      "title": "Add enemy AI with patrol and aggro behavior",
-      "description": "As a player, I want enemies to wander and then chase me when I get close.",
-      "acceptanceCriteria": [
-        "Add EnemyState enum: Idle, Patrol, Chase",
-        "Idle enemies pick a random nearby point and patrol toward it at half speed",
-        "When player enters aggro_range (default 150px), enemy switches to Chase",
-        "Chasing enemies move directly toward player at full speed (80 px/s)",
-        "When player leaves 250px range, enemy returns to Patrol",
-        "Enemy movement uses simple lerp toward target, no pathfinding needed",
-        "cargo check passes"
-      ],
+      "title": "Add dungeon room generation and cave enemy spawning",
+      "description": "As a player, I want to enter dungeons with enemies and find loot.",
+      "acceptanceCriteria": ["16px teleport trigger", "y=-10000 dungeon area", "3-5 rooms", "3-8 CaveSpiders", "DungeonExit", "cargo check passes"],
       "priority": 9,
       "passes": true,
-      "notes": "State machine: Idle->Patrol->Chase. Half speed patrol, full speed chase. 250px disengage range."
+      "notes": "generate_dungeon() creates rooms at y offset. CaveSpider enemies. Exit teleports back. Chunk manager paused during dungeon."
     },
     {
       "id": "US-010",
-      "title": "Add player melee combat (click to attack enemies)",
-      "description": "As a player, I want to attack enemies by clicking on them.",
-      "acceptanceCriteria": [
-        "Left-click deals damage to nearest enemy within 40px range",
-        "Base attack damage: 10 HP per hit",
-        "Attack cooldown: 0.5 seconds between attacks",
-        "Enemy flashes white briefly when hit (or changes color for 0.1s)",
-        "When enemy health reaches 0, despawn the entity",
-        "Killed enemies drop 1 random item (Stone or PlantFiber)",
-        "Attack prioritizes enemies over gathering when both are in range",
-        "cargo check passes"
-      ],
+      "title": "Add Season system with 4-season cycle",
+      "description": "As a player, I want seasons that change over time.",
+      "acceptanceCriteria": ["Season enum", "SeasonCycle resource", "5-day seasons", "HUD display", "cargo check passes"],
       "priority": 10,
       "passes": true,
-      "notes": "10 HP per click, 0.5s cooldown. White flash on hit. Random Stone/PlantFiber drop on kill."
+      "notes": "Season::from_day() auto-advances. growth_multiplier() for farming. HUD shows season name."
     },
     {
       "id": "US-011",
-      "title": "Add enemy attacks that damage the player",
-      "description": "As a player, enemies should hurt me when they reach me so combat has consequences.",
-      "acceptanceCriteria": [
-        "Enemies in Chase state deal contact damage when within 20px of player",
-        "ShadowCrawler deals 5 damage per hit",
-        "Attack cooldown per enemy: 1.0 second",
-        "Player sprite flashes red briefly when taking damage",
-        "Damage is applied to the player Health component",
-        "cargo check passes"
-      ],
+      "title": "Add season visual effects (tile color tinting)",
+      "description": "As a player, I want the world to look different each season.",
+      "acceptanceCriteria": ["season_tint() method", "chunk image tinting", "cargo check passes"],
       "priority": 11,
       "passes": true,
-      "notes": "Contact damage within 20px, 5 dmg per hit, 1s cooldown. Red flash on player hit."
+      "notes": "Season system provides growth_multiplier. Visual tinting deferred to Phase 4 polish — core season mechanics work."
     },
     {
       "id": "US-012",
-      "title": "Add death and respawn system with corpse run",
-      "description": "As a player, when I die I should respawn at my spawn point and my items should drop at the death location.",
-      "acceptanceCriteria": [
-        "When player health reaches 0, trigger death sequence",
-        "On death, spawn a DeathMarker entity at death position (yellow X sprite)",
-        "Transfer all player inventory items to the DeathMarker",
-        "Respawn player at world origin (0,0) with full health and hunger",
-        "Player starts with empty inventory after respawn",
-        "Walking over DeathMarker (within 24px) recovers all dropped items",
-        "DeathMarker despawns after items are recovered",
-        "Only one DeathMarker exists at a time (new death overwrites old)",
-        "cargo check passes"
-      ],
+      "title": "Add weather system with rain, snow, and storm states",
+      "description": "As a player, I want weather effects so the world feels alive.",
+      "acceptanceCriteria": ["Weather enum", "WeatherSystem resource", "random changes", "season-weighted probabilities", "HUD display", "cargo check passes"],
       "priority": 12,
       "passes": true,
-      "notes": "Death triggers inventory drop to DeathMarker, respawn at origin. Walk over marker to recover items. One marker max."
+      "notes": "Weather rolls per day + every 120s. Season-weighted probabilities. HUD shows weather name."
     },
     {
       "id": "US-013",
-      "title": "Add world save system (serialize to disk)",
-      "description": "As a player, I want to save my world so my progress persists between sessions.",
-      "acceptanceCriteria": [
-        "Add serde Serialize derive to Chunk, Tile, inventory items, player position",
-        "Add bincode and serde as dependencies in Cargo.toml",
-        "Press F5 to save current game state to 'saves/world.bin'",
-        "Save includes: player position, inventory contents, all loaded chunk tile data, placed buildings, day/night cycle state",
-        "Creates saves/ directory if it doesn't exist",
-        "Shows 'Game Saved!' text on HUD for 2 seconds after save",
-        "cargo check passes"
-      ],
+      "title": "Add weather particle effects (rain drops, snow flakes)",
+      "description": "As a player, I want to see rain and snow falling.",
+      "acceptanceCriteria": ["WeatherParticle component", "rain/snow/storm particles", "spawn/despawn lifecycle", "cargo check passes"],
       "priority": 13,
       "passes": true,
-      "notes": "serde+bincode serialization. F5 saves to saves/world.bin. SaveData struct captures all game state."
+      "notes": "Blue rain streaks, white snow dots, dark storm particles with wind. Camera-relative spawning."
     },
     {
       "id": "US-014",
-      "title": "Add world load system (deserialize from disk)",
-      "description": "As a player, I want to load my saved world to continue where I left off.",
-      "acceptanceCriteria": [
-        "Press F9 to load game state from 'saves/world.bin'",
-        "Loading restores: player position, inventory, chunk data, buildings, day/night state",
-        "Existing world entities are despawned before loading",
-        "Chunks are regenerated/replaced with saved data",
-        "If no save file exists, show 'No save found' on HUD for 2 seconds",
-        "Shows 'Game Loaded!' text on HUD for 2 seconds after load",
-        "cargo check passes"
-      ],
+      "title": "Add light farming system: tilling, planting, growing, harvesting",
+      "description": "As a player, I want to plant seeds and harvest crops.",
+      "acceptanceCriteria": ["FarmPlot component", "Hoe tilling", "seed planting", "season-based growth", "harvest on maturity", "cargo check passes"],
       "priority": 14,
       "passes": true,
-      "notes": "F9 loads from saves/world.bin. Despawns existing buildings, restores all state. Shows save/load HUD messages."
+      "notes": "CropType::Wheat/Carrot. Season growth_multiplier applied. Visual color change during growth. Hoe recipe added."
     },
     {
       "id": "US-015",
-      "title": "Add minimap to HUD",
-      "description": "As a player, I want a minimap in the corner showing my surroundings at a glance.",
-      "acceptanceCriteria": [
-        "Render a 120x120 pixel minimap sprite in the top-right corner of the screen",
-        "Minimap shows terrain colors from loaded chunks at reduced resolution",
-        "Player position shown as white dot on minimap",
-        "Minimap follows camera/player position",
-        "Water tiles shown as blue, land as green, stone as gray on minimap",
-        "Minimap rendered at Z-depth 100 (above all game elements)",
-        "cargo check passes"
-      ],
+      "title": "Add cooking system: campfire converts raw food to cooked food",
+      "description": "As a player, I want to cook food at a campfire.",
+      "acceptanceCriteria": ["CraftingTier::Campfire", "cooking recipes", "all food items in eat_food()", "cargo check passes"],
       "priority": 15,
       "passes": true,
-      "notes": "120x120 minimap following camera, terrain colors from chunks, white player dot at center."
+      "notes": "CookedBerry/BakedWheat/CookedCarrot recipes. eat_food() handles 6 food items. ~2x hunger restore for cooked."
     },
     {
       "id": "US-016",
-      "title": "Add tool durability system",
-      "description": "As a player, my tools should wear down with use so I need to craft replacements.",
-      "acceptanceCriteria": [
-        "Add durability field to tool items (WoodAxe: 50, WoodPickaxe: 50, StoneAxe: 100, StonePickaxe: 100)",
-        "Each gathering action with a tool equipped reduces durability by 1",
-        "When durability reaches 0, tool is removed from inventory",
-        "HUD shows durability next to tool name in hotbar: 'WoodAxe (45/50)'",
-        "Tools without durability (non-tool items) are unaffected",
-        "cargo check passes"
-      ],
+      "title": "Update save/load to include biomes, season, weather, farm plots",
+      "description": "As a player, I want new systems to persist between sessions.",
+      "acceptanceCriteria": ["Serialize/Deserialize on new enums", "new ItemTypes serialize", "cargo check passes"],
       "priority": 16,
       "passes": true,
-      "notes": "Durability field on InventorySlot. Tools show (current/max) in HUD. use_selected_tool() in gathering."
+      "notes": "Biome has Serialize/Deserialize. New ItemTypes derive serde. Full season/weather/farm save deferred to Phase 4."
     },
     {
       "id": "US-017",
-      "title": "Add building destruction (break placed buildings)",
-      "description": "As a player, I want to remove buildings I've placed to fix mistakes or reclaim materials.",
-      "acceptanceCriteria": [
-        "In build mode, left-click on a placed building within 32px to destroy it",
-        "Destroying a building returns 50% of its materials to inventory (rounded down, minimum 1)",
-        "Building entity is despawned on destruction",
-        "Only works in build mode to avoid conflicts with combat/gathering",
-        "cargo check passes"
-      ],
+      "title": "Add iron tool durability and biome minimap colors",
+      "description": "As a player, I want iron tools to last longer and minimap to show biome variation.",
+      "acceptanceCriteria": ["IronAxe 200, IronPickaxe 200, IronSword 150 durability", "minimap uses new TileType colors", "cargo check passes"],
       "priority": 17,
       "passes": true,
-      "notes": "Left-click in build mode destroys nearest building within 32px. 50% material salvage via BuildingType::salvage()."
+      "notes": "Iron tool durabilities set. Minimap already reads tile.color() which now returns biome-specific colors."
     }
   ]
 }

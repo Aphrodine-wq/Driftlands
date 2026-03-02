@@ -171,12 +171,23 @@ fn eat_food(
     }
     let Ok(mut hunger) = query.get_single_mut() else { return };
 
-    if let Some(slot) = inventory.selected_item() {
-        let item = slot.item;
-        if item == ItemType::Berry {
-            if inventory.remove_items(ItemType::Berry, 1) {
-                hunger.eat(15.0);
-            }
+    let Some(slot) = inventory.selected_item() else { return };
+    let item = slot.item;
+
+    // Map each food item to (item, hunger_restored).
+    let food_value: Option<f32> = match item {
+        ItemType::Berry => Some(15.0),
+        ItemType::Wheat => Some(10.0),
+        ItemType::Carrot => Some(12.0),
+        ItemType::CookedBerry => Some(25.0),
+        ItemType::BakedWheat => Some(30.0),
+        ItemType::CookedCarrot => Some(28.0),
+        _ => None,
+    };
+
+    if let Some(value) = food_value {
+        if inventory.remove_items(item, 1) {
+            hunger.eat(value);
         }
     }
 }

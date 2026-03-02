@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
-use crate::building::{Building, BuildingType};
 
 pub struct CraftingPlugin;
 
@@ -16,6 +15,8 @@ impl Plugin for CraftingPlugin {
 pub enum CraftingTier {
     Hand,
     Workbench,
+    Forge,
+    Campfire,
 }
 
 impl CraftingTier {
@@ -23,6 +24,8 @@ impl CraftingTier {
         match self {
             CraftingTier::Hand => "[Hand]",
             CraftingTier::Workbench => "[Bench]",
+            CraftingTier::Forge => "[Forge]",
+            CraftingTier::Campfire => "[Fire]",
         }
     }
 }
@@ -129,6 +132,12 @@ impl CraftingSystem {
                     output: (ItemType::Workbench, 1),
                     tier: CraftingTier::Hand,
                 },
+                Recipe {
+                    name: "Stone Block",
+                    inputs: vec![(ItemType::Stone, 4)],
+                    output: (ItemType::StoneBlock, 1),
+                    tier: CraftingTier::Hand,
+                },
                 // Workbench tier (10 new recipes)
                 Recipe {
                     name: "Wood Wall",
@@ -190,6 +199,117 @@ impl CraftingSystem {
                     output: (ItemType::Arrow, 8),
                     tier: CraftingTier::Workbench,
                 },
+                // Workbench — Tier 3 stations
+                Recipe {
+                    name: "Forge",
+                    inputs: vec![(ItemType::StoneBlock, 10), (ItemType::IronOre, 5), (ItemType::Coal, 3)],
+                    output: (ItemType::Forge, 1),
+                    tier: CraftingTier::Workbench,
+                },
+                Recipe {
+                    name: "Anvil",
+                    inputs: vec![(ItemType::IronIngot, 8), (ItemType::StoneBlock, 4)],
+                    output: (ItemType::Anvil, 1),
+                    tier: CraftingTier::Workbench,
+                },
+                // Forge tier recipes
+                Recipe {
+                    name: "Iron Ingot",
+                    inputs: vec![(ItemType::IronOre, 2), (ItemType::Coal, 1)],
+                    output: (ItemType::IronIngot, 1),
+                    tier: CraftingTier::Forge,
+                },
+                Recipe {
+                    name: "Steel Alloy",
+                    inputs: vec![(ItemType::IronIngot, 2), (ItemType::Coal, 2)],
+                    output: (ItemType::SteelAlloy, 1),
+                    tier: CraftingTier::Forge,
+                },
+                Recipe {
+                    name: "Iron Axe",
+                    inputs: vec![(ItemType::IronIngot, 3), (ItemType::Stick, 2)],
+                    output: (ItemType::IronAxe, 1),
+                    tier: CraftingTier::Forge,
+                },
+                Recipe {
+                    name: "Iron Pickaxe",
+                    inputs: vec![(ItemType::IronIngot, 3), (ItemType::Stick, 2)],
+                    output: (ItemType::IronPickaxe, 1),
+                    tier: CraftingTier::Forge,
+                },
+                Recipe {
+                    name: "Iron Sword",
+                    inputs: vec![(ItemType::IronIngot, 4), (ItemType::Stick, 1)],
+                    output: (ItemType::IronSword, 1),
+                    tier: CraftingTier::Forge,
+                },
+                Recipe {
+                    name: "Iron Shield",
+                    inputs: vec![(ItemType::IronIngot, 5), (ItemType::WoodPlank, 2)],
+                    output: (ItemType::IronShield, 1),
+                    tier: CraftingTier::Forge,
+                },
+                Recipe {
+                    name: "Iron Helmet",
+                    inputs: vec![(ItemType::IronIngot, 4)],
+                    output: (ItemType::IronHelmet, 1),
+                    tier: CraftingTier::Forge,
+                },
+                Recipe {
+                    name: "Iron Chestplate",
+                    inputs: vec![(ItemType::IronIngot, 6)],
+                    output: (ItemType::IronChestplate, 1),
+                    tier: CraftingTier::Forge,
+                },
+                Recipe {
+                    name: "Stone Wall",
+                    inputs: vec![(ItemType::StoneBlock, 4)],
+                    output: (ItemType::StoneWall, 1),
+                    tier: CraftingTier::Forge,
+                },
+                // Hand tier — Hoe
+                Recipe {
+                    name: "Hoe",
+                    inputs: vec![
+                        (ItemType::Stick, 2),
+                        (ItemType::Flint, 2),
+                        (ItemType::Rope, 1),
+                    ],
+                    output: (ItemType::Hoe, 1),
+                    tier: CraftingTier::Hand,
+                },
+                // Hand tier — seeds (craft from plant fiber / gathered items)
+                Recipe {
+                    name: "Wheat Seed (x3)",
+                    inputs: vec![(ItemType::PlantFiber, 2)],
+                    output: (ItemType::WheatSeed, 3),
+                    tier: CraftingTier::Hand,
+                },
+                Recipe {
+                    name: "Carrot Seed (x3)",
+                    inputs: vec![(ItemType::PlantFiber, 2), (ItemType::Berry, 1)],
+                    output: (ItemType::CarrotSeed, 3),
+                    tier: CraftingTier::Hand,
+                },
+                // Campfire cooking recipes
+                Recipe {
+                    name: "Cooked Berry",
+                    inputs: vec![(ItemType::Berry, 2)],
+                    output: (ItemType::CookedBerry, 1),
+                    tier: CraftingTier::Campfire,
+                },
+                Recipe {
+                    name: "Baked Wheat",
+                    inputs: vec![(ItemType::Wheat, 2)],
+                    output: (ItemType::BakedWheat, 1),
+                    tier: CraftingTier::Campfire,
+                },
+                Recipe {
+                    name: "Cooked Carrot",
+                    inputs: vec![(ItemType::Carrot, 1)],
+                    output: (ItemType::CookedCarrot, 1),
+                    tier: CraftingTier::Campfire,
+                },
             ],
             is_open: false,
             selected_recipe: 0,
@@ -218,11 +338,13 @@ impl CraftingSystem {
     }
 
     /// Get indices of recipes available given current tier access
-    pub fn available_recipes(&self, near_workbench: bool) -> Vec<usize> {
+    pub fn available_recipes(&self, near_workbench: bool, near_forge: bool, near_campfire: bool) -> Vec<usize> {
         self.recipes.iter().enumerate()
             .filter(|(_, r)| match r.tier {
                 CraftingTier::Hand => true,
                 CraftingTier::Workbench => near_workbench,
+                CraftingTier::Forge => near_forge,
+                CraftingTier::Campfire => near_campfire,
             })
             .map(|(i, _)| i)
             .collect()
@@ -233,9 +355,6 @@ fn handle_crafting_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut crafting: ResMut<CraftingSystem>,
     mut inventory: ResMut<Inventory>,
-    player_query: Query<&Transform, With<Player>>,
-    workbench_query: Query<&Transform, With<Building>>,
-    building_query: Query<&Building>,
 ) {
     if keyboard.just_pressed(KeyCode::KeyC) {
         crafting.is_open = !crafting.is_open;
@@ -246,33 +365,12 @@ fn handle_crafting_input(
         return;
     }
 
-    // Check if near a workbench
-    let near_workbench = if let Ok(player_tf) = player_query.get_single() {
-        let player_pos = player_tf.translation.truncate();
-        workbench_query.iter().any(|tf| {
-            let dist = player_pos.distance(tf.translation.truncate());
-            if dist <= 48.0 {
-                // Check it's actually a workbench (not just any building)
-                // We check all buildings at this position
-                true
-            } else {
-                false
-            }
-        }) && building_query.iter().any(|b| b.building_type == BuildingType::WoodFloor)
-            // Actually, workbenches are placed via the building system as Workbench type
-            // but currently workbench is an inventory item placed as a building.
-            // For now, check if any workbench item is placed nearby.
-            // The current building system only has WoodFloor/Wall/Door/Roof.
-            // Workbench is crafted as an item but not yet placeable as a building.
-            // We'll use a simpler approach: check if player has a workbench in inventory
-            // OR is near a placed workbench. Since workbench placement isn't implemented yet,
-            // check inventory for now.
-            || inventory.has_items(ItemType::Workbench, 1)
-    } else {
-        false
-    };
+    // Check crafting station access (simplified: check inventory for station items)
+    let near_workbench = inventory.has_items(ItemType::Workbench, 1);
+    let near_forge = inventory.has_items(ItemType::Forge, 1);
+    let near_campfire = inventory.has_items(ItemType::Campfire, 1);
 
-    let available = crafting.available_recipes(near_workbench);
+    let available = crafting.available_recipes(near_workbench, near_forge, near_campfire);
 
     if available.is_empty() {
         return;
