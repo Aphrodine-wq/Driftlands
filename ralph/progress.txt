@@ -1,0 +1,23 @@
+# Ralph Progress — Driftlands Phase 2: Core Loop
+# Branch: ralph/phase-2-core-loop
+# Started: 2026-03-02
+
+[PASS] US-001 — Health component and damage system — cargo check passes
+[PASS] US-002 — Hunger component and food system — cargo check passes
+[PASS] US-003 — Health and hunger bars to HUD — cargo check passes
+[PASS] US-004 — Wall building type with snap placement — cargo check passes
+[PASS] US-005 — Door building type with open/close interaction — cargo check passes
+[PASS] US-006 — Roof building type with transparency — cargo check passes
+[PASS] US-007 — Tier 2 crafting recipes for workbench — cargo check passes
+[PASS] US-008 — Spawn night enemies (shadow crawlers) — cargo check passes
+[PASS] US-009 — Enemy AI with patrol and aggro — cargo check passes
+[PASS] US-010 — Player melee combat — cargo check passes
+[PASS] US-011 — Enemy attacks that damage player — cargo check passes
+[PASS] US-012 — Death and respawn with corpse run — cargo check passes
+[PASS] US-013 — World save system — cargo check passes
+[PASS] US-014 — World load system — cargo check passes
+[PASS] US-015 — Minimap HUD — cargo check passes
+[PASS] US-016 — Tool durability system — cargo check passes
+[PASS] US-017 — Building destruction — cargo check passes
+
+=== ALL 17 USER STORIES PASS === Phase 2 COMPLETE ===

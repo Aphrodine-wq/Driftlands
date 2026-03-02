@@ -1,0 +1,18 @@
+[package]
+name = "driftlands"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { version = "0.15", features = ["dynamic_linking"] }
+noise = "0.9"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
+
+# Faster dev builds
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
