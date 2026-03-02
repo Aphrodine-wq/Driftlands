@@ -1,9 +1,10 @@
 use bevy::prelude::*;
-use crate::world::{WorldObject, WorldObjectType};
+use crate::world::{WorldObject, WorldObjectType, WorldState};
 use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
 use crate::building::BuildingState;
 use crate::combat::Enemy;
+use crate::world::generation::WorldGenerator;
 
 pub struct GatheringPlugin;
 
@@ -23,6 +24,7 @@ fn gather_resources(
     mut objects_query: Query<(Entity, &Transform, &mut WorldObject)>,
     enemy_query: Query<&Transform, With<Enemy>>,
     mut inventory: ResMut<Inventory>,
+    world_state: Res<WorldState>,
     time: Res<Time>,
 ) {
     if !mouse.pressed(MouseButton::Left) || building_state.active {
@@ -52,10 +54,15 @@ fn gather_resources(
 
     let Some((target_entity, _)) = nearest else { return };
 
-    if let Ok((_, _, mut object)) = objects_query.get_mut(target_entity) {
+    if let Ok((_, obj_transform, mut object)) = objects_query.get_mut(target_entity) {
         object.health -= 30.0 * time.delta_secs();
 
         if object.health <= 0.0 {
+            // Derive a deterministic hash from world position for rare drops
+            let tile_x = (obj_transform.translation.x / 16.0) as i32;
+            let tile_y = (obj_transform.translation.y / 16.0) as i32;
+            let rare_hash = WorldGenerator::position_hash(tile_x, tile_y, world_state.seed.wrapping_add(99));
+
             match object.object_type {
                 WorldObjectType::OakTree | WorldObjectType::PineTree => {
                     inventory.add_item(ItemType::Wood, 3);
@@ -96,9 +103,15 @@ fn gather_resources(
                 WorldObjectType::CrystalNode => {
                     inventory.add_item(ItemType::CrystalShard, 2);
                     inventory.add_item(ItemType::Stone, 1);
+                    // Always drop 1 Gemstone
+                    inventory.add_item(ItemType::Gemstone, 1);
                 }
                 WorldObjectType::AlpineFlower => {
                     inventory.add_item(ItemType::AlpineHerb, 1);
+                    // Rare drop: RareHerb on ~20% of harvests
+                    if rare_hash % 100 < 20 {
+                        inventory.add_item(ItemType::RareHerb, 1);
+                    }
                 }
                 WorldObjectType::IronVein => {
                     inventory.add_item(ItemType::IronOre, 2);
@@ -107,6 +120,10 @@ fn gather_resources(
                 WorldObjectType::CoalDeposit => {
                     inventory.add_item(ItemType::Coal, 2);
                     inventory.add_item(ItemType::Stone, 1);
+                }
+                WorldObjectType::AncientRuin => {
+                    inventory.add_item(ItemType::AncientCore, 1);
+                    inventory.add_item(ItemType::Gemstone, 1);
                 }
             }
             // Consume tool durability

@@ -67,6 +67,8 @@ pub enum WorldObjectType {
     AlpineFlower,
     IronVein,
     CoalDeposit,
+    // Phase 4
+    AncientRuin,
 }
 
 impl WorldObjectType {
@@ -86,6 +88,7 @@ impl WorldObjectType {
             WorldObjectType::AlpineFlower => 15.0,
             WorldObjectType::IronVein => 150.0,
             WorldObjectType::CoalDeposit => 130.0,
+            WorldObjectType::AncientRuin => 200.0,
         }
     }
 
@@ -105,6 +108,7 @@ impl WorldObjectType {
             WorldObjectType::AlpineFlower => Color::srgb(0.8, 0.4, 0.7),
             WorldObjectType::IronVein => Color::srgb(0.35, 0.3, 0.3),
             WorldObjectType::CoalDeposit => Color::srgb(0.15, 0.12, 0.12),
+            WorldObjectType::AncientRuin => Color::srgb(0.6, 0.5, 0.2),
         }
     }
 
@@ -124,6 +128,7 @@ impl WorldObjectType {
             WorldObjectType::AlpineFlower => Vec2::new(6.0, 6.0),
             WorldObjectType::IronVein => Vec2::new(14.0, 10.0),
             WorldObjectType::CoalDeposit => Vec2::new(12.0, 10.0),
+            WorldObjectType::AncientRuin => Vec2::new(16.0, 16.0),
         }
     }
 }
@@ -268,11 +273,13 @@ fn spawn_chunk_objects(
                     }
                 }
                 Biome::Volcanic => {
-                    if density_roll < 3 {
+                    if density_roll < 1 {
+                        spawn_world_object(commands, WorldObjectType::AncientRuin, wx, wy, chunk_pos);
+                    } else if density_roll < 4 {
                         spawn_world_object(commands, WorldObjectType::SulfurDeposit, wx, wy, chunk_pos);
-                    } else if density_roll < 5 {
+                    } else if density_roll < 6 {
                         spawn_world_object(commands, WorldObjectType::Rock, wx, wy, chunk_pos);
-                    } else if density_roll < 7 {
+                    } else if density_roll < 8 {
                         spawn_world_object(commands, WorldObjectType::CoalDeposit, wx, wy, chunk_pos);
                     }
                 }
@@ -293,13 +300,15 @@ fn spawn_chunk_objects(
                     }
                 }
                 Biome::Mountain => {
-                    if density_roll < 4 {
+                    if density_roll < 1 {
+                        spawn_world_object(commands, WorldObjectType::AncientRuin, wx, wy, chunk_pos);
+                    } else if density_roll < 5 {
                         spawn_world_object(commands, WorldObjectType::Rock, wx, wy, chunk_pos);
-                    } else if density_roll < 6 {
+                    } else if density_roll < 7 {
                         spawn_world_object(commands, WorldObjectType::AlpineFlower, wx, wy, chunk_pos);
-                    } else if density_roll < 8 {
+                    } else if density_roll < 9 {
                         spawn_world_object(commands, WorldObjectType::IronVein, wx, wy, chunk_pos);
-                    } else if density_roll < 10 {
+                    } else if density_roll < 11 {
                         spawn_world_object(commands, WorldObjectType::CoalDeposit, wx, wy, chunk_pos);
                     }
                 }

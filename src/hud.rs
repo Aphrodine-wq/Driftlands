@@ -3,17 +3,25 @@ use crate::inventory::{Inventory, ItemType};
 use crate::crafting::CraftingSystem;
 use crate::daynight::DayNightCycle;
 use crate::building::BuildingState;
-use crate::player::{Player, Health, Hunger};
+use crate::player::{Player, Health, Hunger, ActiveBuff, BuffType, ArmorSlots};
 use crate::saveload::SaveMessage;
 use crate::season::SeasonCycle;
 use crate::weather::WeatherSystem;
+use crate::npc::{TradeMenu, Trader, HermitDialogueDisplay};
+use crate::lore::{LoreRegistry, LoreMessage};
+use crate::experiment::{ExperimentSlots, ExperimentMessage};
 
 pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_hud)
-            .add_systems(Update, (update_hud, update_status_hud));
+            .add_systems(Update, (
+                update_hud,
+                update_status_hud,
+                update_npc_hud,
+                update_feedback_hud,
+            ));
     }
 }
 
@@ -25,6 +33,14 @@ pub struct CraftingHudText;
 
 #[derive(Component)]
 pub struct StatusHudText;
+
+/// The right-side panel used for the trade / experiment UIs.
+#[derive(Component)]
+pub struct NpcHudText;
+
+/// Full-width bottom bar for lore / hermit / experiment feedback.
+#[derive(Component)]
+pub struct FeedbackHudText;
 
 fn spawn_hud(mut commands: Commands) {
     // Status HUD (HP/Hunger) — top-left
@@ -77,23 +93,72 @@ fn spawn_hud(mut commands: Commands) {
             ..default()
         },
     ));
+
+    // NPC / experiment panel — right side, below crafting
+    commands.spawn((
+        NpcHudText,
+        Text::new(""),
+        TextFont {
+            font_size: 14.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.9, 0.9, 0.6)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(10.0),
+            right: Val::Px(280.0),
+            ..default()
+        },
+    ));
+
+    // Feedback bar — bottom of screen
+    commands.spawn((
+        FeedbackHudText,
+        Text::new(""),
+        TextFont {
+            font_size: 14.0,
+            ..default()
+        },
+        TextColor(Color::srgb(1.0, 1.0, 0.7)),
+        Node {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(40.0),
+            left: Val::Px(10.0),
+            ..default()
+        },
+    ));
 }
 
 fn update_status_hud(
-    player_query: Query<(&Health, &Hunger), With<Player>>,
+    player_query: Query<(&Health, &Hunger, Option<&ActiveBuff>), With<Player>>,
     mut status_query: Query<(&mut Text, &mut TextColor), With<StatusHudText>>,
     save_msg: Res<SaveMessage>,
+    armor: Res<ArmorSlots>,
+    inventory: Res<Inventory>,
 ) {
-    let Ok((health, hunger)) = player_query.get_single() else { return };
+    let Ok((health, hunger, active_buff)) = player_query.get_single() else { return };
     let Ok((mut text, mut color)) = status_query.get_single_mut() else { return };
 
     let hp_color = if health.current < health.max * 0.25 { "!!" } else { "" };
     let hunger_color = if hunger.current < hunger.max * 0.3 { "!!" } else { "" };
 
+    let atk = inventory.selected_item()
+        .and_then(|s| s.item.weapon_damage())
+        .unwrap_or(5.0);
+
     let mut lines = vec![
-        format!("HP: {:.0}/{:.0} {}", health.current, health.max, hp_color),
+        format!("HP: {:.0}/{:.0} {}  Armor: {}  ATK: {:.0}", health.current, health.max, hp_color, armor.total_armor(), atk),
         format!("Hunger: {:.0}/{:.0} {}", hunger.current, hunger.max, hunger_color),
     ];
+
+    // Show active buff in status area
+    if let Some(buff) = active_buff {
+        let buff_name = match buff.buff_type {
+            BuffType::Speed => "Speed",
+            BuffType::Strength => "Strength",
+        };
+        lines.push(format!("[BUFF] {} +{:.0}% ({:.0}s)", buff_name, (buff.magnitude - 1.0) * 100.0, buff.remaining));
+    }
 
     if !save_msg.text.is_empty() {
         lines.push(String::new());
@@ -118,8 +183,9 @@ fn update_hud(
     building_state: Res<BuildingState>,
     season: Res<SeasonCycle>,
     weather: Res<WeatherSystem>,
-    mut hud_query: Query<&mut Text, (With<HudText>, Without<CraftingHudText>, Without<StatusHudText>)>,
-    mut craft_hud_query: Query<&mut Text, (With<CraftingHudText>, Without<HudText>, Without<StatusHudText>)>,
+    lore_registry: Res<LoreRegistry>,
+    mut hud_query: Query<&mut Text, (With<HudText>, Without<CraftingHudText>, Without<StatusHudText>, Without<NpcHudText>, Without<FeedbackHudText>)>,
+    mut craft_hud_query: Query<&mut Text, (With<CraftingHudText>, Without<HudText>, Without<StatusHudText>, Without<NpcHudText>, Without<FeedbackHudText>)>,
 ) {
     // Main HUD
     if let Ok(mut text) = hud_query.get_single_mut() {
@@ -168,8 +234,13 @@ fn update_hud(
         }
 
         lines.push(String::new());
+        lines.push(format!(
+            "Lore: {}/{}",
+            lore_registry.collected_entries.len(),
+            lore_registry.total_entries
+        ));
         lines.push("[WASD] Move  [LClick] Gather/Attack  [B] Build  [C] Craft  [I] Inventory".into());
-        lines.push("[E] Open Door  [F5] Save  [F9] Load".into());
+        lines.push("[E] Interact  [X] Experiment  [F5] Save  [F9] Load".into());
 
         **text = lines.join("\n");
     }
@@ -184,7 +255,9 @@ fn update_hud(
         let near_workbench = inventory.has_items(ItemType::Workbench, 1);
         let near_forge = inventory.has_items(ItemType::Forge, 1);
         let near_campfire = inventory.has_items(ItemType::Campfire, 1);
-        let available = crafting.available_recipes(near_workbench, near_forge, near_campfire);
+        let near_advanced_forge = inventory.has_items(ItemType::AdvancedForge, 1);
+        let near_ancient = inventory.has_items(ItemType::AncientWorkstation, 1);
+        let available = crafting.available_recipes(near_workbench, near_forge, near_campfire, near_advanced_forge, near_ancient);
 
         let mut lines = vec!["== CRAFTING ==".to_string(), String::new()];
 
@@ -208,5 +281,98 @@ fn update_hud(
         lines.push("[Up/Down] Select  [Enter] Craft  [C] Close".into());
 
         **text = lines.join("\n");
+    }
+}
+
+/// Renders the trader trade menu or the experiment UI on the secondary right-side panel.
+fn update_npc_hud(
+    trade_menu: Res<TradeMenu>,
+    experiment_slots: Res<ExperimentSlots>,
+    inventory: Res<Inventory>,
+    trader_query: Query<&Trader>,
+    mut npc_hud_query: Query<&mut Text, With<NpcHudText>>,
+) {
+    let Ok(mut text) = npc_hud_query.get_single_mut() else { return };
+
+    // Experiment UI takes priority if open
+    if experiment_slots.is_open {
+        let slot_a_name = experiment_slots.slot_a
+            .map(|i| i.display_name().to_string())
+            .unwrap_or_else(|| "---".to_string());
+        let slot_b_name = experiment_slots.slot_b
+            .map(|i| i.display_name().to_string())
+            .unwrap_or_else(|| "---".to_string());
+
+        let lines = vec![
+            "== EXPERIMENT TABLE ==".to_string(),
+            String::new(),
+            format!("Slot A: {}", slot_a_name),
+            format!("Slot B: {}", slot_b_name),
+            String::new(),
+            "[1] Assign selected item to Slot A".to_string(),
+            "[2] Assign selected item to Slot B".to_string(),
+            "[Enter] Attempt combination".to_string(),
+            "[X] Close".to_string(),
+        ];
+        **text = lines.join("\n");
+        return;
+    }
+
+    // Trade menu
+    if trade_menu.is_open {
+        if let Some(entity) = trade_menu.trader_entity {
+            if let Ok(trader) = trader_query.get(entity) {
+                let mut lines = vec![
+                    "== WANDERING TRADER ==".to_string(),
+                    String::new(),
+                ];
+
+                for (i, offer) in trader.offers.iter().enumerate() {
+                    let marker = if i == trade_menu.selected_offer { "> " } else { "  " };
+                    let status = if offer.sold {
+                        " [SOLD]".to_string()
+                    } else {
+                        let can_afford = inventory.has_items(offer.cost_item, offer.cost_count);
+                        if can_afford { String::new() } else { " [need more]".to_string() }
+                    };
+                    lines.push(format!(
+                        "{}{}  for {} x{}{}",
+                        marker,
+                        offer.item_for_sale.display_name(),
+                        offer.cost_item.display_name(),
+                        offer.cost_count,
+                        status,
+                    ));
+                }
+
+                lines.push(String::new());
+                lines.push("[Up/Down] Select  [Enter] Buy  [Esc] Close".to_string());
+                **text = lines.join("\n");
+                return;
+            }
+        }
+    }
+
+    **text = String::new();
+}
+
+/// Shows ephemeral feedback messages: lore discoveries, hermit dialogue, experiment results.
+fn update_feedback_hud(
+    lore_msg: Res<LoreMessage>,
+    hermit_display: Res<HermitDialogueDisplay>,
+    experiment_msg: Res<ExperimentMessage>,
+    mut feedback_query: Query<&mut Text, With<FeedbackHudText>>,
+) {
+    let Ok(mut text) = feedback_query.get_single_mut() else { return };
+
+    // Priority order: experiment > lore > hermit
+    if !experiment_msg.text.is_empty() {
+        **text = experiment_msg.text.clone();
+    } else if !lore_msg.text.is_empty() {
+        **text = lore_msg.text.clone();
+    } else if !hermit_display.text.is_empty() {
+        **text = hermit_display.text.clone();
+    } else {
+        **text = String::new();
     }
 }

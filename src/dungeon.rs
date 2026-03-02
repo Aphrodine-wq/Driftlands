@@ -1,8 +1,9 @@
 use bevy::prelude::*;
 use rand::Rng;
 use crate::player::Player;
-use crate::combat::{Enemy, EnemyType, EnemyState};
-use crate::world::generation::WorldGenerator;
+use crate::combat::{Enemy, EnemyType, EnemyState, Boss};
+use crate::inventory::ItemType;
+use crate::world::generation::{WorldGenerator, Biome};
 
 pub struct DungeonPlugin;
 
@@ -27,6 +28,8 @@ pub struct DungeonEntrance {
     pub surface_pos: Vec2,
     /// Unique ID used to look up the matching DungeonInstance.
     pub id: u32,
+    /// Biome this entrance was spawned in — used to select the boss type.
+    pub biome: Biome,
 }
 
 /// Marks the exit portal spawned inside a dungeon.
@@ -143,6 +146,7 @@ fn check_dungeon_entrance(
         if player_pos.distance(entrance_pos) <= ENTRANCE_TRIGGER_RADIUS {
             let surface_pos = player_pos;
             let dungeon_id = entrance.id;
+            let biome = entrance.biome;
 
             // Compute the dungeon's anchor position in world space.
             let dungeon_anchor = dungeon_world_pos(dungeon_id);
@@ -158,7 +162,7 @@ fn check_dungeon_entrance(
             registry.cooldown = 1.0;
 
             // Generate the dungeon interior.
-            generate_dungeon(&mut commands, dungeon_id, dungeon_anchor, surface_pos);
+            generate_dungeon(&mut commands, dungeon_id, dungeon_anchor, surface_pos, biome);
 
             break;
         }
@@ -222,12 +226,14 @@ fn dungeon_world_pos(dungeon_id: u32) -> Vec2 {
 }
 
 /// Generates 3–5 rectangular rooms connected in a line, spawns CaveSpiders
-/// and an exit portal.
+/// in all but the last room, spawns a biome boss in the last room, and
+/// places an exit portal adjacent to the boss.
 fn generate_dungeon(
     commands: &mut Commands,
     dungeon_id: u32,
     anchor: Vec2,
     surface_pos: Vec2,
+    biome: Biome,
 ) {
     let mut rng = rand::thread_rng();
 
@@ -240,7 +246,6 @@ fn generate_dungeon(
 
     let step_x = (room_width_tiles + gap_tiles) as f32 * DTILE;
 
-    let mut all_floor_positions: Vec<Vec2> = Vec::new();
     let mut room_centers: Vec<Vec2> = Vec::new();
 
     for room_idx in 0..num_rooms {
@@ -257,7 +262,6 @@ fn generate_dungeon(
                     room_origin.y + ty as f32 * DTILE + DTILE / 2.0,
                 );
                 spawn_floor_tile(commands, tile_pos);
-                all_floor_positions.push(tile_pos);
             }
         }
 
@@ -272,11 +276,11 @@ fn generate_dungeon(
         room_centers.push(center);
     }
 
-    // Spawn CaveSpiders (3–8) spread across rooms.
+    // Spawn CaveSpiders (3–8) spread across all rooms except the last one.
     let num_spiders: usize = rng.gen_range(3..=8);
+    let non_boss_rooms = if num_rooms > 1 { num_rooms - 1 } else { 1 };
     for i in 0..num_spiders {
-        // Pick a room index to place this spider, cycling through rooms.
-        let room_idx = i % num_rooms;
+        let room_idx = i % non_boss_rooms;
         let center = room_centers[room_idx];
         let offset = Vec2::new(
             rng.gen_range(-24.0..24.0),
@@ -286,9 +290,14 @@ fn generate_dungeon(
         spawn_cave_spider(commands, spawn_pos);
     }
 
-    // Spawn exit portal in the last room's center.
-    let exit_center = *room_centers.last().unwrap_or(&anchor);
-    spawn_dungeon_exit(commands, exit_center, surface_pos);
+    // Spawn the boss in the last room (US-007 / US-008).
+    let boss_center = *room_centers.last().unwrap_or(&anchor);
+    spawn_dungeon_boss(commands, boss_center, biome);
+
+    // Spawn exit portal offset slightly from the boss so the player can reach it
+    // after defeating the boss.
+    let exit_pos = boss_center + Vec2::new(0.0, -40.0);
+    spawn_dungeon_exit(commands, exit_pos, surface_pos);
 
     // Spawn a visual label sprite for the dungeon entrance point so the
     // player can see where they entered (placed at dungeon anchor + player
@@ -392,6 +401,98 @@ fn spawn_cave_spider(commands: &mut Commands, pos: Vec2) {
     ));
 }
 
+/// Spawns the dungeon boss in the last room.
+///
+/// Uses `boss_for_biome` (US-008) to pick the right enemy type and builds a
+/// matching loot table.  Falls back to `StoneGolem` with the generic loot
+/// table when the biome has no dedicated boss variant.
+fn spawn_dungeon_boss(commands: &mut Commands, pos: Vec2, biome: Biome) {
+    use crate::combat::boss_for_biome;
+
+    let boss_type = boss_for_biome(biome);
+    let (health, damage, speed, aggro_range, color, size) = boss_type.stats();
+
+    // Build a biome-specific loot table.  Every boss drops an AncientCore,
+    // a Gemstone, and a Blueprint, plus their unique biome drop.
+    let loot_table: Vec<(ItemType, u32)> = match boss_type {
+        EnemyType::ForestGuardian  => vec![
+            (ItemType::AncientCore, 1),
+            (ItemType::Gemstone, 1),
+            (ItemType::Blueprint, 1),
+            (ItemType::GuardianHeart, 1),
+        ],
+        EnemyType::SwampBeast      => vec![
+            (ItemType::AncientCore, 1),
+            (ItemType::Gemstone, 1),
+            (ItemType::Blueprint, 1),
+            (ItemType::SwampEssence, 1),
+        ],
+        EnemyType::DesertWyrm      => vec![
+            (ItemType::AncientCore, 1),
+            (ItemType::Gemstone, 1),
+            (ItemType::Blueprint, 1),
+            (ItemType::WyrmScale, 1),
+        ],
+        EnemyType::FrostGiant      => vec![
+            (ItemType::AncientCore, 1),
+            (ItemType::Gemstone, 1),
+            (ItemType::Blueprint, 1),
+            (ItemType::FrostGem, 1),
+        ],
+        EnemyType::MagmaKing       => vec![
+            (ItemType::AncientCore, 1),
+            (ItemType::Gemstone, 1),
+            (ItemType::Blueprint, 1),
+            (ItemType::MagmaCore, 1),
+        ],
+        EnemyType::FungalOverlord  => vec![
+            (ItemType::AncientCore, 1),
+            (ItemType::Gemstone, 1),
+            (ItemType::Blueprint, 1),
+            (ItemType::FungalSporeEssence, 1),
+        ],
+        EnemyType::CrystalSentinel => vec![
+            (ItemType::AncientCore, 1),
+            (ItemType::Gemstone, 1),
+            (ItemType::Blueprint, 1),
+            (ItemType::CrystalHeart, 1),
+        ],
+        // Generic StoneGolem (Coastal / Mountain fallback)
+        _ => vec![
+            (ItemType::AncientCore, 1),
+            (ItemType::Gemstone, 1),
+            (ItemType::Blueprint, 1),
+        ],
+    };
+
+    let boss_name = format!("{:?}", boss_type);
+
+    commands.spawn((
+        DungeonEnemy,
+        Enemy {
+            enemy_type: boss_type,
+            health,
+            max_health: health,
+            damage,
+            speed,
+            aggro_range,
+            state: EnemyState::Idle,
+            patrol_target: pos,
+            attack_cooldown: Timer::from_seconds(1.5, TimerMode::Once),
+        },
+        Boss {
+            name: boss_name,
+            loot_table,
+        },
+        Sprite {
+            color,
+            custom_size: Some(size),
+            ..default()
+        },
+        Transform::from_xyz(pos.x, pos.y, 5.0),
+    ));
+}
+
 fn spawn_dungeon_exit(commands: &mut Commands, pos: Vec2, surface_pos: Vec2) {
     // Pulsing green portal marker.
     commands.spawn((
@@ -418,11 +519,27 @@ pub fn spawn_entrance(
     world_y: f32,
     chunk_pos: IVec2,
 ) {
+    // Default biome for spawned entrances — world/mod.rs can pass the real
+    // biome if it wants biome-specific bosses. We default to Mountain so the
+    // StoneGolem boss is used when no biome information is available.
+    spawn_entrance_with_biome(commands, registry, world_x, world_y, chunk_pos, Biome::Mountain);
+}
+
+/// Spawns a `DungeonEntrance` with an explicit biome so the correct boss is
+/// selected when the player enters.
+pub fn spawn_entrance_with_biome(
+    commands: &mut Commands,
+    registry: &mut DungeonRegistry,
+    world_x: f32,
+    world_y: f32,
+    chunk_pos: IVec2,
+    biome: Biome,
+) {
     let id = registry.allocate_id();
     let surface_pos = Vec2::new(world_x, world_y);
 
     commands.spawn((
-        DungeonEntrance { surface_pos, id },
+        DungeonEntrance { surface_pos, id, biome },
         // Use ChunkObject-equivalent tagging by storing chunk_pos inside the
         // entrance so the world's chunk-unload system can clean it up.
         crate::world::ChunkObject { chunk_pos },

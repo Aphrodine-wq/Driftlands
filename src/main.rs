@@ -15,6 +15,10 @@ mod dungeon;
 mod season;
 mod weather;
 mod farming;
+mod techtree;
+mod npc;
+mod lore;
+mod experiment;
 
 use bevy::prelude::*;
 
@@ -53,6 +57,10 @@ fn main() {
             season::SeasonPlugin,
             weather::WeatherPlugin,
             farming::FarmingPlugin,
+            techtree::TechTreePlugin,
+            npc::NpcPlugin,
+            lore::LorePlugin,
+            experiment::ExperimentPlugin,
         ))
         .run();
 }

@@ -17,6 +17,8 @@ pub enum CraftingTier {
     Workbench,
     Forge,
     Campfire,
+    AdvancedForge,
+    Ancient,
 }
 
 impl CraftingTier {
@@ -26,6 +28,8 @@ impl CraftingTier {
             CraftingTier::Workbench => "[Bench]",
             CraftingTier::Forge => "[Forge]",
             CraftingTier::Campfire => "[Fire]",
+            CraftingTier::AdvancedForge => "[AdvForge]",
+            CraftingTier::Ancient => "[Ancient]",
         }
     }
 }
@@ -310,6 +314,138 @@ impl CraftingSystem {
                     output: (ItemType::CookedCarrot, 1),
                     tier: CraftingTier::Campfire,
                 },
+                // Forge tier — Tier 4 stations
+                Recipe {
+                    name: "Advanced Forge",
+                    inputs: vec![
+                        (ItemType::SteelAlloy, 10),
+                        (ItemType::CrystalShard, 5),
+                        (ItemType::ObsidianShard, 3),
+                    ],
+                    output: (ItemType::AdvancedForge, 1),
+                    tier: CraftingTier::Forge,
+                },
+                Recipe {
+                    name: "Alchemy Lab",
+                    inputs: vec![
+                        (ItemType::StoneBlock, 8),
+                        (ItemType::CrystalShard, 4),
+                        (ItemType::Sulfur, 2),
+                    ],
+                    output: (ItemType::AlchemyLab, 1),
+                    tier: CraftingTier::Forge,
+                },
+                // AdvancedForge tier — Tier 4 equipment
+                Recipe {
+                    name: "Steel Sword",
+                    inputs: vec![
+                        (ItemType::SteelAlloy, 4),
+                        (ItemType::IronIngot, 2),
+                        (ItemType::Stick, 1),
+                    ],
+                    output: (ItemType::SteelSword, 1),
+                    tier: CraftingTier::AdvancedForge,
+                },
+                Recipe {
+                    name: "Steel Axe",
+                    inputs: vec![
+                        (ItemType::SteelAlloy, 4),
+                        (ItemType::IronIngot, 2),
+                        (ItemType::Stick, 2),
+                    ],
+                    output: (ItemType::SteelAxe, 1),
+                    tier: CraftingTier::AdvancedForge,
+                },
+                Recipe {
+                    name: "Steel Pickaxe",
+                    inputs: vec![
+                        (ItemType::SteelAlloy, 4),
+                        (ItemType::IronIngot, 2),
+                        (ItemType::Stick, 2),
+                    ],
+                    output: (ItemType::SteelPickaxe, 1),
+                    tier: CraftingTier::AdvancedForge,
+                },
+                Recipe {
+                    name: "Steel Armor",
+                    inputs: vec![
+                        (ItemType::SteelAlloy, 8),
+                        (ItemType::IronIngot, 4),
+                    ],
+                    output: (ItemType::SteelArmor, 1),
+                    tier: CraftingTier::AdvancedForge,
+                },
+                Recipe {
+                    name: "Health Potion",
+                    inputs: vec![
+                        (ItemType::RareHerb, 2),
+                        (ItemType::AlpineHerb, 3),
+                        (ItemType::CrystalShard, 1),
+                    ],
+                    output: (ItemType::HealthPotion, 1),
+                    tier: CraftingTier::AdvancedForge,
+                },
+                Recipe {
+                    name: "Speed Potion",
+                    inputs: vec![
+                        (ItemType::RareHerb, 2),
+                        (ItemType::Spore, 2),
+                        (ItemType::CrystalShard, 1),
+                    ],
+                    output: (ItemType::SpeedPotion, 1),
+                    tier: CraftingTier::AdvancedForge,
+                },
+                Recipe {
+                    name: "Strength Potion",
+                    inputs: vec![
+                        (ItemType::RareHerb, 2),
+                        (ItemType::Sulfur, 1),
+                        (ItemType::Gemstone, 1),
+                    ],
+                    output: (ItemType::StrengthPotion, 1),
+                    tier: CraftingTier::AdvancedForge,
+                },
+                // Ancient tier — Tier 5 stations & equipment
+                Recipe {
+                    name: "Ancient Workstation",
+                    inputs: vec![
+                        (ItemType::AncientCore, 5),
+                        (ItemType::Gemstone, 5),
+                        (ItemType::SteelAlloy, 10),
+                    ],
+                    output: (ItemType::AncientWorkstation, 1),
+                    tier: CraftingTier::AdvancedForge,
+                },
+                Recipe {
+                    name: "Ancient Blade",
+                    inputs: vec![
+                        (ItemType::AncientCore, 3),
+                        (ItemType::Gemstone, 2),
+                        (ItemType::SteelAlloy, 5),
+                    ],
+                    output: (ItemType::AncientBlade, 1),
+                    tier: CraftingTier::Ancient,
+                },
+                Recipe {
+                    name: "Ancient Armor",
+                    inputs: vec![
+                        (ItemType::AncientCore, 4),
+                        (ItemType::Gemstone, 3),
+                        (ItemType::SteelArmor, 1),
+                    ],
+                    output: (ItemType::AncientArmor, 1),
+                    tier: CraftingTier::Ancient,
+                },
+                Recipe {
+                    name: "Ancient Pickaxe",
+                    inputs: vec![
+                        (ItemType::AncientCore, 3),
+                        (ItemType::Gemstone, 2),
+                        (ItemType::SteelAlloy, 4),
+                    ],
+                    output: (ItemType::AncientPickaxe, 1),
+                    tier: CraftingTier::Ancient,
+                },
             ],
             is_open: false,
             selected_recipe: 0,
@@ -338,13 +474,22 @@ impl CraftingSystem {
     }
 
     /// Get indices of recipes available given current tier access
-    pub fn available_recipes(&self, near_workbench: bool, near_forge: bool, near_campfire: bool) -> Vec<usize> {
+    pub fn available_recipes(
+        &self,
+        near_workbench: bool,
+        near_forge: bool,
+        near_campfire: bool,
+        near_advanced_forge: bool,
+        near_ancient: bool,
+    ) -> Vec<usize> {
         self.recipes.iter().enumerate()
             .filter(|(_, r)| match r.tier {
                 CraftingTier::Hand => true,
                 CraftingTier::Workbench => near_workbench,
                 CraftingTier::Forge => near_forge,
                 CraftingTier::Campfire => near_campfire,
+                CraftingTier::AdvancedForge => near_advanced_forge,
+                CraftingTier::Ancient => near_ancient,
             })
             .map(|(i, _)| i)
             .collect()
@@ -369,8 +514,10 @@ fn handle_crafting_input(
     let near_workbench = inventory.has_items(ItemType::Workbench, 1);
     let near_forge = inventory.has_items(ItemType::Forge, 1);
     let near_campfire = inventory.has_items(ItemType::Campfire, 1);
+    let near_advanced_forge = inventory.has_items(ItemType::AdvancedForge, 1);
+    let near_ancient = inventory.has_items(ItemType::AncientWorkstation, 1);
 
-    let available = crafting.available_recipes(near_workbench, near_forge, near_campfire);
+    let available = crafting.available_recipes(near_workbench, near_forge, near_campfire, near_advanced_forge, near_ancient);
 
     if available.is_empty() {
         return;

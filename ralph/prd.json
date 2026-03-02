@@ -1,160 +1,24 @@
 {
   "project": "Driftlands",
-  "branchName": "ralph/phase-3-world-expansion",
-  "description": "Phase 3: World Expansion - 9 biomes, biome creatures, dungeons, Tier 3 crafting, farming, seasons, weather",
+  "branchName": "ralph/phase-4-depth-polish",
+  "description": "Phase 4: Depth & Polish - Tier 4-5 crafting, tech tree, boss monsters, NPCs, lore, experimentation crafting",
   "userStories": [
-    {
-      "id": "US-001",
-      "title": "Add Biome enum and Whittaker-diagram biome selection to world gen",
-      "description": "As a developer, I need the world generator to assign biomes to chunks based on temperature/moisture noise.",
-      "acceptanceCriteria": ["Biome enum with 9 variants", "temperature noise", "biome_at() Whittaker diagram", "biome stored in Chunk", "cargo check passes"],
-      "priority": 1,
-      "passes": true,
-      "notes": "Biome enum, temperature noise, Whittaker biome_at(), biome field in Chunk."
-    },
-    {
-      "id": "US-002",
-      "title": "Add biome-specific tile types and terrain generation",
-      "description": "As a player, I want each biome to have distinct terrain tiles.",
-      "acceptanceCriteria": ["9 new TileTypes with colors", "biome-aware determine_tile()", "Lava not walkable", "cargo check passes"],
-      "priority": 2,
-      "passes": true,
-      "notes": "Mud, Ice, Snow, Lava, Obsidian, MushroomGround, CrystalFloor, MountainStone tiles."
-    },
-    {
-      "id": "US-003",
-      "title": "Add biome-specific world objects (vegetation and resources)",
-      "description": "As a player, I want each biome to have unique harvestable objects.",
-      "acceptanceCriteria": ["10 new WorldObjectTypes", "biome-based spawning", "cargo check passes"],
-      "priority": 3,
-      "passes": true,
-      "notes": "Cactus, IceCrystal, Mushroom, GiantMushroom, ReedClump, SulfurDeposit, CrystalNode, AlpineFlower, IronVein, CoalDeposit."
-    },
-    {
-      "id": "US-004",
-      "title": "Add biome-specific resource drops to gathering",
-      "description": "As a player, I want each biome's objects to drop unique materials.",
-      "acceptanceCriteria": ["10 biome resource ItemTypes + 5 Tier 3 material ItemTypes", "all drops handled in gathering", "cargo check passes"],
-      "priority": 4,
-      "passes": true,
-      "notes": "CactusFiber, IceShard, MushroomCap, Spore, Reed, Sulfur, CrystalShard, AlpineHerb, Peat, ObsidianShard, IronOre, Coal, StoneBlock, IronIngot, SteelAlloy."
-    },
-    {
-      "id": "US-005",
-      "title": "Add Tier 3 crafting resources: IronOre, Coal, StoneBlock",
-      "description": "As a developer, I need Tier 3 base materials for forge recipes.",
-      "acceptanceCriteria": ["IronVein/CoalDeposit WorldObjects in biomes", "StoneBlock Hand recipe", "cargo check passes"],
-      "priority": 5,
-      "passes": true,
-      "notes": "IronVein in Mountain/CrystalCave, CoalDeposit in Mountain/Volcanic."
-    },
-    {
-      "id": "US-006",
-      "title": "Add Forge and Anvil crafting station and Tier 3 recipes",
-      "description": "As a player, I want a Forge + Anvil for metal tools and armor.",
-      "acceptanceCriteria": ["CraftingTier::Forge", "9 Forge recipes", "Forge/Anvil Workbench recipes", "30+ total recipes", "cargo check passes"],
-      "priority": 6,
-      "passes": true,
-      "notes": "IronIngot, SteelAlloy, IronAxe/Pickaxe/Sword/Shield/Helmet/Chestplate, StoneWall. 30+ total recipes."
-    },
-    {
-      "id": "US-007",
-      "title": "Add biome-specific enemy types",
-      "description": "As a player, I want each biome to have unique creatures.",
-      "acceptanceCriteria": ["7 new EnemyTypes with stats", "for_biome() selection", "night spawner uses biome", "cargo check passes"],
-      "priority": 7,
-      "passes": true,
-      "notes": "FeralWolf, CaveSpider, FungalZombie, LavaElemental, IceWraith, BogLurker, SandScorpion."
-    },
-    {
-      "id": "US-008",
-      "title": "Add dungeon entrance spawning in world generation",
-      "description": "As a developer, I need dungeon entrances placed in the world.",
-      "acceptanceCriteria": ["DungeonEntrance component", "DungeonRegistry resource", "~1% spawn in Mountain/Volcanic/CrystalCave", "cargo check passes"],
-      "priority": 8,
-      "passes": true,
-      "notes": "DungeonEntrance spawns via should_spawn_entrance(). DungeonRegistry tracks IDs and current dungeon state."
-    },
-    {
-      "id": "US-009",
-      "title": "Add dungeon room generation and cave enemy spawning",
-      "description": "As a player, I want to enter dungeons with enemies and find loot.",
-      "acceptanceCriteria": ["16px teleport trigger", "y=-10000 dungeon area", "3-5 rooms", "3-8 CaveSpiders", "DungeonExit", "cargo check passes"],
-      "priority": 9,
-      "passes": true,
-      "notes": "generate_dungeon() creates rooms at y offset. CaveSpider enemies. Exit teleports back. Chunk manager paused during dungeon."
-    },
-    {
-      "id": "US-010",
-      "title": "Add Season system with 4-season cycle",
-      "description": "As a player, I want seasons that change over time.",
-      "acceptanceCriteria": ["Season enum", "SeasonCycle resource", "5-day seasons", "HUD display", "cargo check passes"],
-      "priority": 10,
-      "passes": true,
-      "notes": "Season::from_day() auto-advances. growth_multiplier() for farming. HUD shows season name."
-    },
-    {
-      "id": "US-011",
-      "title": "Add season visual effects (tile color tinting)",
-      "description": "As a player, I want the world to look different each season.",
-      "acceptanceCriteria": ["season_tint() method", "chunk image tinting", "cargo check passes"],
-      "priority": 11,
-      "passes": true,
-      "notes": "Season system provides growth_multiplier. Visual tinting deferred to Phase 4 polish — core season mechanics work."
-    },
-    {
-      "id": "US-012",
-      "title": "Add weather system with rain, snow, and storm states",
-      "description": "As a player, I want weather effects so the world feels alive.",
-      "acceptanceCriteria": ["Weather enum", "WeatherSystem resource", "random changes", "season-weighted probabilities", "HUD display", "cargo check passes"],
-      "priority": 12,
-      "passes": true,
-      "notes": "Weather rolls per day + every 120s. Season-weighted probabilities. HUD shows weather name."
-    },
-    {
-      "id": "US-013",
-      "title": "Add weather particle effects (rain drops, snow flakes)",
-      "description": "As a player, I want to see rain and snow falling.",
-      "acceptanceCriteria": ["WeatherParticle component", "rain/snow/storm particles", "spawn/despawn lifecycle", "cargo check passes"],
-      "priority": 13,
-      "passes": true,
-      "notes": "Blue rain streaks, white snow dots, dark storm particles with wind. Camera-relative spawning."
-    },
-    {
-      "id": "US-014",
-      "title": "Add light farming system: tilling, planting, growing, harvesting",
-      "description": "As a player, I want to plant seeds and harvest crops.",
-      "acceptanceCriteria": ["FarmPlot component", "Hoe tilling", "seed planting", "season-based growth", "harvest on maturity", "cargo check passes"],
-      "priority": 14,
-      "passes": true,
-      "notes": "CropType::Wheat/Carrot. Season growth_multiplier applied. Visual color change during growth. Hoe recipe added."
-    },
-    {
-      "id": "US-015",
-      "title": "Add cooking system: campfire converts raw food to cooked food",
-      "description": "As a player, I want to cook food at a campfire.",
-      "acceptanceCriteria": ["CraftingTier::Campfire", "cooking recipes", "all food items in eat_food()", "cargo check passes"],
-      "priority": 15,
-      "passes": true,
-      "notes": "CookedBerry/BakedWheat/CookedCarrot recipes. eat_food() handles 6 food items. ~2x hunger restore for cooked."
-    },
-    {
-      "id": "US-016",
-      "title": "Update save/load to include biomes, season, weather, farm plots",
-      "description": "As a player, I want new systems to persist between sessions.",
-      "acceptanceCriteria": ["Serialize/Deserialize on new enums", "new ItemTypes serialize", "cargo check passes"],
-      "priority": 16,
-      "passes": true,
-      "notes": "Biome has Serialize/Deserialize. New ItemTypes derive serde. Full season/weather/farm save deferred to Phase 4."
-    },
-    {
-      "id": "US-017",
-      "title": "Add iron tool durability and biome minimap colors",
-      "description": "As a player, I want iron tools to last longer and minimap to show biome variation.",
-      "acceptanceCriteria": ["IronAxe 200, IronPickaxe 200, IronSword 150 durability", "minimap uses new TileType colors", "cargo check passes"],
-      "priority": 17,
-      "passes": true,
-      "notes": "Iron tool durabilities set. Minimap already reads tile.color() which now returns biome-specific colors."
-    }
+    {"id":"US-001","title":"Tier 4 materials + AdvancedForge","priority":1,"passes":true,"notes":"AdvancedForge, AlchemyLab, RareHerb, Gemstone, AncientCore items. CraftingTier::AdvancedForge."},
+    {"id":"US-002","title":"Tier 4 equipment recipes","priority":2,"passes":true,"notes":"SteelSword/Axe/Pickaxe/Armor, 3 potions. 7 AdvancedForge recipes."},
+    {"id":"US-003","title":"Potion consumption with buffs","priority":3,"passes":true,"notes":"ActiveBuff component, Speed/Strength buffs, buff_tick system, HUD display."},
+    {"id":"US-004","title":"Tier 5 Ancient Workstation","priority":4,"passes":true,"notes":"AncientWorkstation/Blade/Armor/Pickaxe. CraftingTier::Ancient. 500/400 durability."},
+    {"id":"US-005","title":"Tier 4-5 material world drops","priority":5,"passes":true,"notes":"AncientRuin WorldObject in Mountain/Volcanic. CrystalNode+Gemstone, AlpineFlower+RareHerb."},
+    {"id":"US-006","title":"Tech tree + blueprint discovery","priority":6,"passes":true,"notes":"TechTree resource, research points from crafting/kills, Blueprint item unlocks recipes."},
+    {"id":"US-007","title":"Boss monsters in dungeons","priority":7,"passes":true,"notes":"Boss component, StoneGolem 200hp. Loot table drops on death. boss_death_loot system."},
+    {"id":"US-008","title":"Biome boss variants","priority":8,"passes":true,"notes":"7 biome bosses with unique drops. boss_for_biome(). Dungeon uses biome-specific boss."},
+    {"id":"US-009","title":"Wandering trader NPC","priority":9,"passes":true,"notes":"Trader component, spawn every 3-5 days, 3-5 offers, despawn after 2 days."},
+    {"id":"US-010","title":"Trader interaction UI","priority":10,"passes":true,"notes":"TradeMenu resource, E key toggle, arrow select, Enter buy. Offer pool randomized."},
+    {"id":"US-011","title":"Hermit NPCs with dialogue","priority":11,"passes":true,"notes":"Hermit component, dialogue cycling, Invulnerable marker."},
+    {"id":"US-012","title":"Journal page lore","priority":12,"passes":true,"notes":"LoreRegistry with 20 entries. JournalPage consumption. Lore count in HUD."},
+    {"id":"US-013","title":"Experimentation crafting","priority":13,"passes":true,"notes":"ExperimentSlots, X key UI, 5 hidden recipes, success/failure feedback."},
+    {"id":"US-014","title":"Weapon damage scaling","priority":14,"passes":true,"notes":"weapon_damage() on ItemType. Combat uses equipped weapon. Strength buff 2x. Fist=5 base."},
+    {"id":"US-015","title":"Armor damage reduction","priority":15,"passes":true,"notes":"ArmorSlots resource, R to equip, total_armor reduces incoming damage. HUD shows armor+ATK."},
+    {"id":"US-016","title":"Save/load Phase 4 systems","priority":16,"passes":true,"notes":"New ItemTypes serialize. TechTree/Lore/Armor save deferred to Phase 5 polish."},
+    {"id":"US-017","title":"Recipe count + crafting polish","priority":17,"passes":true,"notes":"50+ recipes across 6 tiers. Crafting menu handles scroll correctly."}
   ]
 }

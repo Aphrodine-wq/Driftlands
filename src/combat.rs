@@ -1,25 +1,36 @@
 use bevy::prelude::*;
 use rand::Rng;
-use crate::player::{Player, Health};
+use crate::player::{Player, Health, ActiveBuff, BuffType, ArmorSlots};
 use crate::daynight::{DayNightCycle, DayPhase};
 use crate::inventory::{Inventory, ItemType};
 use crate::world::chunk::Chunk;
 use crate::world::generation::Biome;
 use crate::world::{CHUNK_WORLD_SIZE};
+use crate::npc::Invulnerable;
 
 pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (
-            spawn_night_enemies,
-            despawn_enemies_at_sunrise,
-            enemy_ai,
-            player_attack,
-            enemy_attack_player,
-            update_hit_flash,
-        ));
+        app.add_event::<ResearchPointEvent>()
+            .add_systems(Update, (
+                spawn_night_enemies,
+                despawn_enemies_at_sunrise,
+                enemy_ai,
+                player_attack,
+                enemy_attack_player,
+                update_hit_flash,
+                boss_death_loot,
+            ));
     }
+}
+
+// --- Events ---
+
+/// Fired whenever the player earns research points.
+#[derive(Event)]
+pub struct ResearchPointEvent {
+    pub amount: u32,
 }
 
 // --- Components ---
@@ -37,8 +48,19 @@ pub struct Enemy {
     pub attack_cooldown: Timer,
 }
 
+/// Marks an enemy as a boss and carries its name and loot table.
+/// When the enemy's health drops to zero the `boss_death_loot` system
+/// adds every entry in `loot_table` to the player's inventory before
+/// the entity is despawned.
+#[derive(Component)]
+pub struct Boss {
+    pub name: String,
+    pub loot_table: Vec<(ItemType, u32)>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum EnemyType {
+    // --- regular night/biome enemies ---
     ShadowCrawler,
     FeralWolf,
     CaveSpider,
@@ -47,6 +69,16 @@ pub enum EnemyType {
     IceWraith,
     BogLurker,
     SandScorpion,
+    // --- dungeon boss (US-007) ---
+    StoneGolem,
+    // --- biome bosses (US-008) ---
+    ForestGuardian,
+    SwampBeast,
+    DesertWyrm,
+    FrostGiant,
+    MagmaKing,
+    FungalOverlord,
+    CrystalSentinel,
 }
 
 impl EnemyType {
@@ -61,6 +93,16 @@ impl EnemyType {
             EnemyType::IceWraith => (35.0, 7.0, 70.0, 160.0, Color::srgb(0.7, 0.85, 1.0), Vec2::new(10.0, 12.0)),
             EnemyType::BogLurker => (45.0, 6.0, 60.0, 100.0, Color::srgb(0.25, 0.4, 0.2), Vec2::new(12.0, 12.0)),
             EnemyType::SandScorpion => (30.0, 8.0, 90.0, 140.0, Color::srgb(0.7, 0.55, 0.3), Vec2::new(10.0, 8.0)),
+            // Dungeon boss
+            EnemyType::StoneGolem => (200.0, 15.0, 30.0, 200.0, Color::srgb(0.6, 0.6, 0.6), Vec2::new(20.0, 20.0)),
+            // Biome bosses
+            EnemyType::ForestGuardian  => (200.0, 12.0, 40.0, 200.0, Color::srgb(0.2, 0.6, 0.15), Vec2::new(20.0, 20.0)),
+            EnemyType::SwampBeast      => (180.0, 14.0, 35.0, 200.0, Color::srgb(0.15, 0.35, 0.1), Vec2::new(22.0, 22.0)),
+            EnemyType::DesertWyrm      => (250.0, 18.0, 45.0, 200.0, Color::srgb(0.8, 0.65, 0.3), Vec2::new(22.0, 20.0)),
+            EnemyType::FrostGiant      => (280.0, 16.0, 25.0, 200.0, Color::srgb(0.6, 0.8, 1.0), Vec2::new(24.0, 24.0)),
+            EnemyType::MagmaKing       => (300.0, 20.0, 20.0, 200.0, Color::srgb(0.9, 0.4, 0.1), Vec2::new(24.0, 24.0)),
+            EnemyType::FungalOverlord  => (160.0, 10.0, 50.0, 200.0, Color::srgb(0.5, 0.2, 0.6), Vec2::new(18.0, 18.0)),
+            EnemyType::CrystalSentinel => (220.0, 15.0, 30.0, 200.0, Color::srgb(0.6, 0.5, 0.8), Vec2::new(20.0, 22.0)),
         }
     }
 
@@ -76,6 +118,22 @@ impl EnemyType {
             Biome::CrystalCave => EnemyType::CaveSpider,
             Biome::Mountain => EnemyType::FeralWolf,
         }
+    }
+}
+
+/// Returns the boss enemy type for a given biome (US-008).
+pub fn boss_for_biome(biome: Biome) -> EnemyType {
+    match biome {
+        Biome::Forest      => EnemyType::ForestGuardian,
+        Biome::Swamp       => EnemyType::SwampBeast,
+        Biome::Desert      => EnemyType::DesertWyrm,
+        Biome::Tundra      => EnemyType::FrostGiant,
+        Biome::Volcanic    => EnemyType::MagmaKing,
+        Biome::Fungal      => EnemyType::FungalOverlord,
+        Biome::CrystalCave => EnemyType::CrystalSentinel,
+        // Fallback biomes use the generic dungeon boss
+        Biome::Coastal     => EnemyType::StoneGolem,
+        Biome::Mountain    => EnemyType::StoneGolem,
     }
 }
 
@@ -234,10 +292,11 @@ fn player_attack(
     mouse: Res<ButtonInput<MouseButton>>,
     time: Res<Time>,
     building_state: Res<crate::building::BuildingState>,
-    mut player_query: Query<(Entity, &Transform), With<Player>>,
-    mut enemy_query: Query<(Entity, &Transform, &mut Enemy, &mut Sprite), Without<Player>>,
+    mut player_query: Query<(Entity, &Transform, Option<&ActiveBuff>), With<Player>>,
+    mut enemy_query: Query<(Entity, &Transform, &mut Enemy, &mut Sprite), (Without<Player>, Without<Invulnerable>)>,
     mut cooldown_query: Query<&mut PlayerAttackCooldown>,
     mut inventory: ResMut<Inventory>,
+    mut rp_events: EventWriter<ResearchPointEvent>,
 ) {
     // Don't attack in build mode
     if building_state.active {
@@ -256,8 +315,18 @@ fn player_attack(
         return;
     }
 
-    let Ok((player_entity, player_tf)) = player_query.get_single_mut() else { return };
+    let Ok((player_entity, player_tf, maybe_buff)) = player_query.get_single_mut() else { return };
     let player_pos = player_tf.translation.truncate();
+
+    // Calculate weapon damage from equipped item
+    let base_damage = inventory.selected_item()
+        .and_then(|slot| slot.item.weapon_damage())
+        .unwrap_or(5.0); // Fist damage
+    let strength_mult = maybe_buff
+        .filter(|b| b.buff_type == BuffType::Strength)
+        .map(|b| b.magnitude)
+        .unwrap_or(1.0);
+    let damage = base_damage * strength_mult;
 
     // Find nearest enemy within 40px
     let mut nearest: Option<(Entity, f32)> = None;
@@ -275,7 +344,7 @@ fn player_attack(
     // Deal damage
     let mut killed = false;
     if let Ok((_, _, mut enemy, mut sprite)) = enemy_query.get_mut(target_entity) {
-        enemy.health -= 10.0;
+        enemy.health -= damage;
 
         // Flash white on hit
         let original_color = sprite.color;
@@ -295,6 +364,12 @@ fn player_attack(
         let mut rng = rand::thread_rng();
         let drop_item = if rng.gen_bool(0.5) { ItemType::Stone } else { ItemType::PlantFiber };
         inventory.add_item(drop_item, 1);
+
+        // Award research points for a kill (+5 RP)
+        rp_events.send(ResearchPointEvent { amount: 5 });
+
+        // Note: boss loot is handled by boss_death_loot; despawn happens there
+        // for bosses. For regular enemies we despawn here.
         commands.entity(target_entity).despawn();
     }
 
@@ -312,6 +387,7 @@ fn player_attack(
 
 fn enemy_attack_player(
     time: Res<Time>,
+    armor: Res<ArmorSlots>,
     mut enemy_query: Query<(&mut Enemy, &Transform), Without<Player>>,
     mut player_query: Query<(&Transform, &mut Health, &mut Sprite), With<Player>>,
     mut commands: Commands,
@@ -319,6 +395,7 @@ fn enemy_attack_player(
 ) {
     let Ok((player_tf, mut health, mut sprite)) = player_query.get_single_mut() else { return };
     let player_pos = player_tf.translation.truncate();
+    let total_armor = armor.total_armor();
 
     let mut took_damage = false;
 
@@ -331,7 +408,8 @@ fn enemy_attack_player(
 
         let dist = player_pos.distance(tf.translation.truncate());
         if dist <= 20.0 && enemy.attack_cooldown.finished() {
-            health.take_damage(enemy.damage);
+            let final_damage = (enemy.damage - total_armor as f32).max(1.0);
+            health.take_damage(final_damage);
             enemy.attack_cooldown.reset();
             took_damage = true;
         }
@@ -360,6 +438,27 @@ fn update_hit_flash(
         if flash.timer.finished() {
             sprite.color = flash.original_color;
             commands.entity(entity).remove::<HitFlash>();
+        }
+    }
+}
+
+/// When an enemy that has a `Boss` component reaches 0 health, add all
+/// entries from its loot table to the player inventory then despawn it.
+fn boss_death_loot(
+    mut commands: Commands,
+    boss_query: Query<(Entity, &Enemy, &Boss)>,
+    mut inventory: ResMut<Inventory>,
+    mut rp_events: EventWriter<ResearchPointEvent>,
+) {
+    for (entity, enemy, boss) in boss_query.iter() {
+        if enemy.health <= 0.0 {
+            // Grant all loot
+            for (item, count) in &boss.loot_table {
+                inventory.add_item(*item, *count);
+            }
+            // Boss kill grants 20 research points
+            rp_events.send(ResearchPointEvent { amount: 20 });
+            commands.entity(entity).despawn();
         }
     }
 }

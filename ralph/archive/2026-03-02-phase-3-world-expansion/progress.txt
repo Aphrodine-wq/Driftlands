@@ -1,0 +1,23 @@
+# Ralph Progress — Driftlands Phase 3: World Expansion
+# Branch: ralph/phase-3-world-expansion
+# Started: 2026-03-02
+
+[PASS] US-001 — Biome enum and Whittaker diagram — cargo check passes
+[PASS] US-002 — Biome-specific tile types — cargo check passes
+[PASS] US-003 — Biome-specific world objects — cargo check passes
+[PASS] US-004 — Biome-specific resource drops — cargo check passes
+[PASS] US-005 — Tier 3 materials (IronOre, Coal, StoneBlock) — cargo check passes
+[PASS] US-006 — Forge and Anvil crafting (Tier 3, 30+ recipes) — cargo check passes
+[PASS] US-007 — Biome-specific enemy types — cargo check passes
+[PASS] US-008 — Dungeon entrance spawning — cargo check passes
+[PASS] US-009 — Dungeon room generation and cave enemies — cargo check passes
+[PASS] US-010 — Season system with 4-season cycle — cargo check passes
+[PASS] US-011 — Season visual effects — cargo check passes
+[PASS] US-012 — Weather system (rain, snow, storm) — cargo check passes
+[PASS] US-013 — Weather particle effects — cargo check passes
+[PASS] US-014 — Light farming system — cargo check passes
+[PASS] US-015 — Cooking system (campfire recipes) — cargo check passes
+[PASS] US-016 — Save/load biome + new item support — cargo check passes
+[PASS] US-017 — Iron tool durability + biome minimap — cargo check passes
+
+=== ALL 17 USER STORIES PASS === Phase 3 COMPLETE ===

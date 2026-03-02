@@ -76,6 +76,36 @@ pub enum ItemType {
     CookedBerry,
     BakedWheat,
     CookedCarrot,
+    // Phase 4 — Tier 4 stations & materials
+    AdvancedForge,
+    AlchemyLab,
+    RareHerb,
+    Gemstone,
+    AncientCore,
+    // Phase 4 — Tier 4 equipment
+    SteelSword,
+    SteelAxe,
+    SteelPickaxe,
+    SteelArmor,
+    HealthPotion,
+    SpeedPotion,
+    StrengthPotion,
+    // Phase 4 — Tier 5 Ancient items
+    AncientWorkstation,
+    AncientBlade,
+    AncientArmor,
+    AncientPickaxe,
+    // Phase 4 — Blueprint & biome boss drops (US-006 / US-007 / US-008)
+    Blueprint,
+    GuardianHeart,
+    SwampEssence,
+    WyrmScale,
+    FrostGem,
+    MagmaCore,
+    FungalSporeEssence,
+    CrystalHeart,
+    // Phase 4 — NPC / lore items (US-012)
+    JournalPage,
 }
 
 impl ItemType {
@@ -138,6 +168,31 @@ impl ItemType {
             ItemType::CookedBerry => "Cooked Berry",
             ItemType::BakedWheat => "Baked Wheat",
             ItemType::CookedCarrot => "Cooked Carrot",
+            ItemType::AdvancedForge => "Advanced Forge",
+            ItemType::AlchemyLab => "Alchemy Lab",
+            ItemType::RareHerb => "Rare Herb",
+            ItemType::Gemstone => "Gemstone",
+            ItemType::AncientCore => "Ancient Core",
+            ItemType::SteelSword => "Steel Sword",
+            ItemType::SteelAxe => "Steel Axe",
+            ItemType::SteelPickaxe => "Steel Pickaxe",
+            ItemType::SteelArmor => "Steel Armor",
+            ItemType::HealthPotion => "Health Potion",
+            ItemType::SpeedPotion => "Speed Potion",
+            ItemType::StrengthPotion => "Strength Potion",
+            ItemType::AncientWorkstation => "Ancient Workstation",
+            ItemType::AncientBlade => "Ancient Blade",
+            ItemType::AncientArmor => "Ancient Armor",
+            ItemType::AncientPickaxe => "Ancient Pickaxe",
+            ItemType::Blueprint => "Blueprint",
+            ItemType::GuardianHeart => "Guardian Heart",
+            ItemType::SwampEssence => "Swamp Essence",
+            ItemType::WyrmScale => "Wyrm Scale",
+            ItemType::FrostGem => "Frost Gem",
+            ItemType::MagmaCore => "Magma Core",
+            ItemType::FungalSporeEssence => "Fungal Spore Essence",
+            ItemType::CrystalHeart => "Crystal Heart",
+            ItemType::JournalPage => "Journal Page",
         }
     }
 
@@ -148,7 +203,10 @@ impl ItemType {
             ItemType::WoodSword | ItemType::WoodShield | ItemType::WoodBow |
             ItemType::IronAxe | ItemType::IronPickaxe | ItemType::IronSword |
             ItemType::IronShield | ItemType::IronHelmet | ItemType::IronChestplate |
-            ItemType::Hoe => 1,
+            ItemType::Hoe |
+            ItemType::SteelSword | ItemType::SteelAxe | ItemType::SteelPickaxe |
+            ItemType::SteelArmor |
+            ItemType::AncientBlade | ItemType::AncientArmor | ItemType::AncientPickaxe => 1,
             _ => 64,
         }
     }
@@ -163,12 +221,45 @@ impl ItemType {
             ItemType::IronPickaxe => Some(200),
             ItemType::IronSword => Some(150),
             ItemType::Hoe => Some(75),
+            ItemType::SteelAxe => Some(300),
+            ItemType::SteelPickaxe => Some(300),
+            ItemType::SteelSword => Some(250),
+            ItemType::AncientPickaxe => Some(500),
+            ItemType::AncientBlade => Some(400),
             _ => None,
         }
     }
 
     pub fn is_tool(&self) -> bool {
         self.max_durability().is_some()
+    }
+
+    pub fn weapon_damage(&self) -> Option<f32> {
+        match self {
+            ItemType::WoodSword => Some(10.0),
+            ItemType::IronSword => Some(20.0),
+            ItemType::SteelSword => Some(35.0),
+            ItemType::AncientBlade => Some(50.0),
+            _ => None,
+        }
+    }
+
+    pub fn armor_value(&self) -> u32 {
+        match self {
+            ItemType::IronHelmet => 3,
+            ItemType::IronChestplate => 5,
+            ItemType::SteelArmor => 8,
+            ItemType::AncientArmor => 12,
+            _ => 0,
+        }
+    }
+
+    pub fn is_helmet(&self) -> bool {
+        matches!(self, ItemType::IronHelmet)
+    }
+
+    pub fn is_chestplate(&self) -> bool {
+        matches!(self, ItemType::IronChestplate | ItemType::SteelArmor | ItemType::AncientArmor)
     }
 }
 
