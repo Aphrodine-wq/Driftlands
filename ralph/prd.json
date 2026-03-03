@@ -610,7 +610,7 @@
         "Typecheck passes"
       ],
       "priority": 36,
-      "passes": false,
+      "passes": true,
       "notes": "Add DungeonChest component with opened: bool. Spawn in generate_dungeon for non-boss rooms. Add chest_interaction_dungeon system. Add dungeon_loot_table() function. Add CaveSlime and SpiderSilk ItemType variants for spider drops."
     },
     {
@@ -627,7 +627,7 @@
         "Typecheck passes"
       ],
       "priority": 37,
-      "passes": false,
+      "passes": true,
       "notes": "In weather.rs, add gameplay effect systems. Check WeatherSystem current weather type. For roof detection, check if there's a Roof building within 32px of the entity. Apply speed modifiers via a WeatherModifier component or direct speed multiplication in movement systems."
     },
     {
@@ -643,7 +643,7 @@
         "Typecheck passes"
       ],
       "priority": 38,
-      "passes": false,
+      "passes": true,
       "notes": "Add SeasonColorModifier resource with season-dependent color multipliers for grass, tree, and water tiles. In season.rs update, compute the modifier. Pass modifier to chunk rendering (world/mod.rs) when generating chunk images. Requires re-rendering nearby chunk images when season changes."
     },
     {
@@ -660,7 +660,7 @@
         "Typecheck passes"
       ],
       "priority": 39,
-      "passes": false,
+      "passes": true,
       "notes": "Extend the existing ActiveBuff / BuffType system to include food buffs. Add FoodBuff component or extend BuffType with Regen variant. In the eat system (wherever food consumption happens \u2014 likely inventory.rs use_item), apply the appropriate buff. Add BerryPie ItemType and recipe."
     },
     {
@@ -677,7 +677,7 @@
         "Typecheck passes"
       ],
       "priority": 40,
-      "passes": false,
+      "passes": true,
       "notes": "Add MapViewOpen resource. M toggles. When open, render a larger Image (360x360) using the same explored chunk data. Position as a centered UI node. N toggles minimap_visible flag to show/hide the corner minimap."
     }
   ]

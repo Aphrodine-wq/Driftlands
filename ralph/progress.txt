@@ -62,3 +62,10 @@
 [PASS] US-035 — World object density and variety per biome — cargo check passes
 
 === 35 of 40 USER STORIES PASS ===
+
+[PASS] US-037 — Weather gameplay effects — cargo check passes
+[PASS] US-038 — Season visual effects — color palette shifts — cargo check passes
+[PASS] US-039 — Food buff system — cooked food gives temp stat boosts — cargo check passes
+[PASS] US-040 — Minimap toggle and fullscreen map view — cargo check passes
+
+=== 40 of 40 USER STORIES PASS === COMPLETE
