@@ -4,6 +4,9 @@ use crate::daynight::DayNightCycle;
 use crate::hud::not_paused;
 use crate::season::{Season, SeasonCycle};
 use crate::camera::GameCamera;
+use crate::player::{Player, Health};
+use crate::building::{Building, BuildingType};
+use crate::combat::Enemy;
 
 pub struct WeatherPlugin;
 
@@ -15,6 +18,7 @@ impl Plugin for WeatherPlugin {
                 spawn_weather_particles,
                 move_weather_particles,
                 despawn_weather_particles,
+                weather_gameplay_effects,
             ).run_if(not_paused));
     }
 }
@@ -261,6 +265,70 @@ fn despawn_weather_particles(
         // Despawn expired particles or particles that belong to a now-Clear sky.
         if particle.lifetime <= 0.0 || !weather.current.has_particles() {
             commands.entity(entity).despawn();
+        }
+    }
+}
+
+// ── US-037: Weather gameplay effects ────────────────────────────────────────
+
+impl Weather {
+    /// Farm growth multiplier: rain speeds up farms by 25%.
+    pub fn farm_growth_multiplier(&self) -> f32 {
+        match self {
+            Weather::Rain => 1.25,
+            _ => 1.0,
+        }
+    }
+
+    /// Movement speed multiplier for snow/storm.
+    pub fn movement_speed_multiplier(&self) -> f32 {
+        match self {
+            Weather::Snow => 0.85,
+            Weather::Storm => 0.9,
+            _ => 1.0,
+        }
+    }
+
+    /// Enemy speed multiplier during storms.
+    pub fn enemy_speed_multiplier(&self) -> f32 {
+        match self {
+            Weather::Storm => 0.8,
+            _ => 1.0,
+        }
+    }
+}
+
+/// Check if position is near a Roof building (within 32px).
+fn is_under_roof(
+    pos: Vec3,
+    building_query: &Query<(&Transform, &Building), (Without<Player>, Without<Enemy>)>,
+) -> bool {
+    for (btf, building) in building_query.iter() {
+        if matches!(building.building_type, BuildingType::WoodRoof | BuildingType::StoneRoof) {
+            let dist = (btf.translation.truncate() - pos.truncate()).length();
+            if dist < 32.0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn weather_gameplay_effects(
+    weather: Res<WeatherSystem>,
+    time: Res<Time>,
+    mut player_query: Query<(&Transform, &mut Health), With<Player>>,
+    building_query: Query<(&Transform, &Building), (Without<Player>, Without<Enemy>)>,
+) {
+    let Ok((player_tf, mut health)) = player_query.get_single_mut() else { return };
+
+    // Storm: player takes 1 damage every 15 seconds if not under a roof
+    if weather.current == Weather::Storm {
+        let under_roof = is_under_roof(player_tf.translation, &building_query);
+        if !under_roof {
+            // Apply damage based on delta time (1 HP per 15 seconds)
+            let damage_per_sec = 1.0 / 15.0;
+            health.current = (health.current - damage_per_sec * time.delta_secs()).max(0.0);
         }
     }
 }
