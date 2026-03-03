@@ -117,6 +117,13 @@ pub enum ItemType {
     // Phase 5 — Boss drops
     CoralEssence,
     TitanBone,
+    // US-035 — Biome-exclusive resources
+    SandstoneChip,
+    Shell,
+    Seaweed,
+    BioGel,
+    EchoStoneFragment,
+    FrozenOre,
 }
 
 impl ItemType {
@@ -212,6 +219,12 @@ impl ItemType {
             ItemType::Bed => "Bed",
             ItemType::CoralEssence => "Coral Essence",
             ItemType::TitanBone => "Titan Bone",
+            ItemType::SandstoneChip => "Sandstone Chip",
+            ItemType::Shell => "Shell",
+            ItemType::Seaweed => "Seaweed",
+            ItemType::BioGel => "Bio-Luminescent Gel",
+            ItemType::EchoStoneFragment => "Echo Stone Fragment",
+            ItemType::FrozenOre => "Frozen Ore",
         }
     }
 

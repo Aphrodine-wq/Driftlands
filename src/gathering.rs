@@ -74,6 +74,12 @@ fn dropped_item_color(item: ItemType) -> Color {
         ItemType::CactusFiber => Color::srgb(0.4, 0.6, 0.25),
         ItemType::Reed | ItemType::Peat => Color::srgb(0.4, 0.5, 0.3),
         ItemType::AlpineHerb | ItemType::RareHerb => Color::srgb(0.2, 0.8, 0.4),
+        ItemType::SandstoneChip => Color::srgb(0.75, 0.6, 0.4),
+        ItemType::Shell => Color::srgb(0.9, 0.85, 0.8),
+        ItemType::Seaweed => Color::srgb(0.2, 0.5, 0.3),
+        ItemType::BioGel => Color::srgb(0.3, 0.9, 0.5),
+        ItemType::EchoStoneFragment => Color::srgb(0.6, 0.7, 0.9),
+        ItemType::FrozenOre => Color::srgb(0.5, 0.65, 0.8),
         _ => Color::srgb(0.9, 0.85, 0.6), // gold/white fallback
     }
 }
@@ -274,6 +280,60 @@ fn gather_resources(
                 }
                 WorldObjectType::RuinWall => {
                     spawn_dropped_item(&mut commands, obj_pos, ItemType::StoneBlock, 2, &mut rng);
+                }
+                WorldObjectType::BerryBush => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Berry, 3, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::PlantFiber, 1, &mut rng);
+                }
+                WorldObjectType::SandstoneRock => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::SandstoneChip, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stone, 1, &mut rng);
+                }
+                WorldObjectType::OasisPalm => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Wood, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Berry, 2, &mut rng);
+                }
+                WorldObjectType::FrozenOreDeposit => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::FrozenOre, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::IronOre, 1, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::IceShard, 1, &mut rng);
+                }
+                WorldObjectType::IceFormation => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::IceShard, 3, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stone, 1, &mut rng);
+                }
+                WorldObjectType::SulfurVent => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Sulfur, 3, &mut rng);
+                }
+                WorldObjectType::ObsidianNode => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::ObsidianShard, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stone, 1, &mut rng);
+                }
+                WorldObjectType::GlowingSpore => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Spore, 2, &mut rng);
+                }
+                WorldObjectType::BioLuminescentGel => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::BioGel, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Spore, 1, &mut rng);
+                }
+                WorldObjectType::CrystalCluster => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::CrystalShard, 3, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Gemstone, 1, &mut rng);
+                }
+                WorldObjectType::EchoStone => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::EchoStoneFragment, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stone, 1, &mut rng);
+                }
+                WorldObjectType::Driftwood => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Wood, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stick, 1, &mut rng);
+                }
+                WorldObjectType::ShellDeposit => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Shell, 3, &mut rng);
+                }
+                WorldObjectType::SeaweedPatch => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Seaweed, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::PlantFiber, 1, &mut rng);
                 }
             }
             // Consume tool durability

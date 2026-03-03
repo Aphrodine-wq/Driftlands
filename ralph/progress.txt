@@ -51,4 +51,12 @@
 [PASS] US-029 — Biome visual distinctness — per-biome tile palettes, biome banners
 [PASS] US-030 — Main menu — New Game, Load, Quit with title screen
 
-=== 30 of 40 USER STORIES PASS ===
+[PASS] US-031 — Tutorial hints for first-time players — cargo check passes
+
+[PASS] US-032 — Enemy spawn balancing — scale with distance and day count — cargo check passes
+
+[PASS] US-033 — Crafting station visual distinction — unique colors per tier — cargo check passes
+
+[PASS] US-034 — Keyboard shortcut reference overlay — cargo check passes
+
+=== 34 of 40 USER STORIES PASS ===

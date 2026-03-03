@@ -525,7 +525,7 @@
         "Typecheck passes"
       ],
       "priority": 31,
-      "passes": false,
+      "passes": true,
       "notes": "Add TutorialState resource with HashSet<String> of shown hints. Add check_tutorial_triggers system that watches for events (first gather, first craft, first build, first nightfall). Show hint via a TutorialHint UI node. Save shown_hints in SaveData."
     },
     {
@@ -541,7 +541,7 @@
         "Typecheck passes"
       ],
       "priority": 32,
-      "passes": false,
+      "passes": true,
       "notes": "In enemy_spawn system, calculate spawn cap from DayNightCycle.day_count. Scale HP using player position distance from origin. Apply multiplier when spawning Enemy component. For bosses, apply similar scaling in spawn_dungeon_boss using dungeon anchor distance."
     },
     {
@@ -558,7 +558,7 @@
         "Typecheck passes"
       ],
       "priority": 33,
-      "passes": false,
+      "passes": true,
       "notes": "Update building_color() function in building.rs to return distinct colors for each station type. Add a glow child sprite behind station entities with slightly larger size and a low-alpha bright color. Spawn glow in place_building when building type is a station."
     },
     {
@@ -574,7 +574,7 @@
         "Typecheck passes"
       ],
       "priority": 34,
-      "passes": false,
+      "passes": true,
       "notes": "Add ControlsOverlay resource with is_visible: bool. Toggle with F1. Render as a Bevy UI panel with semi-transparent background. List all keybindings as Text nodes. Add .run_if check so it hides when crafting/trade menus are open."
     },
     {

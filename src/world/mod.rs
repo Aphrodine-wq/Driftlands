@@ -82,6 +82,21 @@ pub enum WorldObjectType {
     // Phase 5 — Ruins & campsites
     SupplyCrate,
     RuinWall,
+    // US-035 — Biome-exclusive objects
+    BerryBush,
+    SandstoneRock,
+    OasisPalm,
+    FrozenOreDeposit,
+    IceFormation,
+    SulfurVent,
+    ObsidianNode,
+    GlowingSpore,
+    BioLuminescentGel,
+    CrystalCluster,
+    EchoStone,
+    Driftwood,
+    ShellDeposit,
+    SeaweedPatch,
 }
 
 impl WorldObjectType {
@@ -104,6 +119,20 @@ impl WorldObjectType {
             WorldObjectType::AncientRuin => 200.0,
             WorldObjectType::SupplyCrate => 40.0,
             WorldObjectType::RuinWall => 200.0,
+            WorldObjectType::BerryBush => 25.0,
+            WorldObjectType::SandstoneRock => 90.0,
+            WorldObjectType::OasisPalm => 70.0,
+            WorldObjectType::FrozenOreDeposit => 140.0,
+            WorldObjectType::IceFormation => 100.0,
+            WorldObjectType::SulfurVent => 80.0,
+            WorldObjectType::ObsidianNode => 130.0,
+            WorldObjectType::GlowingSpore => 15.0,
+            WorldObjectType::BioLuminescentGel => 35.0,
+            WorldObjectType::CrystalCluster => 120.0,
+            WorldObjectType::EchoStone => 100.0,
+            WorldObjectType::Driftwood => 40.0,
+            WorldObjectType::ShellDeposit => 20.0,
+            WorldObjectType::SeaweedPatch => 15.0,
         }
     }
 
@@ -126,12 +155,27 @@ impl WorldObjectType {
             WorldObjectType::AncientRuin => Color::srgb(0.6, 0.5, 0.2),
             WorldObjectType::SupplyCrate => Color::srgb(0.5, 0.35, 0.2),
             WorldObjectType::RuinWall => Color::srgb(0.4, 0.38, 0.35),
+            WorldObjectType::BerryBush => Color::srgb(0.6, 0.2, 0.3),
+            WorldObjectType::SandstoneRock => Color::srgb(0.75, 0.6, 0.4),
+            WorldObjectType::OasisPalm => Color::srgb(0.2, 0.5, 0.15),
+            WorldObjectType::FrozenOreDeposit => Color::srgb(0.5, 0.65, 0.8),
+            WorldObjectType::IceFormation => Color::srgb(0.8, 0.9, 0.95),
+            WorldObjectType::SulfurVent => Color::srgb(0.9, 0.85, 0.2),
+            WorldObjectType::ObsidianNode => Color::srgb(0.1, 0.08, 0.12),
+            WorldObjectType::GlowingSpore => Color::srgb(0.4, 0.9, 0.3),
+            WorldObjectType::BioLuminescentGel => Color::srgb(0.3, 0.95, 0.5),
+            WorldObjectType::CrystalCluster => Color::srgb(0.7, 0.6, 0.9),
+            WorldObjectType::EchoStone => Color::srgb(0.55, 0.6, 0.75),
+            WorldObjectType::Driftwood => Color::srgb(0.55, 0.4, 0.25),
+            WorldObjectType::ShellDeposit => Color::srgb(0.9, 0.85, 0.75),
+            WorldObjectType::SeaweedPatch => Color::srgb(0.15, 0.45, 0.25),
         }
     }
 
     pub fn min_tool_tier(&self) -> u32 {
         match self {
-            WorldObjectType::IronVein | WorldObjectType::CrystalNode => 2,
+            WorldObjectType::IronVein | WorldObjectType::CrystalNode
+            | WorldObjectType::ObsidianNode | WorldObjectType::FrozenOreDeposit => 2,
             WorldObjectType::AncientRuin => 3,
             _ => 0,
         }
@@ -156,6 +200,20 @@ impl WorldObjectType {
             WorldObjectType::AncientRuin => Vec2::new(16.0, 16.0),
             WorldObjectType::SupplyCrate => Vec2::new(10.0, 8.0),
             WorldObjectType::RuinWall => Vec2::new(16.0, 20.0),
+            WorldObjectType::BerryBush => Vec2::new(10.0, 9.0),
+            WorldObjectType::SandstoneRock => Vec2::new(14.0, 11.0),
+            WorldObjectType::OasisPalm => Vec2::new(12.0, 20.0),
+            WorldObjectType::FrozenOreDeposit => Vec2::new(12.0, 10.0),
+            WorldObjectType::IceFormation => Vec2::new(14.0, 16.0),
+            WorldObjectType::SulfurVent => Vec2::new(10.0, 12.0),
+            WorldObjectType::ObsidianNode => Vec2::new(12.0, 10.0),
+            WorldObjectType::GlowingSpore => Vec2::new(6.0, 8.0),
+            WorldObjectType::BioLuminescentGel => Vec2::new(8.0, 6.0),
+            WorldObjectType::CrystalCluster => Vec2::new(14.0, 16.0),
+            WorldObjectType::EchoStone => Vec2::new(10.0, 12.0),
+            WorldObjectType::Driftwood => Vec2::new(14.0, 6.0),
+            WorldObjectType::ShellDeposit => Vec2::new(8.0, 6.0),
+            WorldObjectType::SeaweedPatch => Vec2::new(10.0, 8.0),
         }
     }
 }
@@ -286,29 +344,37 @@ fn spawn_chunk_objects(
 
             match biome {
                 Biome::Forest => {
-                    if density_roll < 6 {
+                    // Highest tree density (8-12 per chunk via ~8-12% coverage)
+                    if density_roll < 8 {
                         let obj = if variant_roll < 50 { WorldObjectType::OakTree } else { WorldObjectType::PineTree };
                         let color = tree_color_variant(variant_hash);
                         spawn_world_object_with_overrides(commands, obj, wx, wy, chunk_pos, Some(color), None);
-                    } else if density_roll < 10 {
-                        // Berry bushes: distinct pink/red tint
-                        let color = Color::srgb(0.7, 0.2, 0.3);
-                        spawn_world_object_with_overrides(commands, WorldObjectType::Bush, wx, wy, chunk_pos, Some(color), None);
-                    } else if density_roll < 12 {
+                    } else if density_roll < 11 {
+                        // Berry bushes (biome-exclusive)
+                        spawn_world_object(commands, WorldObjectType::BerryBush, wx, wy, chunk_pos);
+                    } else if density_roll < 13 {
+                        // Mushrooms on forest floor
+                        spawn_world_object(commands, WorldObjectType::Mushroom, wx, wy, chunk_pos);
+                    } else if density_roll < 15 {
                         let size = rock_size_variant(variant_hash);
                         spawn_world_object_with_overrides(commands, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
                     } else if density_roll == 99 {
-                        // Abandoned campsite
                         spawn_world_object(commands, WorldObjectType::SupplyCrate, wx, wy, chunk_pos);
                     }
                 }
                 Biome::Coastal => {
+                    // Driftwood, shell deposits, and seaweed near water
                     if density_roll < 3 {
+                        spawn_world_object(commands, WorldObjectType::Driftwood, wx, wy, chunk_pos);
+                    } else if density_roll < 5 {
+                        spawn_world_object(commands, WorldObjectType::ShellDeposit, wx, wy, chunk_pos);
+                    } else if density_roll < 7 {
+                        spawn_world_object(commands, WorldObjectType::SeaweedPatch, wx, wy, chunk_pos);
+                    } else if density_roll < 9 {
                         let size = rock_size_variant(variant_hash);
                         spawn_world_object_with_overrides(commands, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
-                    } else if density_roll < 5 {
-                        let color = Color::srgb(0.7, 0.2, 0.3);
-                        spawn_world_object_with_overrides(commands, WorldObjectType::Bush, wx, wy, chunk_pos, Some(color), None);
+                    } else if density_roll < 10 {
+                        spawn_world_object(commands, WorldObjectType::Bush, wx, wy, chunk_pos);
                     }
                 }
                 Biome::Swamp => {
@@ -323,50 +389,80 @@ fn spawn_chunk_objects(
                     }
                 }
                 Biome::Desert => {
+                    // Cacti, sandstone rocks, and rare oasis palms
                     if density_roll < 3 {
                         spawn_world_object(commands, WorldObjectType::Cactus, wx, wy, chunk_pos);
-                    } else if density_roll < 5 {
+                    } else if density_roll < 6 {
+                        spawn_world_object(commands, WorldObjectType::SandstoneRock, wx, wy, chunk_pos);
+                    } else if density_roll < 7 {
                         let size = rock_size_variant(variant_hash);
                         spawn_world_object_with_overrides(commands, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
+                    } else if density_roll == 98 {
+                        // Rare oasis palm (with implied water tiles nearby)
+                        spawn_world_object(commands, WorldObjectType::OasisPalm, wx, wy, chunk_pos);
                     } else if density_roll == 99 {
-                        // Desert ruins
                         spawn_world_object(commands, WorldObjectType::RuinWall, wx, wy, chunk_pos);
                     }
                 }
                 Biome::Tundra => {
-                    if density_roll < 3 {
-                        spawn_world_object(commands, WorldObjectType::IceCrystal, wx, wy, chunk_pos);
+                    // Sparse trees, ice formations, and frozen ore deposits
+                    if density_roll < 2 {
+                        // Sparse pine trees
+                        let color = Color::srgb(0.15, 0.3, 0.2);
+                        spawn_world_object_with_overrides(commands, WorldObjectType::PineTree, wx, wy, chunk_pos, Some(color), None);
                     } else if density_roll < 5 {
+                        spawn_world_object(commands, WorldObjectType::IceFormation, wx, wy, chunk_pos);
+                    } else if density_roll < 7 {
+                        spawn_world_object(commands, WorldObjectType::IceCrystal, wx, wy, chunk_pos);
+                    } else if density_roll < 9 {
                         let size = rock_size_variant(variant_hash);
                         spawn_world_object_with_overrides(commands, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
+                    } else if density_roll < 10 {
+                        spawn_world_object(commands, WorldObjectType::FrozenOreDeposit, wx, wy, chunk_pos);
                     }
                 }
                 Biome::Volcanic => {
+                    // Obsidian nodes, sulfur vents (yellow), no trees
                     if density_roll < 1 {
                         spawn_world_object(commands, WorldObjectType::AncientRuin, wx, wy, chunk_pos);
                     } else if density_roll < 4 {
+                        spawn_world_object(commands, WorldObjectType::ObsidianNode, wx, wy, chunk_pos);
+                    } else if density_roll < 7 {
+                        // Sulfur vents with bright yellow color
+                        spawn_world_object(commands, WorldObjectType::SulfurVent, wx, wy, chunk_pos);
+                    } else if density_roll < 9 {
                         spawn_world_object(commands, WorldObjectType::SulfurDeposit, wx, wy, chunk_pos);
-                    } else if density_roll < 6 {
+                    } else if density_roll < 11 {
                         let size = rock_size_variant(variant_hash);
                         spawn_world_object_with_overrides(commands, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
-                    } else if density_roll < 8 {
+                    } else if density_roll < 13 {
                         spawn_world_object(commands, WorldObjectType::CoalDeposit, wx, wy, chunk_pos);
                     }
                 }
                 Biome::Fungal => {
-                    if density_roll < 6 {
-                        spawn_world_object(commands, WorldObjectType::Mushroom, wx, wy, chunk_pos);
-                    } else if density_roll < 9 {
+                    // Giant mushrooms (larger sprites), glowing spores, bio-luminescent gel
+                    if density_roll < 4 {
                         spawn_world_object(commands, WorldObjectType::GiantMushroom, wx, wy, chunk_pos);
+                    } else if density_roll < 8 {
+                        spawn_world_object(commands, WorldObjectType::Mushroom, wx, wy, chunk_pos);
+                    } else if density_roll < 11 {
+                        spawn_world_object(commands, WorldObjectType::GlowingSpore, wx, wy, chunk_pos);
+                    } else if density_roll < 13 {
+                        spawn_world_object(commands, WorldObjectType::BioLuminescentGel, wx, wy, chunk_pos);
                     }
                 }
                 Biome::CrystalCave => {
-                    if density_roll < 5 {
-                        spawn_world_object(commands, WorldObjectType::CrystalNode, wx, wy, chunk_pos);
+                    // Crystal clusters, gemstone nodes, and echo stones
+                    if density_roll < 4 {
+                        spawn_world_object(commands, WorldObjectType::CrystalCluster, wx, wy, chunk_pos);
                     } else if density_roll < 7 {
+                        spawn_world_object(commands, WorldObjectType::CrystalNode, wx, wy, chunk_pos);
+                    } else if density_roll < 9 {
+                        spawn_world_object(commands, WorldObjectType::EchoStone, wx, wy, chunk_pos);
+                    } else if density_roll < 11 {
                         let size = rock_size_variant(variant_hash);
                         spawn_world_object_with_overrides(commands, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
-                    } else if density_roll < 9 {
+                    } else if density_roll < 13 {
                         spawn_world_object(commands, WorldObjectType::IronVein, wx, wy, chunk_pos);
                     }
                 }
