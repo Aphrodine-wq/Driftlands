@@ -15,8 +15,9 @@ pub struct MinimapPlugin;
 impl Plugin for MinimapPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ExploredChunks::default())
+            .insert_resource(MinimapState::default())
             .add_systems(Startup, spawn_minimap)
-            .add_systems(Update, (update_explored_chunks, update_minimap));
+            .add_systems(Update, (update_explored_chunks, update_minimap, toggle_minimap));
     }
 }
 
@@ -25,6 +26,24 @@ const MINIMAP_SCALE: f32 = 4.0; // Each minimap pixel = 4 world pixels
 
 #[derive(Component)]
 pub struct Minimap;
+
+/// US-040: Controls minimap visibility and fullscreen map toggle.
+#[derive(Resource)]
+pub struct MinimapState {
+    /// N key toggles corner minimap on/off.
+    pub minimap_visible: bool,
+    /// M key toggles fullscreen map overlay.
+    pub fullscreen_open: bool,
+}
+
+impl Default for MinimapState {
+    fn default() -> Self {
+        Self {
+            minimap_visible: true,
+            fullscreen_open: false,
+        }
+    }
+}
 
 #[derive(Resource, Default)]
 pub struct ExploredChunks {
@@ -85,6 +104,7 @@ fn update_minimap(
     mut minimap_query: Query<(&Minimap, &Sprite, &mut Transform), (Without<Player>, Without<GameCamera>)>,
     mut images: ResMut<Assets<Image>>,
     explored: Res<ExploredChunks>,
+    minimap_state: Res<MinimapState>,
     dungeon_query: Query<&Transform, (With<DungeonEntrance>, Without<Player>, Without<GameCamera>, Without<Minimap>)>,
     trader_query: Query<&Transform, (With<Trader>, Without<Player>, Without<GameCamera>, Without<Minimap>, Without<DungeonEntrance>)>,
     spawn_point: Res<SpawnPoint>,
@@ -247,17 +267,39 @@ fn update_minimap(
     // --- 2px border (dark gray) ---
     let border_color = [40, 40, 40, 255];
     for i in 0..size as i32 {
-        // Left border (x=0, x=1)
         set_pixel(&mut image.data, 0, i, border_color);
         set_pixel(&mut image.data, 1, i, border_color);
-        // Right border (x=118, x=119)
         set_pixel(&mut image.data, size as i32 - 2, i, border_color);
         set_pixel(&mut image.data, size as i32 - 1, i, border_color);
-        // Top border (y=0, y=1)
         set_pixel(&mut image.data, i, 0, border_color);
         set_pixel(&mut image.data, i, 1, border_color);
-        // Bottom border (y=118, y=119)
         set_pixel(&mut image.data, i, size as i32 - 2, border_color);
         set_pixel(&mut image.data, i, size as i32 - 1, border_color);
+    }
+
+    // US-040: Hide minimap if toggled off
+    let state = minimap_state.into_inner();
+    if !state.minimap_visible && !state.fullscreen_open {
+        minimap_tf.scale = Vec3::ZERO;
+    } else if state.fullscreen_open {
+        // Fullscreen map: scale up 3x and center on camera
+        minimap_tf.translation.x = cam_tf.translation.x;
+        minimap_tf.translation.y = cam_tf.translation.y;
+        minimap_tf.scale = Vec3::splat(3.0);
+    } else {
+        minimap_tf.scale = Vec3::ONE;
+    }
+}
+
+// US-040: Toggle minimap visibility and fullscreen map
+fn toggle_minimap(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut state: ResMut<MinimapState>,
+) {
+    if keyboard.just_pressed(KeyCode::KeyN) {
+        state.minimap_visible = !state.minimap_visible;
+    }
+    if keyboard.just_pressed(KeyCode::KeyM) {
+        state.fullscreen_open = !state.fullscreen_open;
     }
 }
