@@ -189,11 +189,11 @@ impl BuildingType {
             BuildingType::MetalDoor => Color::srgb(0.58, 0.6, 0.63),
             BuildingType::Bed => Color::srgb(0.7, 0.3, 0.3),
             BuildingType::Chest => Color::srgb(0.55, 0.4, 0.2),
-            BuildingType::Workbench => Color::srgb(0.65, 0.45, 0.25),
-            BuildingType::Forge => Color::srgb(0.7, 0.35, 0.15),
-            BuildingType::Campfire => Color::srgb(0.8, 0.5, 0.1),
-            BuildingType::AdvancedForge => Color::srgb(0.5, 0.35, 0.6),
-            BuildingType::AncientWorkstation => Color::srgb(0.3, 0.7, 0.6),
+            BuildingType::Workbench => Color::srgb(0.45, 0.30, 0.15),
+            BuildingType::Forge => Color::srgb(0.6, 0.2, 0.08),
+            BuildingType::Campfire => Color::srgb(0.9, 0.6, 0.15),
+            BuildingType::AdvancedForge => Color::srgb(0.3, 0.35, 0.45),
+            BuildingType::AncientWorkstation => Color::srgb(0.45, 0.25, 0.75),
         }
     }
 
@@ -212,8 +212,9 @@ impl BuildingType {
             BuildingType::MetalDoor => Vec2::new(10.0, 20.0),
             BuildingType::Bed => Vec2::new(TILE_SIZE, TILE_SIZE),
             BuildingType::Chest => Vec2::new(TILE_SIZE * 0.75, TILE_SIZE * 0.75),
+            BuildingType::Campfire => Vec2::new(12.0, 12.0),
             BuildingType::Workbench | BuildingType::Forge |
-            BuildingType::Campfire | BuildingType::AdvancedForge |
+            BuildingType::AdvancedForge |
             BuildingType::AncientWorkstation => Vec2::new(TILE_SIZE, TILE_SIZE),
         }
     }
@@ -413,6 +414,26 @@ fn place_building(
     }
     if let Some(tier) = bt.crafting_tier() {
         entity_commands.insert(CraftingStation { tier });
+        // Glow effect: slightly larger, low-alpha bright sprite behind the station
+        let glow_size = bt.size() + Vec2::new(2.0, 2.0);
+        let glow_color = match bt {
+            BuildingType::Workbench => Color::srgba(0.7, 0.55, 0.35, 0.25),
+            BuildingType::Forge => Color::srgba(1.0, 0.4, 0.15, 0.3),
+            BuildingType::Campfire => Color::srgba(1.0, 0.75, 0.3, 0.35),
+            BuildingType::AdvancedForge => Color::srgba(0.5, 0.55, 0.7, 0.3),
+            BuildingType::AncientWorkstation => Color::srgba(0.65, 0.4, 1.0, 0.35),
+            _ => Color::srgba(1.0, 1.0, 1.0, 0.2),
+        };
+        entity_commands.with_children(|parent| {
+            parent.spawn((
+                Sprite {
+                    color: glow_color,
+                    custom_size: Some(glow_size),
+                    ..default()
+                },
+                Transform::from_xyz(0.0, 0.0, -0.1),
+            ));
+        });
     }
     if matches!(bt, BuildingType::Chest) {
         entity_commands.insert(ChestStorage::new());
@@ -536,7 +557,7 @@ fn destroy_building(
         for (item, count) in bt.salvage() {
             inventory.add_item(item, count);
         }
-        commands.entity(entity).despawn();
+        commands.entity(entity).despawn_recursive();
     }
 }
 
