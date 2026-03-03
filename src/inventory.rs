@@ -124,6 +124,9 @@ pub enum ItemType {
     BioGel,
     EchoStoneFragment,
     FrozenOre,
+    // US-036 — Dungeon loot / spider drops
+    CaveSlime,
+    SpiderSilk,
 }
 
 impl ItemType {
@@ -225,6 +228,8 @@ impl ItemType {
             ItemType::BioGel => "Bio-Luminescent Gel",
             ItemType::EchoStoneFragment => "Echo Stone Fragment",
             ItemType::FrozenOre => "Frozen Ore",
+            ItemType::CaveSlime => "Cave Slime",
+            ItemType::SpiderSilk => "Spider Silk",
         }
     }
 

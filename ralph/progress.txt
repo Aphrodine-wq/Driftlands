@@ -59,4 +59,6 @@
 
 [PASS] US-034 — Keyboard shortcut reference overlay — cargo check passes
 
-=== 34 of 40 USER STORIES PASS ===
+[PASS] US-035 — World object density and variety per biome — cargo check passes
+
+=== 35 of 40 USER STORIES PASS ===

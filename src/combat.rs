@@ -14,6 +14,8 @@ use crate::death::DeathStats;
 use crate::particles::SpawnParticlesEvent;
 use crate::audio::SoundEvent;
 use crate::hud::spawn_floating_text;
+use crate::gathering::spawn_dropped_item;
+use crate::dungeon::cave_spider_random_drop;
 
 pub struct CombatPlugin;
 
@@ -625,10 +627,20 @@ fn player_attack(
     }
 
     if killed {
-        // Get enemy type before despawning
-        let enemy_type = enemy_query.get(target_entity).map(|(_, _, e, _, _)| e.enemy_type).unwrap_or(EnemyType::ShadowCrawler);
+        // Get enemy type and position before despawning
+        let (enemy_type, enemy_pos) = enemy_query.get(target_entity)
+            .map(|(_, tf, e, _, _)| (e.enemy_type, tf.translation.truncate()))
+            .unwrap_or((EnemyType::ShadowCrawler, player_pos));
         let (drop_item, drop_count) = loot_for_enemy(enemy_type);
         inventory.add_item(drop_item, drop_count);
+
+        // US-036: Cave spiders have a 30% chance to drop a bonus item
+        if enemy_type == EnemyType::CaveSpider {
+            let mut rng = rand::thread_rng();
+            if let Some((bonus_item, bonus_count)) = cave_spider_random_drop(&mut rng) {
+                spawn_dropped_item(&mut commands, enemy_pos, bonus_item, bonus_count, &mut rng);
+            }
+        }
 
         // Award research points for a kill (+5 RP)
         rp_events.send(ResearchPointEvent { amount: 5 });
@@ -824,6 +836,14 @@ fn projectile_hit(
                 if enemy.health <= 0.0 {
                     let (drop_item, drop_count) = loot_for_enemy(enemy.enemy_type);
                     inventory.add_item(drop_item, drop_count);
+                    // US-036: Cave spiders have a 30% chance to drop a bonus item
+                    if enemy.enemy_type == EnemyType::CaveSpider {
+                        let mut rng = rand::thread_rng();
+                        let enemy_pos = enemy_tf.translation.truncate();
+                        if let Some((bonus_item, bonus_count)) = cave_spider_random_drop(&mut rng) {
+                            spawn_dropped_item(&mut commands, enemy_pos, bonus_item, bonus_count, &mut rng);
+                        }
+                    }
                     rp_events.send(ResearchPointEvent { amount: 5 });
                     // Track kill in death stats
                     death_stats.total_kills += 1;

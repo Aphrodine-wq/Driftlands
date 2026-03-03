@@ -58,7 +58,7 @@ pub struct DroppedItem {
 }
 
 /// Returns a color for a dropped item based on its type.
-fn dropped_item_color(item: ItemType) -> Color {
+pub fn dropped_item_color(item: ItemType) -> Color {
     match item {
         ItemType::Wood | ItemType::Stick | ItemType::WoodPlank => Color::srgb(0.6, 0.4, 0.2),
         ItemType::Stone | ItemType::StoneBlock => Color::srgb(0.6, 0.6, 0.6),
@@ -85,7 +85,7 @@ fn dropped_item_color(item: ItemType) -> Color {
 }
 
 /// Spawns a DroppedItem entity at the given world position with a random offset.
-fn spawn_dropped_item(commands: &mut Commands, pos: Vec2, item: ItemType, count: u32, rng: &mut impl Rng) {
+pub fn spawn_dropped_item(commands: &mut Commands, pos: Vec2, item: ItemType, count: u32, rng: &mut impl Rng) {
     let offset = Vec2::new(
         rng.gen_range(-8.0..8.0),
         rng.gen_range(-8.0..8.0),

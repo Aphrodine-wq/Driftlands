@@ -3,8 +3,10 @@ use rand::Rng;
 use crate::hud::not_paused;
 use crate::player::Player;
 use crate::combat::{Enemy, EnemyType, EnemyState, Boss};
-use crate::inventory::ItemType;
+use crate::inventory::{Inventory, ItemType};
 use crate::world::generation::{WorldGenerator, Biome};
+use crate::gathering::spawn_dropped_item;
+use crate::audio::SoundEvent;
 
 pub struct DungeonPlugin;
 
@@ -14,6 +16,7 @@ impl Plugin for DungeonPlugin {
             .add_systems(Update, (
                 check_dungeon_entrance,
                 check_dungeon_exit,
+                dungeon_chest_interaction,
             ).run_if(not_paused));
     }
 }
@@ -48,6 +51,13 @@ pub struct DungeonTile;
 /// when the player leaves.
 #[derive(Component)]
 pub struct DungeonEnemy;
+
+/// A loot chest spawned inside a dungeon room. Interactable with E key.
+/// Drops random items from the dungeon loot table, then despawns.
+#[derive(Component)]
+pub struct DungeonChest {
+    pub opened: bool,
+}
 
 // ---------------------------------------------------------------------------
 // Resources
@@ -179,6 +189,7 @@ fn check_dungeon_exit(
     exit_query: Query<(Entity, &DungeonExit, &Transform), Without<Player>>,
     dungeon_tiles_query: Query<Entity, With<DungeonTile>>,
     dungeon_enemies_query: Query<Entity, With<DungeonEnemy>>,
+    dungeon_chests_query: Query<Entity, With<DungeonChest>>,
 ) {
     // Tick cooldown.
     if registry.cooldown > 0.0 {
@@ -204,11 +215,14 @@ fn check_dungeon_exit(
             // Despawn the dungeon exit.
             commands.entity(exit_entity).despawn();
 
-            // Despawn all dungeon tiles and enemies.
+            // Despawn all dungeon tiles, enemies, and chests.
             for entity in dungeon_tiles_query.iter() {
                 commands.entity(entity).despawn();
             }
             for entity in dungeon_enemies_query.iter() {
+                commands.entity(entity).despawn();
+            }
+            for entity in dungeon_chests_query.iter() {
                 commands.entity(entity).despawn();
             }
 
@@ -302,6 +316,19 @@ fn generate_dungeon(
         );
         let spawn_pos = center + offset;
         spawn_cave_spider(commands, spawn_pos);
+    }
+
+    // US-036: Spawn loot chests in non-boss rooms (60% chance per room).
+    for room_idx in 0..non_boss_rooms {
+        if rng.gen::<f32>() < 0.6 {
+            let center = room_centers[room_idx];
+            let chest_offset = Vec2::new(
+                rng.gen_range(-16.0..16.0),
+                rng.gen_range(-12.0..12.0),
+            );
+            let chest_pos = center + chest_offset;
+            spawn_dungeon_chest(commands, chest_pos);
+        }
     }
 
     // Spawn the boss in the last room (US-007 / US-008).
@@ -608,6 +635,114 @@ fn spawn_dungeon_exit(commands: &mut Commands, pos: Vec2, surface_pos: Vec2) {
         },
         Transform::from_xyz(pos.x, pos.y, 3.0),
     ));
+}
+
+/// Spawns a gold-colored loot chest entity inside a dungeon room.
+fn spawn_dungeon_chest(commands: &mut Commands, pos: Vec2) {
+    commands.spawn((
+        DungeonChest { opened: false },
+        DungeonTile, // so it's cleaned up on exit
+        Sprite {
+            color: Color::srgb(0.85, 0.75, 0.2), // gold
+            custom_size: Some(Vec2::new(10.0, 10.0)),
+            ..default()
+        },
+        Transform::from_xyz(pos.x, pos.y, 4.0),
+    ));
+}
+
+/// Returns a random set of 2-4 items from the dungeon loot table.
+fn dungeon_loot_table(rng: &mut impl Rng) -> Vec<(ItemType, u32)> {
+    let possible_items: Vec<(ItemType, u32, u32)> = vec![
+        // (item, count, weight) — higher weight = more common
+        (ItemType::IronOre, 2, 20),
+        (ItemType::CrystalShard, 2, 20),
+        (ItemType::HealthPotion, 1, 15),
+        (ItemType::Arrow, 5, 20),
+        (ItemType::Blueprint, 1, 10),       // rare 10%
+        (ItemType::JournalPage, 1, 15),     // rare 15%
+    ];
+
+    let num_items = rng.gen_range(2..=4);
+    let mut result = Vec::new();
+    let total_weight: u32 = possible_items.iter().map(|i| i.2).sum();
+
+    for _ in 0..num_items {
+        let roll = rng.gen_range(0..total_weight);
+        let mut cumulative = 0;
+        for &(item, count, weight) in &possible_items {
+            cumulative += weight;
+            if roll < cumulative {
+                result.push((item, count));
+                break;
+            }
+        }
+    }
+
+    result
+}
+
+/// Returns a random drop for a cave spider death (30% chance).
+/// Drops one of: CaveSlime, SpiderSilk, or Berry.
+pub fn cave_spider_random_drop(rng: &mut impl Rng) -> Option<(ItemType, u32)> {
+    if rng.gen::<f32>() >= 0.3 {
+        return None;
+    }
+    let drops = [
+        (ItemType::CaveSlime, 1),
+        (ItemType::SpiderSilk, 1),
+        (ItemType::Berry, 2),
+    ];
+    Some(drops[rng.gen_range(0..drops.len())])
+}
+
+/// System: E key near a dungeon chest opens it and drops loot.
+fn dungeon_chest_interaction(
+    mut commands: Commands,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    player_query: Query<&Transform, With<Player>>,
+    mut chest_query: Query<(Entity, &mut DungeonChest, &Transform), Without<Player>>,
+    mut sound_events: EventWriter<SoundEvent>,
+) {
+    if !keyboard.just_pressed(KeyCode::KeyE) {
+        return;
+    }
+
+    let Ok(player_tf) = player_query.get_single() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    // Find nearest unopened chest within 32px
+    let mut nearest: Option<(Entity, f32)> = None;
+    for (entity, chest, tf) in chest_query.iter() {
+        if chest.opened {
+            continue;
+        }
+        let dist = player_pos.distance(tf.translation.truncate());
+        if dist <= 32.0 {
+            if nearest.is_none() || dist < nearest.unwrap().1 {
+                nearest = Some((entity, dist));
+            }
+        }
+    }
+
+    let Some((target, _)) = nearest else { return };
+
+    if let Ok((entity, mut chest, tf)) = chest_query.get_mut(target) {
+        chest.opened = true;
+        let chest_pos = tf.translation.truncate();
+
+        // Generate loot and spawn as dropped items
+        let mut rng = rand::thread_rng();
+        let loot = dungeon_loot_table(&mut rng);
+        for (item, count) in loot {
+            spawn_dropped_item(&mut commands, chest_pos, item, count, &mut rng);
+        }
+
+        sound_events.send(SoundEvent::MenuOpen);
+
+        // Despawn the chest
+        commands.entity(entity).despawn();
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -593,7 +593,7 @@
         "Typecheck passes"
       ],
       "priority": 35,
-      "passes": false,
+      "passes": true,
       "notes": "Refactor spawn_chunk_objects biome match to have more varied and biome-specific object types. Add new WorldObjectType variants as needed (SulfurVent, GiantMushroom, ShellDeposit, etc). Adjust spawn probabilities per biome. Add drop tables for new object types."
     },
     {
