@@ -276,8 +276,14 @@ fn update_status_hud(
         let buff_name = match buff.buff_type {
             BuffType::Speed => "Speed",
             BuffType::Strength => "Strength",
+            BuffType::Regen => "Regen",
         };
-        lines.push(format!("[BUFF] {} +{:.0}% ({:.0}s)", buff_name, (buff.magnitude - 1.0) * 100.0, buff.remaining));
+        let buff_display = if buff.buff_type == BuffType::Regen {
+            format!("[BUFF] {} +{:.1} HP/s ({:.0}s)", buff_name, buff.magnitude, buff.remaining)
+        } else {
+            format!("[BUFF] {} +{:.0}% ({:.0}s)", buff_name, (buff.magnitude - 1.0) * 100.0, buff.remaining)
+        };
+        lines.push(buff_display);
     }
 
     if !save_msg.text.is_empty() {

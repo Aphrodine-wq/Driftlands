@@ -90,6 +90,7 @@ impl Hunger {
 pub enum BuffType {
     Speed,
     Strength,
+    Regen,
 }
 
 /// A temporary buff applied to the player from a potion.
@@ -320,6 +321,31 @@ fn eat_food(
     if let Some(value) = food_value {
         if inventory.remove_items(item, 1) {
             hunger.eat(value);
+            // US-039: Cooked foods give temporary buffs
+            match item {
+                ItemType::CookedBerry => {
+                    commands.entity(player_entity).insert(ActiveBuff {
+                        buff_type: BuffType::Speed,
+                        remaining: 60.0,
+                        magnitude: 1.1,
+                    });
+                }
+                ItemType::BakedWheat => {
+                    commands.entity(player_entity).insert(ActiveBuff {
+                        buff_type: BuffType::Strength,
+                        remaining: 60.0,
+                        magnitude: 1.15,
+                    });
+                }
+                ItemType::CookedCarrot => {
+                    commands.entity(player_entity).insert(ActiveBuff {
+                        buff_type: BuffType::Regen,
+                        remaining: 90.0,
+                        magnitude: 0.2, // 0.2 HP per second = 2 HP per 10s
+                    });
+                }
+                _ => {}
+            }
         }
         return;
     }
@@ -355,10 +381,14 @@ fn eat_food(
 
 fn buff_tick(
     mut commands: Commands,
-    mut query: Query<(Entity, &mut ActiveBuff)>,
+    mut query: Query<(Entity, &mut ActiveBuff, &mut Health)>,
     time: Res<Time>,
 ) {
-    for (entity, mut buff) in query.iter_mut() {
+    for (entity, mut buff, mut health) in query.iter_mut() {
+        // Regen buff heals over time
+        if buff.buff_type == BuffType::Regen {
+            health.heal(buff.magnitude * time.delta_secs());
+        }
         buff.remaining -= time.delta_secs();
         if buff.remaining <= 0.0 {
             commands.entity(entity).remove::<ActiveBuff>();
