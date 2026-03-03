@@ -441,6 +441,12 @@ fn spawn_cave_spider(commands: &mut Commands, pos: Vec2) {
     let enemy_type = EnemyType::CaveSpider;
     let (health, damage, speed, aggro_range, color, size) = enemy_type.stats();
 
+    let mut rng = rand::thread_rng();
+    let patrol_dir = Vec2::new(
+        rng.gen_range(-1.0f32..1.0),
+        rng.gen_range(-1.0f32..1.0),
+    ).normalize_or_zero();
+
     commands.spawn((
         DungeonEnemy,
         Enemy {
@@ -453,6 +459,11 @@ fn spawn_cave_spider(commands: &mut Commands, pos: Vec2) {
             state: EnemyState::Idle,
             patrol_target: pos,
             attack_cooldown: Timer::from_seconds(1.0, TimerMode::Once),
+            detection_range: 120.0,
+            attack_cooldown_timer: 0.0,
+            patrol_direction: patrol_dir,
+            patrol_timer: rng.gen_range(2.0..4.0),
+            alert_timer: 0.0,
         },
         Sprite {
             color,
@@ -541,6 +552,12 @@ fn spawn_dungeon_boss(commands: &mut Commands, pos: Vec2, biome: Biome) {
 
     let boss_name = format!("{:?}", boss_type);
 
+    let mut rng = rand::thread_rng();
+    let patrol_dir = Vec2::new(
+        rng.gen_range(-1.0f32..1.0),
+        rng.gen_range(-1.0f32..1.0),
+    ).normalize_or_zero();
+
     commands.spawn((
         DungeonEnemy,
         Enemy {
@@ -553,6 +570,11 @@ fn spawn_dungeon_boss(commands: &mut Commands, pos: Vec2, biome: Biome) {
             state: EnemyState::Idle,
             patrol_target: pos,
             attack_cooldown: Timer::from_seconds(1.5, TimerMode::Once),
+            detection_range: 200.0,
+            attack_cooldown_timer: 0.0,
+            patrol_direction: patrol_dir,
+            patrol_timer: rng.gen_range(2.0..4.0),
+            alert_timer: 0.0,
         },
         Boss {
             name: boss_name,

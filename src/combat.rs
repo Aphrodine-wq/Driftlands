@@ -13,6 +13,7 @@ use crate::camera::ScreenShake;
 use crate::death::DeathStats;
 use crate::particles::SpawnParticlesEvent;
 use crate::audio::SoundEvent;
+use crate::hud::spawn_floating_text;
 
 pub struct CombatPlugin;
 
@@ -56,6 +57,16 @@ pub struct Enemy {
     pub state: EnemyState,
     pub patrol_target: Vec2,
     pub attack_cooldown: Timer,
+    /// How far the enemy can detect the player (default 120, bosses 200).
+    pub detection_range: f32,
+    /// Cooldown timer for attack state (seconds remaining).
+    pub attack_cooldown_timer: f32,
+    /// Current patrol movement direction.
+    pub patrol_direction: Vec2,
+    /// Time remaining in current patrol direction (seconds).
+    pub patrol_timer: f32,
+    /// Timer used for the Alert pause before transitioning to Chase.
+    pub alert_timer: f32,
 }
 
 /// Marks an enemy as a boss and carries its name and loot table.
@@ -155,7 +166,9 @@ pub fn boss_for_biome(biome: Biome) -> EnemyType {
 pub enum EnemyState {
     Idle,
     Patrol,
+    Alert,
     Chase,
+    Attack,
 }
 
 #[derive(Component)]
@@ -241,6 +254,11 @@ fn spawn_night_enemies(
     let dist = rng.gen_range(300.0..500.0);
     let spawn_pos = player_pos + Vec2::new(angle.cos(), angle.sin()) * dist;
 
+    let patrol_dir = Vec2::new(
+        rng.gen_range(-1.0f32..1.0),
+        rng.gen_range(-1.0f32..1.0),
+    ).normalize_or_zero();
+
     commands.spawn((
         Enemy {
             enemy_type,
@@ -252,6 +270,11 @@ fn spawn_night_enemies(
             state: EnemyState::Idle,
             patrol_target: spawn_pos,
             attack_cooldown: Timer::from_seconds(1.0, TimerMode::Once),
+            detection_range: 120.0,
+            attack_cooldown_timer: 0.0,
+            patrol_direction: patrol_dir,
+            patrol_timer: rng.gen_range(2.0..4.0),
+            alert_timer: 0.0,
         },
         Sprite {
             color,
@@ -288,26 +311,25 @@ fn enemy_ai(
     let player_pos = player_tf.translation.truncate();
 
     let mut rng = rand::thread_rng();
+    let dt = time.delta_secs();
 
     for (mut enemy, mut tf, mut maybe_boss) in enemy_query.iter_mut() {
         let enemy_pos = tf.translation.truncate();
         let dist_to_player = enemy_pos.distance(player_pos);
 
-        // State transitions
+        // Tick attack cooldown timer
+        if enemy.attack_cooldown_timer > 0.0 {
+            enemy.attack_cooldown_timer -= dt;
+        }
+
+        // State machine
         match enemy.state {
             EnemyState::Idle => {
-                // Pick a patrol target
-                let offset = Vec2::new(
-                    rng.gen_range(-100.0..100.0),
-                    rng.gen_range(-100.0..100.0),
-                );
-                enemy.patrol_target = enemy_pos + offset;
-                enemy.state = EnemyState::Patrol;
-            }
-            EnemyState::Patrol => {
-                if dist_to_player <= enemy.aggro_range {
-                    enemy.state = EnemyState::Chase;
-                    // Boss roar on first Chase
+                // Check if player is within detection range
+                if dist_to_player <= enemy.detection_range {
+                    enemy.state = EnemyState::Alert;
+                    enemy.alert_timer = 0.5;
+                    // Boss roar on first alert
                     if let Some(ref mut boss) = maybe_boss {
                         if !boss.has_roared {
                             boss.has_roared = true;
@@ -315,9 +337,30 @@ fn enemy_ai(
                         }
                     }
                 } else {
-                    // Move toward patrol target at half speed
-                    let dir = (enemy.patrol_target - enemy_pos).normalize_or_zero();
-                    let move_delta = dir * enemy.speed * 0.5 * time.delta_secs();
+                    // Transition to patrol with a random direction
+                    enemy.patrol_direction = Vec2::new(
+                        rng.gen_range(-1.0f32..1.0),
+                        rng.gen_range(-1.0f32..1.0),
+                    ).normalize_or_zero();
+                    enemy.patrol_timer = rng.gen_range(2.0..4.0);
+                    enemy.state = EnemyState::Patrol;
+                }
+            }
+            EnemyState::Patrol => {
+                // Check if player is within detection range
+                if dist_to_player <= enemy.detection_range {
+                    enemy.state = EnemyState::Alert;
+                    enemy.alert_timer = 0.5;
+                    // Boss roar on first alert
+                    if let Some(ref mut boss) = maybe_boss {
+                        if !boss.has_roared {
+                            boss.has_roared = true;
+                            sound_events.send(SoundEvent::BossRoar);
+                        }
+                    }
+                } else {
+                    // Move in patrol direction at half speed
+                    let move_delta = enemy.patrol_direction * enemy.speed * 0.5 * dt;
                     let new_x = tf.translation.x + move_delta.x;
                     let new_y = tf.translation.y + move_delta.y;
                     if !is_blocked_by_building_enemy(new_x, new_y, &building_query) {
@@ -325,19 +368,40 @@ fn enemy_ai(
                         tf.translation.y = new_y;
                     }
 
-                    // If close to target, go idle again
-                    if enemy_pos.distance(enemy.patrol_target) < 10.0 {
-                        enemy.state = EnemyState::Idle;
+                    // Decrement patrol timer; pick new direction when expired
+                    enemy.patrol_timer -= dt;
+                    if enemy.patrol_timer <= 0.0 {
+                        enemy.patrol_direction = Vec2::new(
+                            rng.gen_range(-1.0f32..1.0),
+                            rng.gen_range(-1.0f32..1.0),
+                        ).normalize_or_zero();
+                        enemy.patrol_timer = rng.gen_range(2.0..4.0);
                     }
                 }
             }
+            EnemyState::Alert => {
+                // Pause for alert_timer seconds, then transition to Chase
+                enemy.alert_timer -= dt;
+                if enemy.alert_timer <= 0.0 {
+                    enemy.state = EnemyState::Chase;
+                }
+            }
             EnemyState::Chase => {
-                if dist_to_player > 250.0 {
+                // If player is outside detection_range + 80, lose interest
+                if dist_to_player > enemy.detection_range + 80.0 {
+                    enemy.patrol_direction = Vec2::new(
+                        rng.gen_range(-1.0f32..1.0),
+                        rng.gen_range(-1.0f32..1.0),
+                    ).normalize_or_zero();
+                    enemy.patrol_timer = rng.gen_range(2.0..4.0);
                     enemy.state = EnemyState::Patrol;
+                } else if dist_to_player <= 24.0 {
+                    // Within attack range — transition to Attack
+                    enemy.state = EnemyState::Attack;
                 } else {
                     // Move toward player at full speed
                     let dir = (player_pos - enemy_pos).normalize_or_zero();
-                    let move_delta = dir * enemy.speed * time.delta_secs();
+                    let move_delta = dir * enemy.speed * dt;
                     let new_x = tf.translation.x + move_delta.x;
                     let new_y = tf.translation.y + move_delta.y;
                     if !is_blocked_by_building_enemy(new_x, new_y, &building_query) {
@@ -345,6 +409,14 @@ fn enemy_ai(
                         tf.translation.y = new_y;
                     }
                 }
+            }
+            EnemyState::Attack => {
+                // Damage is applied by the separate `enemy_attack_player` system.
+                // Set cooldown and transition back to Chase.
+                if enemy.attack_cooldown_timer <= 0.0 {
+                    enemy.attack_cooldown_timer = 1.0;
+                }
+                enemy.state = EnemyState::Chase;
             }
         }
     }
@@ -523,6 +595,14 @@ fn player_attack(
         // Sound: hit
         sound_events.send(SoundEvent::Hit);
 
+        // US-028: Floating damage number at enemy position
+        spawn_floating_text(
+            &mut commands,
+            &format!("-{:.0}", damage),
+            enemy_tf.translation.truncate(),
+            Color::srgb(1.0, 0.3, 0.3),
+        );
+
         if enemy.health <= 0.0 {
             killed = true;
         }
@@ -575,18 +655,27 @@ fn enemy_attack_player(
     let mut took_damage = false;
 
     for (mut enemy, tf) in enemy_query.iter_mut() {
-        if enemy.state != EnemyState::Chase {
+        // Only deal damage from Chase or Attack states (enemies close to player)
+        if enemy.state != EnemyState::Chase && enemy.state != EnemyState::Attack {
             continue;
         }
 
         enemy.attack_cooldown.tick(time.delta());
 
         let dist = player_pos.distance(tf.translation.truncate());
-        if dist <= 20.0 && enemy.attack_cooldown.finished() {
+        if dist <= 24.0 && enemy.attack_cooldown.finished() {
             let final_damage = (enemy.damage - total_armor as f32).max(1.0);
             health.take_damage(final_damage);
             enemy.attack_cooldown.reset();
             took_damage = true;
+
+            // US-028: Floating damage number at player position
+            spawn_floating_text(
+                &mut commands,
+                &format!("-{:.0}", final_damage),
+                player_pos,
+                Color::srgb(1.0, 0.3, 0.3),
+            );
         }
     }
 
@@ -706,6 +795,14 @@ fn projectile_hit(
 
                 // Sound: ranged hit
                 sound_events.send(SoundEvent::Hit);
+
+                // US-028: Floating damage number at enemy position
+                spawn_floating_text(
+                    &mut commands,
+                    &format!("-{:.0}", proj.damage),
+                    enemy_tf.translation.truncate(),
+                    Color::srgb(1.0, 0.3, 0.3),
+                );
 
                 commands.entity(proj_entity).despawn();
                 if enemy.health <= 0.0 {

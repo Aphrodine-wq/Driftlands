@@ -8,18 +8,21 @@ use crate::inventory::{Inventory, InventorySlot, ItemType};
 use crate::world::chunk::{Chunk, CHUNK_SIZE};
 use crate::world::tile::TileType;
 use crate::world::WorldState;
+use crate::world::TILE_SIZE;
 use crate::daynight::DayNightCycle;
 use crate::building::{Building, BuildingType, ChestStorage, CraftingStation, Door, Roof};
 use crate::techtree::TechTree;
 use crate::lore::LoreRegistry;
 use crate::death::SpawnPoint;
 use crate::minimap::ExploredChunks;
+use crate::farming::{FarmPlot, CropType};
 
 pub struct SaveLoadPlugin;
 
 impl Plugin for SaveLoadPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SaveMessage::default())
+            .insert_resource(LoadRequested::default())
             .add_systems(Update, (handle_save_input, handle_load_input, update_save_message));
     }
 }
@@ -30,6 +33,12 @@ const SAVE_PATH: &str = "saves/world.bin";
 pub struct SaveMessage {
     pub text: String,
     pub timer: f32,
+}
+
+/// Set `requested = true` to trigger a load on the next frame (used by the main menu).
+#[derive(Resource, Default)]
+pub struct LoadRequested {
+    pub requested: bool,
 }
 
 // --- Serializable State ---
@@ -70,6 +79,12 @@ struct SaveData {
     // US-007: Explored chunks
     #[serde(default)]
     explored_chunks: Vec<(i32, i32)>,
+    // US-026: Chest contents
+    #[serde(default)]
+    chests: Vec<SaveChestData>,
+    // US-026: Farm plots
+    #[serde(default)]
+    farms: Vec<SaveFarmData>,
 }
 
 fn default_spawn_point() -> (f32, f32) {
@@ -96,6 +111,28 @@ struct SaveBuilding {
     building_type: SaveBuildingType,
     pos: [f32; 3],
     is_door_open: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct SaveChestData {
+    x: f32,
+    y: f32,
+    slots: Vec<Option<SaveItemSlot>>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct SaveItemSlot {
+    item: ItemType,
+    count: u32,
+    durability: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct SaveFarmData {
+    x: f32,
+    y: f32,
+    crop_name: String,
+    growth: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
@@ -184,6 +221,8 @@ fn handle_save_input(
     lore_registry: Res<LoreRegistry>,
     spawn_point: Res<SpawnPoint>,
     explored: Res<ExploredChunks>,
+    chest_query: Query<(&ChestStorage, &Transform), Without<Player>>,
+    farm_query: Query<(&FarmPlot, &Transform), Without<Player>>,
 ) {
     if !keyboard.just_pressed(KeyCode::F5) {
         return;
@@ -235,6 +274,33 @@ fn handle_save_input(
         spawn_point: (spawn_point.position.x, spawn_point.position.y),
         // US-007: Explored chunks
         explored_chunks: explored.chunks.iter().map(|v| (v.x, v.y)).collect(),
+        // US-026: Chest contents
+        chests: chest_query.iter().map(|(chest, tf)| {
+            SaveChestData {
+                x: tf.translation.x,
+                y: tf.translation.y,
+                slots: chest.slots.iter().map(|s| {
+                    s.as_ref().map(|slot| SaveItemSlot {
+                        item: slot.item,
+                        count: slot.count,
+                        durability: slot.durability,
+                    })
+                }).collect(),
+            }
+        }).collect(),
+        // US-026: Farm plots
+        farms: farm_query.iter().map(|(plot, tf)| {
+            SaveFarmData {
+                x: tf.translation.x,
+                y: tf.translation.y,
+                crop_name: match plot.crop {
+                    Some(CropType::Wheat) => "Wheat".to_string(),
+                    Some(CropType::Carrot) => "Carrot".to_string(),
+                    None => "None".to_string(),
+                },
+                growth: plot.growth,
+            }
+        }).collect(),
     };
 
     // Create directory
@@ -283,6 +349,7 @@ fn handle_load_input(
     mut cycle: ResMut<DayNightCycle>,
     mut commands: Commands,
     building_entities: Query<Entity, With<Building>>,
+    farm_entities: Query<Entity, With<FarmPlot>>,
     mut save_msg: ResMut<SaveMessage>,
     mut world_state: ResMut<WorldState>,
     mut tech_tree: ResMut<TechTree>,
@@ -290,8 +357,12 @@ fn handle_load_input(
     mut lore_registry: ResMut<LoreRegistry>,
     mut spawn_point: ResMut<SpawnPoint>,
     mut explored: ResMut<ExploredChunks>,
+    mut load_requested: ResMut<LoadRequested>,
 ) {
-    if !keyboard.just_pressed(KeyCode::F9) {
+    // Trigger on F9 key or programmatic request (e.g. from main menu)
+    if load_requested.requested {
+        load_requested.requested = false;
+    } else if !keyboard.just_pressed(KeyCode::F9) {
         return;
     }
 
@@ -366,8 +437,60 @@ fn handle_load_input(
             entity_commands.insert(CraftingStation { tier });
         }
         if matches!(bt, BuildingType::Chest) {
-            entity_commands.insert(ChestStorage::new());
+            // US-026: Restore chest contents by matching position
+            let mut chest = ChestStorage::new();
+            for sc in &save_data.chests {
+                if (sc.x - sb.pos[0]).abs() < 1.0 && (sc.y - sb.pos[1]).abs() < 1.0 {
+                    chest.slots = sc.slots.iter().map(|s| {
+                        s.as_ref().map(|slot| InventorySlot {
+                            item: slot.item,
+                            count: slot.count,
+                            durability: slot.durability,
+                        })
+                    }).collect();
+                    // Pad to 18 slots if needed
+                    while chest.slots.len() < 18 {
+                        chest.slots.push(None);
+                    }
+                    break;
+                }
+            }
+            entity_commands.insert(chest);
         }
+    }
+
+    // US-026: Remove existing farm plots
+    for entity in farm_entities.iter() {
+        commands.entity(entity).despawn();
+    }
+
+    // US-026: Restore farm plots
+    for sf in &save_data.farms {
+        let crop = match sf.crop_name.as_str() {
+            "Wheat" => Some(CropType::Wheat),
+            "Carrot" => Some(CropType::Carrot),
+            _ => None,
+        };
+        let plot = FarmPlot { crop, growth: sf.growth };
+        let color = match crop {
+            Some(ct) => {
+                if sf.growth >= 1.0 {
+                    ct.mature_color()
+                } else {
+                    ct.growing_color()
+                }
+            }
+            None => Color::srgb(0.45, 0.28, 0.12),
+        };
+        commands.spawn((
+            plot,
+            Sprite {
+                color,
+                custom_size: Some(Vec2::new(TILE_SIZE - 2.0, TILE_SIZE - 2.0)),
+                ..default()
+            },
+            Transform::from_xyz(sf.x, sf.y, 1.5),
+        ));
     }
 
     // Restore day/night

@@ -11,23 +11,40 @@ use crate::npc::{TradeMenu, Trader, HermitDialogueDisplay};
 use crate::lore::{LoreRegistry, LoreMessage};
 use crate::experiment::{ExperimentSlots, ExperimentMessage};
 use crate::techtree::TechTree;
+use crate::world::generation::Biome;
+use crate::world::chunk::Chunk;
+use crate::world::{CHUNK_WORLD_SIZE};
+use crate::mainmenu::MainMenuActive;
 
 #[derive(Resource, Default)]
 pub struct PauseState {
     pub paused: bool,
 }
 
-/// Run condition: returns `true` when the game is NOT paused.
+/// Run condition: returns `true` when the game is NOT paused and the main menu is not active.
 /// Use with `.run_if(not_paused)` to gate gameplay systems.
-pub fn not_paused(pause: Res<PauseState>) -> bool {
-    !pause.paused
+pub fn not_paused(pause: Res<PauseState>, menu: Res<MainMenuActive>) -> bool {
+    !pause.paused && !menu.active
 }
+
+/// Tracks the biome the player is currently standing in.
+#[derive(Resource, Default)]
+pub struct CurrentBiome {
+    pub biome: Option<Biome>,
+    /// Countdown timer for displaying the biome name banner.
+    pub display_timer: f32,
+}
+
+/// Marker for the biome name banner text entity.
+#[derive(Component)]
+pub struct BiomeBannerText;
 
 pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PauseState::default())
+            .insert_resource(CurrentBiome::default())
             .add_systems(Startup, spawn_hud)
             .add_systems(Update, (
                 toggle_pause,
@@ -36,6 +53,9 @@ impl Plugin for HudPlugin {
                 update_npc_hud,
                 update_feedback_hud,
                 update_inventory_panel,
+                track_player_biome,
+                update_biome_banner,
+                floating_text_system,
             ));
     }
 }
@@ -163,6 +183,23 @@ fn spawn_hud(mut commands: Commands) {
             ..default()
         },
     ));
+
+    // Biome name banner — large centered text (US-029)
+    commands.spawn((
+        BiomeBannerText,
+        Text::new(""),
+        TextFont {
+            font_size: 36.0,
+            ..default()
+        },
+        TextColor(Color::srgba(1.0, 1.0, 1.0, 0.0)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Percent(30.0),
+            left: Val::Percent(50.0),
+            ..default()
+        },
+    ));
 }
 
 fn toggle_pause(
@@ -171,7 +208,12 @@ fn toggle_pause(
     mut cycle: ResMut<crate::daynight::DayNightCycle>,
     chest_ui: Res<ChestUI>,
     trade_menu: Res<TradeMenu>,
+    menu: Res<MainMenuActive>,
 ) {
+    // Don't toggle pause while main menu is active
+    if menu.active {
+        return;
+    }
     if keyboard.just_pressed(KeyCode::Escape) {
         // Don't toggle pause when closing a modal UI with Escape
         if chest_ui.is_open || trade_menu.is_open {
@@ -647,4 +689,129 @@ fn update_inventory_panel(
     lines.push("[1-9] Select hotbar  [Tab/I] Close".to_string());
 
     **text = lines.join("\n");
+}
+
+/// Returns a human-readable name for a biome.
+fn biome_display_name(biome: Biome) -> &'static str {
+    match biome {
+        Biome::Forest => "Forest",
+        Biome::Coastal => "Coastal",
+        Biome::Swamp => "Swamp",
+        Biome::Desert => "Desert",
+        Biome::Tundra => "Tundra",
+        Biome::Volcanic => "Volcanic Wastes",
+        Biome::Fungal => "Fungal Groves",
+        Biome::CrystalCave => "Crystal Caverns",
+        Biome::Mountain => "Mountains",
+    }
+}
+
+/// Determines which biome the player is currently standing in and starts
+/// the banner timer whenever the biome changes.
+fn track_player_biome(
+    player_query: Query<&Transform, With<Player>>,
+    chunk_query: Query<&Chunk>,
+    mut current_biome: ResMut<CurrentBiome>,
+) {
+    let Ok(player_tf) = player_query.get_single() else { return };
+
+    let chunk_x = (player_tf.translation.x / CHUNK_WORLD_SIZE).floor() as i32;
+    let chunk_y = (player_tf.translation.y / CHUNK_WORLD_SIZE).floor() as i32;
+
+    for chunk in chunk_query.iter() {
+        if chunk.position.x == chunk_x && chunk.position.y == chunk_y {
+            let new_biome = chunk.biome;
+            if current_biome.biome != Some(new_biome) {
+                current_biome.biome = Some(new_biome);
+                current_biome.display_timer = 3.0; // Show banner for 3 seconds
+            }
+            return;
+        }
+    }
+}
+
+/// Fades the biome banner text over 3 seconds and hides it when done.
+fn update_biome_banner(
+    time: Res<Time>,
+    mut current_biome: ResMut<CurrentBiome>,
+    mut banner_query: Query<(&mut Text, &mut TextColor), With<BiomeBannerText>>,
+) {
+    let Ok((mut text, mut color)) = banner_query.get_single_mut() else { return };
+
+    if current_biome.display_timer > 0.0 {
+        // Set text to biome name
+        if let Some(biome) = current_biome.biome {
+            **text = biome_display_name(biome).to_string();
+        }
+
+        // Fade: full opacity for first 2 seconds, then fade out over the last 1 second
+        let alpha = if current_biome.display_timer > 1.0 {
+            1.0
+        } else {
+            current_biome.display_timer
+        };
+        *color = TextColor(Color::srgba(1.0, 1.0, 1.0, alpha));
+
+        current_biome.display_timer -= time.delta_secs();
+    } else {
+        // Hide banner
+        *color = TextColor(Color::srgba(1.0, 1.0, 1.0, 0.0));
+        **text = String::new();
+    }
+}
+
+// --- US-028: Floating Text ---
+
+/// World-space floating text that drifts upward and fades out.
+/// Used for damage numbers, item pickup notifications, etc.
+#[derive(Component)]
+pub struct FloatingText {
+    pub timer: f32,
+    pub max_timer: f32,
+    pub velocity: Vec2,
+}
+
+/// Spawns a floating text entity in world space at the given position.
+pub fn spawn_floating_text(commands: &mut Commands, text: &str, position: Vec2, color: Color) {
+    commands.spawn((
+        FloatingText {
+            timer: 1.5,
+            max_timer: 1.5,
+            velocity: Vec2::new(0.0, 30.0),
+        },
+        Text2d::new(text.to_string()),
+        TextFont {
+            font_size: 14.0,
+            ..default()
+        },
+        TextColor(color),
+        Transform::from_xyz(position.x, position.y + 8.0, 100.0),
+    ));
+}
+
+/// Moves floating text upward, fades alpha, and despawns when expired.
+fn floating_text_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut FloatingText, &mut Transform, &mut TextColor)>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut ft, mut tf, mut color) in query.iter_mut() {
+        // Move upward
+        tf.translation.x += ft.velocity.x * dt;
+        tf.translation.y += ft.velocity.y * dt;
+
+        // Decrease timer
+        ft.timer -= dt;
+
+        // Fade alpha based on remaining time
+        let alpha = (ft.timer / ft.max_timer).clamp(0.0, 1.0);
+        let c = color.0.to_srgba();
+        color.0 = Color::srgba(c.red, c.green, c.blue, alpha);
+
+        // Despawn when done
+        if ft.timer <= 0.0 {
+            commands.entity(entity).despawn();
+        }
+    }
 }

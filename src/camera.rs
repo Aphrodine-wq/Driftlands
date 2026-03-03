@@ -27,6 +27,8 @@ pub struct GameCamera {
 const MIN_ZOOM: f32 = 0.5;
 const MAX_ZOOM: f32 = 3.0;
 const CAMERA_LERP_SPEED: f32 = 5.0;
+const DEAD_ZONE: f32 = 32.0;
+const TELEPORT_THRESHOLD: f32 = 500.0;
 
 fn spawn_camera(mut commands: Commands) {
     commands.spawn((
@@ -45,16 +47,25 @@ fn camera_follow(
     let Ok(player_tf) = player_query.get_single() else { return };
     let Ok(mut cam_tf) = camera_query.get_single_mut() else { return };
 
-    let target = Vec3::new(
-        player_tf.translation.x,
-        player_tf.translation.y,
-        cam_tf.translation.z,
+    let delta = Vec2::new(
+        player_tf.translation.x - cam_tf.translation.x,
+        player_tf.translation.y - cam_tf.translation.y,
     );
-    cam_tf.translation = cam_tf
-        .translation
-        .lerp(target, CAMERA_LERP_SPEED * time.delta_secs());
+    let distance = delta.length();
 
-    // Apply screen shake
+    if distance > TELEPORT_THRESHOLD {
+        // Instant snap for teleports (dungeon enter/exit)
+        cam_tf.translation.x = player_tf.translation.x;
+        cam_tf.translation.y = player_tf.translation.y;
+    } else if distance >= DEAD_ZONE {
+        // Smooth lerp toward player
+        let dt = time.delta_secs();
+        cam_tf.translation.x += delta.x * CAMERA_LERP_SPEED * dt;
+        cam_tf.translation.y += delta.y * CAMERA_LERP_SPEED * dt;
+    }
+    // If distance < DEAD_ZONE, don't move camera (dead zone)
+
+    // Apply screen shake offset AFTER the lerp
     if shake.timer > 0.0 {
         let mut rng = rand::thread_rng();
         let offset_x = rng.gen_range(-shake.intensity..shake.intensity);

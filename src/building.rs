@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 use crate::player::Player;
 use crate::inventory::{Inventory, InventorySlot, ItemType};
-use crate::world::TILE_SIZE;
+use crate::world::{TILE_SIZE, CHUNK_WORLD_SIZE};
+use crate::world::chunk::{Chunk, CHUNK_SIZE};
 use crate::crafting::CraftingTier;
 use crate::audio::SoundEvent;
 
@@ -29,6 +30,7 @@ impl Plugin for BuildingPlugin {
 pub struct BuildingState {
     pub active: bool,
     pub selected_type: BuildingType,
+    pub placement_valid: bool,
 }
 
 impl Default for BuildingState {
@@ -36,6 +38,7 @@ impl Default for BuildingState {
         Self {
             active: false,
             selected_type: BuildingType::WoodFloor,
+            placement_valid: true,
         }
     }
 }
@@ -293,9 +296,11 @@ fn cycle_building_type(
 
 fn update_build_preview(
     mut commands: Commands,
-    building_state: Res<BuildingState>,
+    mut building_state: ResMut<BuildingState>,
     player_query: Query<&Transform, With<Player>>,
     preview_query: Query<Entity, With<BuildPreview>>,
+    chunk_query: Query<&Chunk>,
+    building_query: Query<&Transform, (With<Building>, Without<Player>, Without<BuildPreview>)>,
 ) {
     for entity in preview_query.iter() {
         commands.entity(entity).despawn();
@@ -311,8 +316,43 @@ fn update_build_preview(
     let snapped_y = (player_tf.translation.y / TILE_SIZE).round() * TILE_SIZE;
 
     let bt = building_state.selected_type;
-    let mut color = bt.color();
-    color = color.with_alpha(0.5);
+
+    // --- Placement validation ---
+    let mut valid = true;
+
+    // Check if tile at preview position is walkable
+    let chunk_x = (snapped_x / CHUNK_WORLD_SIZE).floor() as i32;
+    let chunk_y = (snapped_y / CHUNK_WORLD_SIZE).floor() as i32;
+    let tile_x = ((snapped_x / TILE_SIZE).floor() as i32 - chunk_x * CHUNK_SIZE as i32).clamp(0, CHUNK_SIZE as i32 - 1) as usize;
+    let tile_y = ((snapped_y / TILE_SIZE).floor() as i32 - chunk_y * CHUNK_SIZE as i32).clamp(0, CHUNK_SIZE as i32 - 1) as usize;
+
+    for chunk in chunk_query.iter() {
+        if chunk.position.x == chunk_x && chunk.position.y == chunk_y {
+            if !chunk.get_tile(tile_x, tile_y).is_walkable() {
+                valid = false;
+            }
+            break;
+        }
+    }
+
+    // Check if any existing building overlaps the preview position (within 8px)
+    if valid {
+        for tf in building_query.iter() {
+            let dist = Vec2::new(snapped_x, snapped_y).distance(tf.translation.truncate());
+            if dist < 8.0 {
+                valid = false;
+                break;
+            }
+        }
+    }
+
+    building_state.placement_valid = valid;
+
+    let color = if valid {
+        Color::srgba(1.0, 1.0, 1.0, 0.4)
+    } else {
+        Color::srgba(0.8, 0.2, 0.2, 0.5)
+    };
 
     commands.spawn((
         BuildPreview,
@@ -334,6 +374,11 @@ fn place_building(
     mut sound_events: EventWriter<SoundEvent>,
 ) {
     if !building_state.active || !mouse.just_pressed(MouseButton::Right) {
+        return;
+    }
+
+    // Don't place if the preview position is invalid
+    if !building_state.placement_valid {
         return;
     }
 

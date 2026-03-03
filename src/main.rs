@@ -21,6 +21,7 @@ mod lore;
 mod experiment;
 mod particles;
 mod audio;
+mod mainmenu;
 
 use bevy::prelude::*;
 
@@ -65,6 +66,7 @@ fn main() {
             experiment::ExperimentPlugin,
             particles::ParticlePlugin,
             audio::GameAudioPlugin,
+            mainmenu::MainMenuPlugin,
         ))
         .run();
 }

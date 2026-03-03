@@ -10,6 +10,7 @@ use crate::combat::Enemy;
 use crate::particles::SpawnParticlesEvent;
 use crate::world::generation::WorldGenerator;
 use crate::audio::SoundEvent;
+use crate::hud::spawn_floating_text;
 
 pub struct GatheringPlugin;
 
@@ -402,6 +403,18 @@ fn pickup_dropped_items(
         if dist <= 8.0 {
             inventory.add_item(dropped.item, dropped.count);
             sound_events.send(SoundEvent::Pickup);
+            // US-028: Floating text for item pickup
+            let pickup_text = if dropped.count > 1 {
+                format!("+{} {}", dropped.count, dropped.item.display_name())
+            } else {
+                format!("+1 {}", dropped.item.display_name())
+            };
+            spawn_floating_text(
+                &mut commands,
+                &pickup_text,
+                Vec2::new(tf.translation.x, dropped.base_y),
+                Color::WHITE,
+            );
             commands.entity(entity).despawn();
         }
     }
