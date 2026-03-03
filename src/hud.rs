@@ -8,6 +8,7 @@ use crate::saveload::SaveMessage;
 use crate::season::SeasonCycle;
 use crate::weather::WeatherSystem;
 use crate::npc::{TradeMenu, Trader, HermitDialogueDisplay};
+use crate::controls::ControlsOverlay;
 use crate::lore::{LoreRegistry, LoreMessage};
 use crate::experiment::{ExperimentSlots, ExperimentMessage};
 use crate::techtree::TechTree;
@@ -209,6 +210,7 @@ fn toggle_pause(
     chest_ui: Res<ChestUI>,
     trade_menu: Res<TradeMenu>,
     menu: Res<MainMenuActive>,
+    controls_overlay: Res<ControlsOverlay>,
 ) {
     // Don't toggle pause while main menu is active
     if menu.active {
@@ -216,7 +218,7 @@ fn toggle_pause(
     }
     if keyboard.just_pressed(KeyCode::Escape) {
         // Don't toggle pause when closing a modal UI with Escape
-        if chest_ui.is_open || trade_menu.is_open {
+        if chest_ui.is_open || trade_menu.is_open || controls_overlay.is_visible {
             return;
         }
         pause_state.paused = !pause_state.paused;

@@ -23,6 +23,7 @@ mod particles;
 mod audio;
 mod mainmenu;
 mod tutorial;
+mod controls;
 
 use bevy::prelude::*;
 
@@ -69,6 +70,7 @@ fn main() {
             audio::GameAudioPlugin,
             mainmenu::MainMenuPlugin,
             tutorial::TutorialPlugin,
+            controls::ControlsPlugin,
         ))
         .run();
 }
