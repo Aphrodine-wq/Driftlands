@@ -1,27 +1,27 @@
 {
   "project": "Driftlands",
   "branchName": "ralph/full-game-pass",
-  "description": "Complete game pass — fix all broken wiring, add missing features, build real UI, add audio foundation, and implement game feel. Transform the scaffold into a playable game.",
+  "description": "Complete game pass \u2014 fix all broken wiring, add missing features, build real UI, add audio foundation, and implement game feel. Transform the scaffold into a playable game.",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Fix pause system — actually pause all gameplay systems",
+      "title": "Fix pause system \u2014 actually pause all gameplay systems",
       "description": "As a player, I want the game to truly pause when I press Escape so that enemies stop attacking and time stops.",
       "acceptanceCriteria": [
         "Add a not_paused() run condition function that reads PauseState resource",
         "Guard player_movement, player_attack, enemy_ai, enemy_spawn, enemy_despawn, gather_resources, farming growth, and weather systems with .run_if(not_paused)",
-        "DayNightCycle already has .paused field — ensure it is checked in the daynight update system",
+        "DayNightCycle already has .paused field \u2014 ensure it is checked in the daynight update system",
         "Combat damage, projectile movement, and NPC systems also gated by not_paused",
         "HUD rendering systems are NOT paused (menu must still render)",
         "Typecheck passes"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "Create pub fn not_paused(pause: Res<PauseState>) -> bool { !pause.paused } in hud.rs and export it. Add .run_if(not_paused) to all gameplay system registrations in each plugin's build() method. Do NOT pause camera, HUD, save/load, or pause toggle systems."
     },
     {
       "id": "US-002",
-      "title": "Fix tech tree — connect unlocked recipes to crafting system",
+      "title": "Fix tech tree \u2014 connect unlocked recipes to crafting system",
       "description": "As a player, I want blueprints and research to actually gate crafting recipes so that progression matters.",
       "acceptanceCriteria": [
         "Add an optional tech_key: Option<&'static str> field to the Recipe struct in crafting.rs",
@@ -32,12 +32,12 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Add tech_key field to Recipe struct. Update CraftingSystem::new() to set tech_key on the ~12 advanced recipes. Modify available_recipes() to take &TechTree and filter. Update handle_crafting_input to pass TechTree to available_recipes(). The existing TechTree.is_unlocked() method already works."
     },
     {
       "id": "US-003",
-      "title": "Fix crafting station proximity — check placed buildings not inventory",
+      "title": "Fix crafting station proximity \u2014 check placed buildings not inventory",
       "description": "As a player, I want crafting to require standing near a placed workbench/forge rather than carrying it in my inventory.",
       "acceptanceCriteria": [
         "Add CraftingStation { tier: CraftingTier } component to building.rs",
@@ -49,12 +49,12 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Add CraftingStation component. In building.rs place_building system, add CraftingStation when the BuildingType corresponds to a station. In crafting.rs handle_crafting_input, add Query<(&CraftingStation, &Transform)> parameter, compute distances to player, build HashSet<CraftingTier> from nearby stations."
     },
     {
       "id": "US-004",
-      "title": "Fix dungeon room connectivity — add doorways between rooms",
+      "title": "Fix dungeon room connectivity \u2014 add doorways between rooms",
       "description": "As a player, I want to walk between dungeon rooms instead of being trapped in isolated boxes.",
       "acceptanceCriteria": [
         "Dungeon rooms have 2-tile-wide doorway openings on the sides connecting to adjacent rooms",
@@ -65,12 +65,12 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": "In generate_dungeon, after spawning each room's walls, calculate doorway positions. Modify spawn_room_walls to skip wall tiles at the doorway location. Add spawn_corridor function that fills the gap between rooms with floor tiles. The gap_tiles=2 already exists — just need floor tiles in the gap and wall openings."
+      "passes": true,
+      "notes": "In generate_dungeon, after spawning each room's walls, calculate doorway positions. Modify spawn_room_walls to skip wall tiles at the doorway location. Add spawn_corridor function that fills the gap between rooms with floor tiles. The gap_tiles=2 already exists \u2014 just need floor tiles in the gap and wall openings."
     },
     {
       "id": "US-005",
-      "title": "Fix hermit spawning — add hermits to world generation",
+      "title": "Fix hermit spawning \u2014 add hermits to world generation",
       "description": "As a player, I want to find hermit NPCs in the world so that I can hear lore and get rare trades.",
       "acceptanceCriteria": [
         "spawn_hermit is called from world/mod.rs spawn_chunk_objects for appropriate biomes",
@@ -81,12 +81,12 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "In world/mod.rs spawn_chunk_objects, add a hermit spawn check similar to dungeon entrance. Use position_hash with a unique offset. Call npc::spawn_hermit(). Make sure spawn_hermit is pub. Add ChunkObject component to hermit entities."
     },
     {
       "id": "US-006",
-      "title": "Fix save/load — persist world seed",
+      "title": "Fix save/load \u2014 persist world seed",
       "description": "As a player, I want my world to look the same after loading a save so that chunks regenerate correctly.",
       "acceptanceCriteria": [
         "SaveData struct includes a seed: u32 field",
@@ -97,13 +97,13 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "Add seed field to SaveData. In save_game, read WorldState.seed. In load_game, set WorldState.seed before clearing and regenerating chunks. The existing WorldState resource should have a pub seed field."
     },
     {
       "id": "US-007",
-      "title": "Fix save/load — persist tech tree, armor, lore, spawn point, explored chunks",
-      "description": "As a player, I want all my progress to be saved — not just inventory and buildings.",
+      "title": "Fix save/load \u2014 persist tech tree, armor, lore, spawn point, explored chunks",
+      "description": "As a player, I want all my progress to be saved \u2014 not just inventory and buildings.",
       "acceptanceCriteria": [
         "SaveData includes tech_tree_unlocks: Vec<String> from TechTree.unlocked_recipes",
         "SaveData includes research_points: u32 from TechTree.research_points",
@@ -115,7 +115,7 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "Extend SaveData with new fields. In save_game system, read each resource and populate fields. In load_game, restore each resource. For ArmorSlots, save item names as strings and parse back to ItemType on load. For ExploredChunks, save as Vec of tuples."
     },
     {
@@ -133,7 +133,7 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "Add ChestStorage component in building.rs. Add ChestUI resource with is_open, target_entity. Create chest_interaction system in building.rs. Render chest UI in hud.rs. Transfer items between Inventory and ChestStorage."
     },
     {
@@ -150,7 +150,7 @@
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": false,
+      "passes": true,
       "notes": "Add GatheringTarget component that tracks which entity is being gathered. Spawn progress bar as a child entity with Sprite. In gather_resources system, update the progress bar fill width and object scale each frame. Remove progress bar when player stops gathering or moves away."
     },
     {
@@ -168,7 +168,7 @@
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": false,
+      "passes": true,
       "notes": "Use Bevy Node/Style UI with BackgroundColor for the bars. Create bar container, background, and fill as UI nodes in spawn_hud. Update fill width in update_status_hud based on health/hunger percentages. Use Style { width: Val::Px(fill_width), .. } for the fill node."
     },
     {
@@ -186,7 +186,7 @@
         "Typecheck passes"
       ],
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "notes": "Create hotbar UI using Bevy's Node/Style system. Spawn 9 slot container nodes in spawn_hud positioned at bottom-center. Use BackgroundColor and BorderColor for styling. Update text content in update_hud based on inventory hotbar slots."
     },
     {
@@ -204,7 +204,7 @@
         "Typecheck passes"
       ],
       "priority": 12,
-      "passes": false,
+      "passes": true,
       "notes": "Add InventoryPanelOpen resource or field to Inventory. Toggle with Tab. Create inventory panel UI nodes in spawn_hud (initially hidden via Display::None). Update slot contents in update_hud. Use Style flexbox for grid layout. Toggle visibility with Display::Flex / Display::None."
     },
     {
@@ -221,7 +221,7 @@
         "Typecheck passes"
       ],
       "priority": 13,
-      "passes": false,
+      "passes": true,
       "notes": "Refactor the existing CraftingHudText from a single Text node into a Bevy UI panel with Node/Style. Each recipe gets its own row with ingredient text nodes. Color ingredients based on inventory.has_items() check. Use Bevy UI scrolling or just clamp the visible window."
     },
     {
@@ -233,29 +233,29 @@
         "Add a PlayerFacing component with Up, Down, Left, Right variants",
         "PlayerFacing updates each frame based on movement direction (largest axis wins)",
         "Player sprite color shifts slightly when moving (lighter) vs idle (normal) to indicate state",
-        "Walking creates a subtle bobbing effect (±1px Y oscillation at 8Hz)",
+        "Walking creates a subtle bobbing effect (\u00b11px Y oscillation at 8Hz)",
         "Typecheck passes"
       ],
       "priority": 14,
-      "passes": false,
-      "notes": "Add PlayerFacing enum and component. In player_movement, after computing velocity, set facing direction. Apply Sprite.flip_x based on facing. Add a walk_bob timer that oscillates transform.translation.y by ±1px when moving."
+      "passes": true,
+      "notes": "Add PlayerFacing enum and component. In player_movement, after computing velocity, set facing direction. Apply Sprite.flip_x based on facing. Add a walk_bob timer that oscillates transform.translation.y by \u00b11px when moving."
     },
     {
       "id": "US-015",
-      "title": "Hit feedback — screen shake, enemy knockback, and flash",
+      "title": "Hit feedback \u2014 screen shake, enemy knockback, and flash",
       "description": "As a player, I want combat to feel impactful with screen shake and knockback.",
       "acceptanceCriteria": [
-        "When player hits an enemy, camera shakes for 0.15 seconds (±3px random offset)",
+        "When player hits an enemy, camera shakes for 0.15 seconds (\u00b13px random offset)",
         "Add ScreenShake resource with timer and intensity fields",
         "Camera system applies random offset to camera transform when shake timer > 0",
         "Hit enemies are knocked back 8px away from the player over 0.1 seconds",
         "Add Knockback component with direction, timer, and distance fields",
         "Knockback system moves entities with Knockback component each frame",
-        "Boss hits shake harder (±6px for 0.2 seconds)",
+        "Boss hits shake harder (\u00b16px for 0.2 seconds)",
         "Typecheck passes"
       ],
       "priority": 15,
-      "passes": false,
+      "passes": true,
       "notes": "Add ScreenShake resource in camera.rs. Trigger shake in combat.rs player_attack when damage dealt. Add Knockback component, insert on hit enemies. Apply knockback in a new knockback_system. Camera system reads ScreenShake and adds random offset."
     },
     {
@@ -272,7 +272,7 @@
         "Typecheck passes"
       ],
       "priority": 16,
-      "passes": false,
+      "passes": true,
       "notes": "Add DeathScreen resource with timer and active flag. Add DeathStats resource with total_kills. In death.rs handle_death, set DeathScreen.active = true and timer = 3.0. Spawn a UI overlay. Tick timer, on expiry proceed with respawn logic. Increment DeathStats.total_kills in combat enemy death."
     },
     {
@@ -289,8 +289,8 @@
         "Typecheck passes"
       ],
       "priority": 17,
-      "passes": false,
-      "notes": "Create a new audio.rs module. Add GameAudio resource, SoundEvent event, AudioAssets resource. Register the plugin. The actual audio files don't exist yet — the system just needs to be wired up so that other systems can fire SoundEvent::Hit etc. and the audio system will eventually play them. For now, log events."
+      "passes": true,
+      "notes": "Create a new audio.rs module. Add GameAudio resource, SoundEvent event, AudioAssets resource. Register the plugin. The actual audio files don't exist yet \u2014 the system just needs to be wired up so that other systems can fire SoundEvent::Hit etc. and the audio system will eventually play them. For now, log events."
     },
     {
       "id": "US-018",
@@ -307,8 +307,8 @@
         "Typecheck passes"
       ],
       "priority": 18,
-      "passes": false,
-      "notes": "Add EventWriter<SoundEvent> parameter to relevant systems. Fire events at appropriate points. Import SoundEvent from audio module. Do not add audio files — just wire the events."
+      "passes": true,
+      "notes": "Add EventWriter<SoundEvent> parameter to relevant systems. Fire events at appropriate points. Import SoundEvent from audio module. Do not add audio files \u2014 just wire the events."
     },
     {
       "id": "US-019",
@@ -321,11 +321,11 @@
         "When gathering a rock (Stone object), spawn 3-5 gray particles flying outward",
         "When hitting an enemy, spawn 3-5 red particles at hit location",
         "Particles start at 4px size and shrink to 0 over their lifetime (0.3-0.5 seconds)",
-        "Particles have random velocity spread (±30px/s in X and Y)",
+        "Particles have random velocity spread (\u00b130px/s in X and Y)",
         "Typecheck passes"
       ],
       "priority": 19,
-      "passes": false,
+      "passes": true,
       "notes": "Create particles.rs module with Particle component and ParticlePlugin. Add spawn_particles(commands, pos, color, count) helper function. Call from gather_resources and player_attack systems. Particle system runs each frame: translate by velocity * dt, shrink scale, despawn when lifetime <= 0."
     },
     {
@@ -336,17 +336,17 @@
         "Dropped items (from gathering, enemy drops) have a DroppedItem component with a 0.5s spawn delay before they can be picked up",
         "When player is within 48px of a dropped item and spawn delay has elapsed, the item moves toward the player at 200px/s",
         "When the item reaches within 8px of the player, it is consumed and added to inventory",
-        "Dropped items bob up and down slightly (±2px at 3Hz) while on the ground",
-        "Items spawn with a small random offset (±8px) from the source position",
+        "Dropped items bob up and down slightly (\u00b12px at 3Hz) while on the ground",
+        "Items spawn with a small random offset (\u00b18px) from the source position",
         "Typecheck passes"
       ],
       "priority": 20,
-      "passes": false,
+      "passes": true,
       "notes": "Add DroppedItem component with item_type, count, spawn_timer. Create spawn_dropped_item helper. In gather_resources and enemy death, spawn DroppedItem entities instead of directly adding to inventory. Add pickup_dropped_items system that attracts items toward player and adds to inventory."
     },
     {
       "id": "US-021",
-      "title": "Day/night visual atmosphere — ambient light color shifts",
+      "title": "Day/night visual atmosphere \u2014 ambient light color shifts",
       "description": "As a player, I want the world to visually change between day and night with lighting color shifts.",
       "acceptanceCriteria": [
         "ClearColor (background) shifts based on time of day: dawn=warm orange, day=dark blue-gray, dusk=purple, night=very dark",
@@ -359,7 +359,7 @@
         "Typecheck passes"
       ],
       "priority": 21,
-      "passes": false,
+      "passes": true,
       "notes": "In daynight.rs update system, compute a color based on time_of_day float. Set ClearColor resource and optionally adjust a global AmbientTint resource. Chunk rendering could multiply tile colors by ambient tint for full effect, but just ClearColor is the minimum viable approach."
     },
     {
@@ -375,29 +375,29 @@
         "Typecheck passes"
       ],
       "priority": 22,
-      "passes": false,
+      "passes": true,
       "notes": "In minimap.rs update_minimap, after rendering terrain, draw border pixels. Draw player as an arrow shape (3 pixels in facing direction). Query DungeonEntrance, SpawnPoint, Trader entities and plot their positions on the minimap image relative to player position."
     },
     {
       "id": "US-023",
-      "title": "Enemy variety — patrol paths, alert states, and varied AI",
+      "title": "Enemy variety \u2014 patrol paths, alert states, and varied AI",
       "description": "As a player, I want enemies to feel more alive with varied behavior patterns.",
       "acceptanceCriteria": [
         "Patrol state moves enemies in a random direction for 2-4 seconds, then picks a new direction",
         "Enemies have a detection_range field (default 120px, bosses 200px)",
         "When player enters detection range, enemy transitions to Alert state (pauses 0.5s) then Chase",
         "When player leaves chase range (detection_range + 80px), enemy returns to Patrol",
-        "Add a brief Attack state when enemy is within melee range — pause 0.3s, deal damage, return to Chase",
+        "Add a brief Attack state when enemy is within melee range \u2014 pause 0.3s, deal damage, return to Chase",
         "Enemy attack has a 1.0s cooldown between hits",
         "Typecheck passes"
       ],
       "priority": 23,
-      "passes": false,
+      "passes": true,
       "notes": "Extend EnemyState enum with Alert and Attack variants. Add detection_range and attack_cooldown fields to Enemy component. Refactor enemy_ai system to use the full state machine: Idle -> Patrol -> Alert -> Chase -> Attack -> Chase. Add patrol direction and timer to Enemy."
     },
     {
       "id": "US-024",
-      "title": "Improved world objects — visual variety and interaction hints",
+      "title": "Improved world objects \u2014 visual variety and interaction hints",
       "description": "As a player, I want world objects (trees, rocks, etc.) to look more varied and show interaction prompts.",
       "acceptanceCriteria": [
         "Trees have 3 color variants per biome (slight hue/brightness variation based on position hash)",
@@ -408,12 +408,12 @@
         "Typecheck passes"
       ],
       "priority": 24,
-      "passes": false,
+      "passes": true,
       "notes": "In world/mod.rs spawn_chunk_objects, use position_hash to select color variants and size variants. Add InteractionHint component. Create show_interaction_hints system that finds the nearest gatherable object to the player and spawns/moves a hint text entity above it."
     },
     {
       "id": "US-025",
-      "title": "Building placement validation — prevent invalid placement",
+      "title": "Building placement validation \u2014 prevent invalid placement",
       "description": "As a player, I want the build preview to show red when placement is invalid (on water, overlapping buildings).",
       "acceptanceCriteria": [
         "Build preview ghost turns red when placement would be on a non-walkable tile (water, lava)",
@@ -424,7 +424,7 @@
         "Typecheck passes"
       ],
       "priority": 25,
-      "passes": false,
+      "passes": true,
       "notes": "In building.rs update_build_preview, check tile walkability at the preview position. Query existing Building entities for overlap. Set preview Sprite color to red (invalid) or semi-transparent white (valid). Guard place_building with the same validity check."
     },
     {
@@ -439,7 +439,7 @@
         "Typecheck passes"
       ],
       "priority": 26,
-      "passes": false,
+      "passes": true,
       "notes": "Add SaveChestData and SaveFarmData structs with Serialize/Deserialize. In save_game, query all ChestStorage entities and FarmPlot entities. In load_game, spawn them back. This depends on US-008 (chest storage) being completed first."
     },
     {
@@ -447,7 +447,7 @@
       "title": "Smooth camera with dead zone and edge panning",
       "description": "As a player, I want the camera to follow me smoothly with a small dead zone so it doesn't feel jerky.",
       "acceptanceCriteria": [
-        "Camera has a 32px dead zone around center — camera doesn't move when player is within dead zone",
+        "Camera has a 32px dead zone around center \u2014 camera doesn't move when player is within dead zone",
         "When player moves outside dead zone, camera lerps toward player at 5.0 * delta_time",
         "Camera never overshoots player position (clamped interpolation)",
         "Camera smoothly handles the transition when entering/exiting dungeons (snap rather than lerp on teleport)",
@@ -455,12 +455,12 @@
         "Typecheck passes"
       ],
       "priority": 27,
-      "passes": false,
+      "passes": true,
       "notes": "In camera.rs camera_follow system, compute delta between camera and player. If delta magnitude < 32px (dead zone), don't move. Otherwise, lerp camera translation toward player. Detect teleports (delta > 500px) and snap instead of lerp."
     },
     {
       "id": "US-028",
-      "title": "HUD feedback messages — floating text for game events",
+      "title": "HUD feedback messages \u2014 floating text for game events",
       "description": "As a player, I want floating text feedback when things happen (damage numbers, item pickup, crafting success).",
       "acceptanceCriteria": [
         "Add FloatingText component with text, color, timer, and velocity fields",
@@ -472,7 +472,7 @@
         "Typecheck passes"
       ],
       "priority": 28,
-      "passes": false,
+      "passes": true,
       "notes": "Create FloatingText component. Add floating_text_system that moves text upward, decreases alpha, and despawns when timer expires. Add spawn_floating_text helper. Call from combat, gathering/pickup, and crafting systems."
     },
     {
@@ -487,7 +487,7 @@
         "Typecheck passes"
       ],
       "priority": 29,
-      "passes": false,
+      "passes": true,
       "notes": "Refactor tile color generation in world/generation.rs to use per-biome color palettes. Add last_biome tracking to player. When biome changes, spawn a centered floating text with biome name. Ensure each biome is visually immediately recognizable."
     },
     {
@@ -506,7 +506,7 @@
         "Typecheck passes"
       ],
       "priority": 30,
-      "passes": false,
+      "passes": true,
       "notes": "Add GameState as a Bevy States enum. Move all gameplay plugins to run in Playing state using .run_if(in_state(GameState::Playing)). Create MainMenuPlugin that renders title and buttons. On New Game, transition to Playing. On Continue, load save then transition. Use Bevy UI buttons with Interaction component."
     },
     {
@@ -530,7 +530,7 @@
     },
     {
       "id": "US-032",
-      "title": "Enemy spawn balancing — scale with distance and day count",
+      "title": "Enemy spawn balancing \u2014 scale with distance and day count",
       "description": "As a player, I want enemies to get harder as I explore further and survive longer.",
       "acceptanceCriteria": [
         "Enemy spawn count cap increases from 5 to: 5 + (day_count / 5) capped at 20",
@@ -546,7 +546,7 @@
     },
     {
       "id": "US-033",
-      "title": "Crafting station visual distinction — unique colors per tier",
+      "title": "Crafting station visual distinction \u2014 unique colors per tier",
       "description": "As a player, I want placed crafting stations to look visually distinct from regular buildings.",
       "acceptanceCriteria": [
         "Workbench building renders as brown color (distinct from wood walls)",
@@ -598,7 +598,7 @@
     },
     {
       "id": "US-036",
-      "title": "Dungeon loot variety — chests and item drops",
+      "title": "Dungeon loot variety \u2014 chests and item drops",
       "description": "As a player, I want dungeons to have loot chests in rooms and better item drops.",
       "acceptanceCriteria": [
         "Each non-boss dungeon room has a 60% chance to contain a loot chest entity",
@@ -615,7 +615,7 @@
     },
     {
       "id": "US-037",
-      "title": "Weather gameplay effects — rain heals farms, storms damage",
+      "title": "Weather gameplay effects \u2014 rain heals farms, storms damage",
       "description": "As a player, I want weather to have gameplay effects beyond visual particles.",
       "acceptanceCriteria": [
         "Rain: farm plots grow 25% faster during rain (multiply growth speed)",
@@ -632,7 +632,7 @@
     },
     {
       "id": "US-038",
-      "title": "Season visual effects — color palette shifts",
+      "title": "Season visual effects \u2014 color palette shifts",
       "description": "As a player, I want the world to visually change with the seasons.",
       "acceptanceCriteria": [
         "Spring: grass tiles are bright green, flowers spawn as small colored dots",
@@ -648,7 +648,7 @@
     },
     {
       "id": "US-039",
-      "title": "Food buff system — cooked food gives temporary stat boosts",
+      "title": "Food buff system \u2014 cooked food gives temporary stat boosts",
       "description": "As a player, I want eating cooked food to give temporary buffs beyond just hunger restoration.",
       "acceptanceCriteria": [
         "CookedBerry: restores 25 hunger + 10% speed boost for 60 seconds",
@@ -661,7 +661,7 @@
       ],
       "priority": 39,
       "passes": false,
-      "notes": "Extend the existing ActiveBuff / BuffType system to include food buffs. Add FoodBuff component or extend BuffType with Regen variant. In the eat system (wherever food consumption happens — likely inventory.rs use_item), apply the appropriate buff. Add BerryPie ItemType and recipe."
+      "notes": "Extend the existing ActiveBuff / BuffType system to include food buffs. Add FoodBuff component or extend BuffType with Regen variant. In the eat system (wherever food consumption happens \u2014 likely inventory.rs use_item), apply the appropriate buff. Add BerryPie ItemType and recipe."
     },
     {
       "id": "US-040",

@@ -2,3 +2,53 @@
 # Branch: ralph/full-game-pass
 # Started: 2026-03-02
 
+## Codebase Patterns
+- Max 15 plugins per .add_plugins() tuple in main.rs — split across multiple calls
+- Use `not_paused` run condition from hud.rs for all gameplay systems
+- MainMenuActive resource also gates gameplay via not_paused
+- EventWriter::send() for events in Bevy 0.15
+- Color::srgb() / Color::srgba() for colors
+- CraftingStation component on placed station buildings, checked via proximity (64px)
+- ChestStorage component on placed Chest buildings
+- FloatingText + spawn_floating_text() in hud.rs for damage numbers / pickup text
+- SpawnParticlesEvent in particles.rs for visual effects
+- SoundEvent in audio.rs for audio hooks (currently logs, no audio files)
+- DroppedItem component in gathering.rs for item pickup animations
+- ScreenShake resource in camera.rs for combat feedback
+- Knockback component in combat.rs for hit feedback
+- GatheringState resource tracks current gathering target for progress bars
+- SaveData uses #[serde(default)] on all new fields for backwards compat
+- Biome-specific tile colors via TileType::biome_color(biome) in tile.rs
+
+[PASS] US-001 — Fix pause system — run_if(not_paused) on all gameplay systems
+[PASS] US-002 — Fix tech tree — recipes gated by tech_key + TechTree.is_unlocked()
+[PASS] US-003 — Fix crafting proximity — CraftingStation component, 64px range check
+[PASS] US-004 — Fix dungeon doorways — corridors between rooms, wall openings
+[PASS] US-005 — Fix hermit spawning — spawn_hermit called from world gen
+[PASS] US-006 — Save world seed — WorldState.seed persisted
+[PASS] US-007 — Save all state — tech tree, armor, lore, spawn point, explored chunks
+[PASS] US-008 — Chest storage UI — 18 slots, transfer, interaction
+[PASS] US-009 — Gathering progress bar — visual feedback, object scale
+[PASS] US-010 — ASCII health/hunger bars — Unicode block characters
+[PASS] US-011 — Visual hotbar — bordered slots, selection indicator
+[PASS] US-012 — Inventory grid panel — 36 slots, 9-column rows
+[PASS] US-013 — Crafting panel — ingredient availability, checkmarks
+[PASS] US-014 — Player facing — sprite flip, walk bob animation
+[PASS] US-015 — Screen shake + knockback — ScreenShake resource, Knockback component
+[PASS] US-016 — Death screen — 3s overlay with stats
+[PASS] US-017 — Audio foundation — SoundEvent enum, GameAudio resource
+[PASS] US-018 — Sound event wiring — combat, gathering, building, crafting
+[PASS] US-019 — Particle effects — gathering + combat particles
+[PASS] US-020 — Item pickup animation — DroppedItem, magnetic pickup, bob
+[PASS] US-021 — Day/night atmosphere — ClearColor lerp through phases
+[PASS] US-022 — Minimap polish — border, arrow, POI markers
+[PASS] US-023 — Enemy AI variety — 5-state machine (Idle/Patrol/Alert/Chase/Attack)
+[PASS] US-024 — World object variety — color variants, size variants, interaction hints
+[PASS] US-025 — Build validation — red preview on invalid placement
+[PASS] US-026 — Save chests + farms — chest slots and farm plot persistence
+[PASS] US-027 — Smooth camera — 32px dead zone, lerp, teleport snap
+[PASS] US-028 — Floating text — damage numbers, item pickup text
+[PASS] US-029 — Biome visual distinctness — per-biome tile palettes, biome banners
+[PASS] US-030 — Main menu — New Game, Load, Quit with title screen
+
+=== 30 of 40 USER STORIES PASS ===
