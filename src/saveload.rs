@@ -16,6 +16,7 @@ use crate::lore::LoreRegistry;
 use crate::death::SpawnPoint;
 use crate::minimap::ExploredChunks;
 use crate::farming::{FarmPlot, CropType};
+use crate::tutorial::TutorialState;
 
 pub struct SaveLoadPlugin;
 
@@ -85,6 +86,9 @@ struct SaveData {
     // US-026: Farm plots
     #[serde(default)]
     farms: Vec<SaveFarmData>,
+    // US-031: Tutorial hints shown
+    #[serde(default)]
+    tutorial_shown_hints: Vec<String>,
 }
 
 fn default_spawn_point() -> (f32, f32) {
@@ -223,6 +227,7 @@ fn handle_save_input(
     explored: Res<ExploredChunks>,
     chest_query: Query<(&ChestStorage, &Transform), Without<Player>>,
     farm_query: Query<(&FarmPlot, &Transform), Without<Player>>,
+    tutorial_state: Res<TutorialState>,
 ) {
     if !keyboard.just_pressed(KeyCode::F5) {
         return;
@@ -288,6 +293,8 @@ fn handle_save_input(
                 }).collect(),
             }
         }).collect(),
+        // US-031: Tutorial hints
+        tutorial_shown_hints: tutorial_state.shown_hints.iter().cloned().collect(),
         // US-026: Farm plots
         farms: farm_query.iter().map(|(plot, tf)| {
             SaveFarmData {
@@ -358,6 +365,7 @@ fn handle_load_input(
     mut spawn_point: ResMut<SpawnPoint>,
     mut explored: ResMut<ExploredChunks>,
     mut load_requested: ResMut<LoadRequested>,
+    mut tutorial_state: ResMut<TutorialState>,
 ) {
     // Trigger on F9 key or programmatic request (e.g. from main menu)
     if load_requested.requested {
@@ -524,6 +532,14 @@ fn handle_load_input(
 
     // US-007: Restore explored chunks
     explored.chunks = save_data.explored_chunks.iter().map(|&(x, y)| IVec2::new(x, y)).collect();
+
+    // US-031: Restore tutorial state
+    tutorial_state.shown_hints = save_data.tutorial_shown_hints.into_iter().collect();
+    tutorial_state.spawn_hint_queued = true; // Don't re-show spawn hint
+    tutorial_state.seen_pickup = tutorial_state.shown_hints.contains("first_gather");
+    tutorial_state.seen_craft = tutorial_state.shown_hints.contains("first_craft");
+    tutorial_state.seen_build = tutorial_state.shown_hints.contains("first_nightfall")
+        || tutorial_state.shown_hints.contains("first_craft");
 
     save_msg.text = "Game Loaded!".to_string();
     save_msg.timer = 2.0;
