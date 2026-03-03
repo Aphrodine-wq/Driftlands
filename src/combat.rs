@@ -67,6 +67,8 @@ pub struct Enemy {
     pub patrol_timer: f32,
     /// Timer used for the Alert pause before transitioning to Chase.
     pub alert_timer: f32,
+    /// Distance from world origin at spawn time (US-032: used for HP scaling).
+    pub distance_from_origin: f32,
 }
 
 /// Marks an enemy as a boss and carries its name and loot table.
@@ -227,12 +229,16 @@ fn spawn_night_enemies(
         return;
     }
 
-    if enemy_query.iter().count() >= 5 {
+    // US-032: Spawn cap scales with day count — 5 + (day_count / 5), capped at 20
+    let spawn_cap = (5 + (cycle.day_count / 5) as usize).min(20);
+    if enemy_query.iter().count() >= spawn_cap {
         return;
     }
 
+    // US-032: Night spawn rate increases each day — 1% base + 0.1% per day, capped at 3%
+    let spawn_chance = (0.01 + 0.001 * cycle.day_count as f32).min(0.03);
     let mut rng = rand::thread_rng();
-    if rng.gen::<f32>() > 0.01 {
+    if rng.gen::<f32>() > spawn_chance {
         return;
     }
 
@@ -254,6 +260,15 @@ fn spawn_night_enemies(
     let dist = rng.gen_range(300.0..500.0);
     let spawn_pos = player_pos + Vec2::new(angle.cos(), angle.sin()) * dist;
 
+    // US-032: Scale HP based on spawn distance from world origin (+10% per 500px beyond 500px)
+    let distance_from_origin = spawn_pos.length();
+    let hp_multiplier = if distance_from_origin > 500.0 {
+        1.0 + 0.1 * ((distance_from_origin - 500.0) / 500.0).floor()
+    } else {
+        1.0
+    };
+    let scaled_health = health * hp_multiplier;
+
     let patrol_dir = Vec2::new(
         rng.gen_range(-1.0f32..1.0),
         rng.gen_range(-1.0f32..1.0),
@@ -262,8 +277,8 @@ fn spawn_night_enemies(
     commands.spawn((
         Enemy {
             enemy_type,
-            health,
-            max_health: health,
+            health: scaled_health,
+            max_health: scaled_health,
             damage,
             speed,
             aggro_range,
@@ -275,6 +290,7 @@ fn spawn_night_enemies(
             patrol_direction: patrol_dir,
             patrol_timer: rng.gen_range(2.0..4.0),
             alert_timer: 0.0,
+            distance_from_origin,
         },
         Sprite {
             color,

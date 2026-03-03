@@ -464,6 +464,7 @@ fn spawn_cave_spider(commands: &mut Commands, pos: Vec2) {
             patrol_direction: patrol_dir,
             patrol_timer: rng.gen_range(2.0..4.0),
             alert_timer: 0.0,
+            distance_from_origin: pos.length(),
         },
         Sprite {
             color,
@@ -483,7 +484,12 @@ fn spawn_dungeon_boss(commands: &mut Commands, pos: Vec2, biome: Biome) {
     use crate::combat::boss_for_biome;
 
     let boss_type = boss_for_biome(biome);
-    let (health, damage, speed, aggro_range, color, size) = boss_type.stats();
+    let (base_health, damage, speed, aggro_range, color, size) = boss_type.stats();
+
+    // US-032: Boss HP scales with distance from world origin (+20% per 1000px)
+    let distance_from_origin = pos.length();
+    let boss_hp_multiplier = 1.0 + 0.2 * (distance_from_origin / 1000.0).floor();
+    let health = base_health * boss_hp_multiplier;
 
     // Build a biome-specific loot table.  Every boss drops an AncientCore,
     // a Gemstone, and a Blueprint, plus their unique biome drop.
@@ -575,6 +581,7 @@ fn spawn_dungeon_boss(commands: &mut Commands, pos: Vec2, biome: Biome) {
             patrol_direction: patrol_dir,
             patrol_timer: rng.gen_range(2.0..4.0),
             alert_timer: 0.0,
+            distance_from_origin,
         },
         Boss {
             name: boss_name,
