@@ -69,6 +69,8 @@ pub struct SeasonCycle {
     pub current: Season,
     /// Tracks the last day_count value so we only run advance logic on day change.
     last_day: u32,
+    /// True for one frame after a season transition.
+    pub just_changed: bool,
 }
 
 impl Default for SeasonCycle {
@@ -76,6 +78,49 @@ impl Default for SeasonCycle {
         Self {
             current: Season::Spring,
             last_day: 1,
+            just_changed: false,
+        }
+    }
+}
+
+impl Season {
+    /// Grass/ground color tint multiplier for this season.
+    pub fn grass_color(&self) -> Color {
+        match self {
+            Season::Spring => Color::srgb(0.3, 0.75, 0.3),
+            Season::Summer => Color::srgb(0.25, 0.6, 0.2),
+            Season::Autumn => Color::srgb(0.7, 0.55, 0.2),
+            Season::Winter => Color::srgb(0.8, 0.85, 0.9),
+        }
+    }
+
+    /// Tree color tint for this season.
+    pub fn tree_color(&self) -> Color {
+        match self {
+            Season::Spring => Color::srgb(0.2, 0.7, 0.25),
+            Season::Summer => Color::srgb(0.15, 0.55, 0.15),
+            Season::Autumn => Color::srgb(0.7, 0.35, 0.1),
+            Season::Winter => Color::srgb(0.45, 0.3, 0.15),
+        }
+    }
+
+    /// Water color variation per season.
+    pub fn water_color(&self) -> Color {
+        match self {
+            Season::Spring => Color::srgb(0.15, 0.35, 0.7),
+            Season::Summer => Color::srgb(0.1, 0.4, 0.75),
+            Season::Autumn => Color::srgb(0.2, 0.3, 0.55),
+            Season::Winter => Color::srgb(0.5, 0.6, 0.75),
+        }
+    }
+
+    /// ClearColor background shift for each season.
+    pub fn clear_color(&self) -> Color {
+        match self {
+            Season::Spring => Color::srgb(0.08, 0.12, 0.08),
+            Season::Summer => Color::srgb(0.1, 0.1, 0.06),
+            Season::Autumn => Color::srgb(0.1, 0.08, 0.05),
+            Season::Winter => Color::srgb(0.08, 0.1, 0.14),
         }
     }
 }
@@ -87,6 +132,10 @@ fn advance_season(
     if cycle.day_count == season.last_day {
         return;
     }
+    let old = season.current;
     season.last_day = cycle.day_count;
     season.current = Season::from_day(cycle.day_count);
+    if season.current != old {
+        season.just_changed = true;
+    }
 }
