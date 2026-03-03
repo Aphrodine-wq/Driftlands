@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use rand::Rng;
+use crate::hud::not_paused;
 use crate::player::{Player, Health, ActiveBuff, BuffType, ArmorSlots};
 use crate::daynight::{DayNightCycle, DayPhase};
 use crate::inventory::{Inventory, ItemType};
@@ -25,7 +26,7 @@ impl Plugin for CombatPlugin {
                 update_enemy_health_bars,
                 projectile_movement,
                 projectile_hit,
-            ));
+            ).run_if(not_paused));
     }
 }
 

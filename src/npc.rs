@@ -1,9 +1,11 @@
 use bevy::prelude::*;
 use rand::Rng;
+use crate::hud::not_paused;
 use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
 use crate::daynight::DayNightCycle;
 use crate::building::BuildingState;
+use crate::world::ChunkObject;
 
 pub struct NpcPlugin;
 
@@ -15,9 +17,9 @@ impl Plugin for NpcPlugin {
                 spawn_trader,
                 despawn_trader,
                 trader_interaction,
-                execute_trade,
                 hermit_interaction,
-            ));
+            ).run_if(not_paused))
+            .add_systems(Update, execute_trade);
     }
 }
 
@@ -278,8 +280,8 @@ pub struct HermitDialogueDisplay {
 }
 
 /// Public helper to spawn a hermit at a world position.
-/// Called from `world/mod.rs` (wired up externally as noted in the task).
-pub fn spawn_hermit(commands: &mut Commands, x: f32, y: f32) {
+/// Called from `world/mod.rs` during chunk generation.
+pub fn spawn_hermit(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVec2) {
     let lines = vec![
         "The old ones built their towers to touch the sky...",
         "I have wandered these lands for thirty years.",
@@ -294,6 +296,7 @@ pub fn spawn_hermit(commands: &mut Commands, x: f32, y: f32) {
     commands.spawn((
         Hermit::new(lines),
         Invulnerable,
+        ChunkObject { chunk_pos },
         Sprite {
             color: Color::srgb(0.7, 0.55, 0.3),
             custom_size: Some(Vec2::new(10.0, 14.0)),

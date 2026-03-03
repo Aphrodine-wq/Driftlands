@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use crate::building::BuildingState;
+use crate::hud::not_paused;
 use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
 use crate::season::SeasonCycle;
@@ -14,7 +15,7 @@ impl Plugin for FarmingPlugin {
             plant_seed,
             grow_crops,
             harvest_crop,
-        ));
+        ).run_if(not_paused));
     }
 }
 

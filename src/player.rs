@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use crate::building::{Building, BuildingState, BuildingType, Door};
+use crate::hud::not_paused;
 use crate::inventory::{Inventory, ItemType};
 use crate::world::{TILE_SIZE, CHUNK_WORLD_SIZE};
 use crate::world::chunk::{Chunk, CHUNK_SIZE};
@@ -18,7 +19,7 @@ impl Plugin for PlayerPlugin {
                 eat_food,
                 buff_tick,
                 equip_armor,
-            ));
+            ).run_if(not_paused));
     }
 }
 

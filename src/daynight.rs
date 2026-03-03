@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use crate::camera::GameCamera;
+use crate::hud::not_paused;
 
 pub struct DayNightPlugin;
 
@@ -7,7 +8,7 @@ impl Plugin for DayNightPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(DayNightCycle::default())
             .add_systems(Startup, spawn_overlay)
-            .add_systems(Update, (update_day_night, apply_ambient_light));
+            .add_systems(Update, (update_day_night, apply_ambient_light).run_if(not_paused));
     }
 }
 

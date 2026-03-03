@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use crate::hud::not_paused;
 use crate::world::{WorldObject, WorldObjectType, WorldState};
 use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
@@ -10,7 +11,7 @@ pub struct GatheringPlugin;
 
 impl Plugin for GatheringPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, gather_resources);
+        app.add_systems(Update, gather_resources.run_if(not_paused));
     }
 }
 

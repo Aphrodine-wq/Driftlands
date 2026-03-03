@@ -12,6 +12,7 @@ use tile::TileType;
 
 use crate::player::Player;
 use crate::dungeon::{DungeonRegistry, should_spawn_entrance};
+use crate::npc;
 
 pub const TILE_SIZE: f32 = 16.0;
 pub const CHUNK_WORLD_SIZE: f32 = TILE_SIZE * CHUNK_SIZE as f32;
@@ -245,6 +246,15 @@ fn spawn_chunk_objects(
                 entrance_placed_this_chunk = true;
                 // Skip placing a world object on the same tile.
                 continue;
+            }
+
+            // --- Hermit NPC spawning (~0.2% chance in eligible biomes) ---
+            if matches!(biome, Biome::Forest | Biome::Swamp | Biome::Mountain | Biome::Desert | Biome::Tundra) {
+                let hermit_hash = WorldGenerator::position_hash(world_tile_x, world_tile_y, seed.wrapping_add(7777));
+                if hermit_hash % 500 == 0 {
+                    npc::spawn_hermit(commands, wx, wy, chunk_pos);
+                    continue;
+                }
             }
 
             match biome {

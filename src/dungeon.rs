@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use rand::Rng;
+use crate::hud::not_paused;
 use crate::player::Player;
 use crate::combat::{Enemy, EnemyType, EnemyState, Boss};
 use crate::inventory::ItemType;
@@ -13,7 +14,7 @@ impl Plugin for DungeonPlugin {
             .add_systems(Update, (
                 check_dungeon_entrance,
                 check_dungeon_exit,
-            ));
+            ).run_if(not_paused));
     }
 }
 
@@ -265,8 +266,21 @@ fn generate_dungeon(
             }
         }
 
-        // Spawn wall tiles around the perimeter.
-        spawn_room_walls(commands, room_origin, room_width_tiles, room_height_tiles);
+        // Determine doorway openings for this room.
+        let has_left_doorway = room_idx > 0;
+        let has_right_doorway = room_idx < num_rooms - 1;
+
+        // Spawn wall tiles around the perimeter (with doorway gaps).
+        spawn_room_walls(commands, room_origin, room_width_tiles, room_height_tiles, (has_left_doorway, has_right_doorway));
+
+        // Spawn a corridor connecting this room to the previous one.
+        if room_idx > 0 {
+            let prev_room_origin = Vec2::new(
+                anchor.x + (room_idx - 1) as f32 * step_x,
+                anchor.y,
+            );
+            spawn_corridor(commands, prev_room_origin, room_width_tiles, room_height_tiles);
+        }
 
         // Record center of this room.
         let center = Vec2::new(
@@ -331,10 +345,15 @@ fn spawn_room_walls(
     room_origin: Vec2,
     width: usize,
     height: usize,
+    doorways: (bool, bool),
 ) {
     // Spawn one tile outside the perimeter on all four sides as "wall" tiles.
     let wall_color = Color::srgb(0.18, 0.16, 0.14);
     let wall_size = Vec2::new(DTILE, DTILE);
+
+    // Compute the 2-tile doorway opening indices (vertically centered).
+    let door_lo = height / 2 - 1;
+    let door_hi = height / 2;
 
     // Top and bottom rows (including corners, one tile outside).
     for tx in -1i32..=(width as i32) {
@@ -357,7 +376,22 @@ fn spawn_room_walls(
 
     // Left and right columns (excluding already-spawned corner rows).
     for ty in 0..height {
+        let is_doorway_row = ty == door_lo || ty == door_hi;
+
         for &tx_edge in &[-1i32, width as i32] {
+            // Skip wall tile if this is a doorway opening.
+            let is_left_wall = tx_edge == -1;
+            let is_right_wall = tx_edge == width as i32;
+
+            if is_doorway_row {
+                if is_left_wall && doorways.0 {
+                    continue;
+                }
+                if is_right_wall && doorways.1 {
+                    continue;
+                }
+            }
+
             let pos = Vec2::new(
                 room_origin.x + tx_edge as f32 * DTILE + DTILE / 2.0,
                 room_origin.y + ty as f32 * DTILE + DTILE / 2.0,
@@ -371,6 +405,34 @@ fn spawn_room_walls(
                 },
                 Transform::from_xyz(pos.x, pos.y, 0.5),
             ));
+        }
+    }
+}
+
+/// Fills the gap between two adjacent rooms with floor tiles so the player can
+/// walk through the doorway opening.  The corridor is 2 tiles wide (matching
+/// the doorway height) and covers the wall positions that were skipped by
+/// the doorway openings.
+fn spawn_corridor(
+    commands: &mut Commands,
+    left_room_origin: Vec2,
+    room_width: usize,
+    room_height: usize,
+) {
+    // The doorway opening indices (vertically centered, matching spawn_room_walls).
+    let door_lo = room_height / 2 - 1;
+    let door_hi = room_height / 2;
+
+    // The two X positions in the gap:
+    //   - room_width      : where the left room's right wall was removed
+    //   - room_width + 1  : where the right room's left wall was removed
+    for &tx in &[room_width as i32, room_width as i32 + 1] {
+        for &ty in &[door_lo, door_hi] {
+            let pos = Vec2::new(
+                left_room_origin.x + tx as f32 * DTILE + DTILE / 2.0,
+                left_room_origin.y + ty as f32 * DTILE + DTILE / 2.0,
+            );
+            spawn_floor_tile(commands, pos);
         }
     }
 }

@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use rand::Rng;
 use crate::daynight::DayNightCycle;
+use crate::hud::not_paused;
 use crate::season::{Season, SeasonCycle};
 use crate::camera::GameCamera;
 
@@ -14,7 +15,7 @@ impl Plugin for WeatherPlugin {
                 spawn_weather_particles,
                 move_weather_particles,
                 despawn_weather_particles,
-            ));
+            ).run_if(not_paused));
     }
 }
 

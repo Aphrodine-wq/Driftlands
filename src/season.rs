@@ -1,12 +1,13 @@
 use bevy::prelude::*;
 use crate::daynight::DayNightCycle;
+use crate::hud::not_paused;
 
 pub struct SeasonPlugin;
 
 impl Plugin for SeasonPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SeasonCycle::default())
-            .add_systems(Update, advance_season);
+            .add_systems(Update, advance_season.run_if(not_paused));
     }
 }
 

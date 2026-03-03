@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
+use crate::techtree::TechTree;
 
 pub struct CraftingPlugin;
 
@@ -39,6 +40,8 @@ pub struct Recipe {
     pub inputs: Vec<(ItemType, u32)>,
     pub output: (ItemType, u32),
     pub tier: CraftingTier,
+    /// If set, this recipe requires the named tech to be unlocked in the TechTree.
+    pub tech_key: Option<&'static str>,
 }
 
 #[derive(Resource)]
@@ -58,18 +61,21 @@ impl CraftingSystem {
                     inputs: vec![(ItemType::Wood, 1)],
                     output: (ItemType::Stick, 4),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Wood Plank (x4)",
                     inputs: vec![(ItemType::Wood, 2)],
                     output: (ItemType::WoodPlank, 4),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Rope",
                     inputs: vec![(ItemType::PlantFiber, 3)],
                     output: (ItemType::Rope, 1),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Campfire",
@@ -80,6 +86,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::Campfire, 1),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Wood Axe",
@@ -90,6 +97,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::WoodAxe, 1),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Wood Pickaxe",
@@ -100,6 +108,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::WoodPickaxe, 1),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Stone Axe",
@@ -110,6 +119,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::StoneAxe, 1),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Stone Pickaxe",
@@ -120,12 +130,14 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::StonePickaxe, 1),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Wood Floor",
                     inputs: vec![(ItemType::WoodPlank, 4)],
                     output: (ItemType::WoodFloor, 1),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Workbench",
@@ -135,12 +147,14 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::Workbench, 1),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Stone Block",
                     inputs: vec![(ItemType::Stone, 4)],
                     output: (ItemType::StoneBlock, 1),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
                 // Workbench tier (10 new recipes)
                 Recipe {
@@ -148,60 +162,70 @@ impl CraftingSystem {
                     inputs: vec![(ItemType::WoodPlank, 4), (ItemType::Stick, 2)],
                     output: (ItemType::WoodWall, 1),
                     tier: CraftingTier::Workbench,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Wood Door",
                     inputs: vec![(ItemType::WoodPlank, 6)],
                     output: (ItemType::WoodDoor, 1),
                     tier: CraftingTier::Workbench,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Wood Roof",
                     inputs: vec![(ItemType::WoodPlank, 6), (ItemType::Stick, 4)],
                     output: (ItemType::WoodRoof, 1),
                     tier: CraftingTier::Workbench,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Wood Fence",
                     inputs: vec![(ItemType::Stick, 6)],
                     output: (ItemType::WoodFence, 2),
                     tier: CraftingTier::Workbench,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Chest",
                     inputs: vec![(ItemType::WoodPlank, 8)],
                     output: (ItemType::Chest, 1),
                     tier: CraftingTier::Workbench,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Torch",
                     inputs: vec![(ItemType::Stick, 1), (ItemType::PlantFiber, 2)],
                     output: (ItemType::Torch, 4),
                     tier: CraftingTier::Workbench,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Wood Sword",
                     inputs: vec![(ItemType::WoodPlank, 3), (ItemType::Stick, 1)],
                     output: (ItemType::WoodSword, 1),
                     tier: CraftingTier::Workbench,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Wood Shield",
                     inputs: vec![(ItemType::WoodPlank, 6), (ItemType::Rope, 1)],
                     output: (ItemType::WoodShield, 1),
                     tier: CraftingTier::Workbench,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Wood Bow",
                     inputs: vec![(ItemType::Stick, 3), (ItemType::Rope, 2)],
                     output: (ItemType::WoodBow, 1),
                     tier: CraftingTier::Workbench,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Arrow (x8)",
                     inputs: vec![(ItemType::Stick, 2), (ItemType::Flint, 1)],
                     output: (ItemType::Arrow, 8),
                     tier: CraftingTier::Workbench,
+                    tech_key: None,
                 },
                 // Workbench — Tier 3 stations
                 Recipe {
@@ -209,12 +233,14 @@ impl CraftingSystem {
                     inputs: vec![(ItemType::StoneBlock, 10), (ItemType::IronOre, 5), (ItemType::Coal, 3)],
                     output: (ItemType::Forge, 1),
                     tier: CraftingTier::Workbench,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Anvil",
                     inputs: vec![(ItemType::IronIngot, 8), (ItemType::StoneBlock, 4)],
                     output: (ItemType::Anvil, 1),
                     tier: CraftingTier::Workbench,
+                    tech_key: None,
                 },
                 // Forge tier recipes
                 Recipe {
@@ -222,54 +248,63 @@ impl CraftingSystem {
                     inputs: vec![(ItemType::IronOre, 2), (ItemType::Coal, 1)],
                     output: (ItemType::IronIngot, 1),
                     tier: CraftingTier::Forge,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Steel Alloy",
                     inputs: vec![(ItemType::IronIngot, 2), (ItemType::Coal, 2)],
                     output: (ItemType::SteelAlloy, 1),
                     tier: CraftingTier::Forge,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Iron Axe",
                     inputs: vec![(ItemType::IronIngot, 3), (ItemType::Stick, 2)],
                     output: (ItemType::IronAxe, 1),
                     tier: CraftingTier::Forge,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Iron Pickaxe",
                     inputs: vec![(ItemType::IronIngot, 3), (ItemType::Stick, 2)],
                     output: (ItemType::IronPickaxe, 1),
                     tier: CraftingTier::Forge,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Iron Sword",
                     inputs: vec![(ItemType::IronIngot, 4), (ItemType::Stick, 1)],
                     output: (ItemType::IronSword, 1),
                     tier: CraftingTier::Forge,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Iron Shield",
                     inputs: vec![(ItemType::IronIngot, 5), (ItemType::WoodPlank, 2)],
                     output: (ItemType::IronShield, 1),
                     tier: CraftingTier::Forge,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Iron Helmet",
                     inputs: vec![(ItemType::IronIngot, 4)],
                     output: (ItemType::IronHelmet, 1),
                     tier: CraftingTier::Forge,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Iron Chestplate",
                     inputs: vec![(ItemType::IronIngot, 6)],
                     output: (ItemType::IronChestplate, 1),
                     tier: CraftingTier::Forge,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Stone Wall",
                     inputs: vec![(ItemType::StoneBlock, 4)],
                     output: (ItemType::StoneWall, 1),
                     tier: CraftingTier::Forge,
+                    tech_key: None,
                 },
                 // Hand tier — Hoe
                 Recipe {
@@ -281,6 +316,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::Hoe, 1),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
                 // Hand tier — seeds (craft from plant fiber / gathered items)
                 Recipe {
@@ -288,12 +324,14 @@ impl CraftingSystem {
                     inputs: vec![(ItemType::PlantFiber, 2)],
                     output: (ItemType::WheatSeed, 3),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Carrot Seed (x3)",
                     inputs: vec![(ItemType::PlantFiber, 2), (ItemType::Berry, 1)],
                     output: (ItemType::CarrotSeed, 3),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
                 // Campfire cooking recipes
                 Recipe {
@@ -301,18 +339,21 @@ impl CraftingSystem {
                     inputs: vec![(ItemType::Berry, 2)],
                     output: (ItemType::CookedBerry, 1),
                     tier: CraftingTier::Campfire,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Baked Wheat",
                     inputs: vec![(ItemType::Wheat, 2)],
                     output: (ItemType::BakedWheat, 1),
                     tier: CraftingTier::Campfire,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Cooked Carrot",
                     inputs: vec![(ItemType::Carrot, 1)],
                     output: (ItemType::CookedCarrot, 1),
                     tier: CraftingTier::Campfire,
+                    tech_key: None,
                 },
                 // Forge tier — Tier 4 stations
                 Recipe {
@@ -324,6 +365,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::AdvancedForge, 1),
                     tier: CraftingTier::Forge,
+                    tech_key: Some("advanced_forge"),
                 },
                 Recipe {
                     name: "Alchemy Lab",
@@ -334,6 +376,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::AlchemyLab, 1),
                     tier: CraftingTier::Forge,
+                    tech_key: Some("alchemy_lab"),
                 },
                 // AdvancedForge tier — Tier 4 equipment
                 Recipe {
@@ -345,6 +388,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::SteelSword, 1),
                     tier: CraftingTier::AdvancedForge,
+                    tech_key: Some("steel_sword"),
                 },
                 Recipe {
                     name: "Steel Axe",
@@ -355,6 +399,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::SteelAxe, 1),
                     tier: CraftingTier::AdvancedForge,
+                    tech_key: Some("steel_axe"),
                 },
                 Recipe {
                     name: "Steel Pickaxe",
@@ -365,6 +410,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::SteelPickaxe, 1),
                     tier: CraftingTier::AdvancedForge,
+                    tech_key: Some("steel_pickaxe"),
                 },
                 Recipe {
                     name: "Steel Armor",
@@ -374,6 +420,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::SteelArmor, 1),
                     tier: CraftingTier::AdvancedForge,
+                    tech_key: Some("steel_armor"),
                 },
                 Recipe {
                     name: "Health Potion",
@@ -384,6 +431,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::HealthPotion, 1),
                     tier: CraftingTier::AdvancedForge,
+                    tech_key: Some("health_potion"),
                 },
                 Recipe {
                     name: "Speed Potion",
@@ -394,6 +442,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::SpeedPotion, 1),
                     tier: CraftingTier::AdvancedForge,
+                    tech_key: Some("speed_potion"),
                 },
                 Recipe {
                     name: "Strength Potion",
@@ -404,6 +453,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::StrengthPotion, 1),
                     tier: CraftingTier::AdvancedForge,
+                    tech_key: Some("strength_potion"),
                 },
                 // Ancient tier — Tier 5 stations & equipment
                 Recipe {
@@ -415,6 +465,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::AncientWorkstation, 1),
                     tier: CraftingTier::AdvancedForge,
+                    tech_key: Some("ancient_workstation"),
                 },
                 Recipe {
                     name: "Ancient Blade",
@@ -425,6 +476,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::AncientBlade, 1),
                     tier: CraftingTier::Ancient,
+                    tech_key: Some("ancient_blade"),
                 },
                 Recipe {
                     name: "Ancient Armor",
@@ -435,6 +487,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::AncientArmor, 1),
                     tier: CraftingTier::Ancient,
+                    tech_key: Some("ancient_armor"),
                 },
                 Recipe {
                     name: "Ancient Pickaxe",
@@ -445,6 +498,7 @@ impl CraftingSystem {
                     ],
                     output: (ItemType::AncientPickaxe, 1),
                     tier: CraftingTier::Ancient,
+                    tech_key: Some("ancient_pickaxe"),
                 },
                 // Phase 5 — Stone building recipes (Forge tier)
                 Recipe {
@@ -452,18 +506,21 @@ impl CraftingSystem {
                     inputs: vec![(ItemType::StoneBlock, 4)],
                     output: (ItemType::StoneFloor, 1),
                     tier: CraftingTier::Forge,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Stone Door",
                     inputs: vec![(ItemType::StoneBlock, 6), (ItemType::IronIngot, 2)],
                     output: (ItemType::StoneDoor, 1),
                     tier: CraftingTier::Forge,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Stone Roof",
                     inputs: vec![(ItemType::StoneBlock, 6)],
                     output: (ItemType::StoneRoof, 1),
                     tier: CraftingTier::Forge,
+                    tech_key: None,
                 },
                 // Phase 5 — Metal building recipes (AdvancedForge tier)
                 Recipe {
@@ -471,12 +528,14 @@ impl CraftingSystem {
                     inputs: vec![(ItemType::SteelAlloy, 4), (ItemType::IronIngot, 2)],
                     output: (ItemType::MetalWall, 1),
                     tier: CraftingTier::AdvancedForge,
+                    tech_key: None,
                 },
                 Recipe {
                     name: "Metal Door",
                     inputs: vec![(ItemType::SteelAlloy, 6)],
                     output: (ItemType::MetalDoor, 1),
                     tier: CraftingTier::AdvancedForge,
+                    tech_key: None,
                 },
                 // Phase 5 — Bed recipe (Hand tier)
                 Recipe {
@@ -484,6 +543,7 @@ impl CraftingSystem {
                     inputs: vec![(ItemType::WoodPlank, 6), (ItemType::PlantFiber, 4)],
                     output: (ItemType::Bed, 1),
                     tier: CraftingTier::Hand,
+                    tech_key: None,
                 },
             ],
             is_open: false,
@@ -512,7 +572,7 @@ impl CraftingSystem {
         true
     }
 
-    /// Get indices of recipes available given current tier access
+    /// Get indices of recipes available given current tier access and tech tree unlocks.
     pub fn available_recipes(
         &self,
         near_workbench: bool,
@@ -520,15 +580,27 @@ impl CraftingSystem {
         near_campfire: bool,
         near_advanced_forge: bool,
         near_ancient: bool,
+        tech_tree: &TechTree,
     ) -> Vec<usize> {
         self.recipes.iter().enumerate()
-            .filter(|(_, r)| match r.tier {
-                CraftingTier::Hand => true,
-                CraftingTier::Workbench => near_workbench,
-                CraftingTier::Forge => near_forge,
-                CraftingTier::Campfire => near_campfire,
-                CraftingTier::AdvancedForge => near_advanced_forge,
-                CraftingTier::Ancient => near_ancient,
+            .filter(|(_, r)| {
+                // First check crafting station proximity
+                let tier_ok = match r.tier {
+                    CraftingTier::Hand => true,
+                    CraftingTier::Workbench => near_workbench,
+                    CraftingTier::Forge => near_forge,
+                    CraftingTier::Campfire => near_campfire,
+                    CraftingTier::AdvancedForge => near_advanced_forge,
+                    CraftingTier::Ancient => near_ancient,
+                };
+                if !tier_ok {
+                    return false;
+                }
+                // Then check tech tree unlock requirement
+                if let Some(key) = r.tech_key {
+                    return tech_tree.is_unlocked(key);
+                }
+                true
             })
             .map(|(i, _)| i)
             .collect()
@@ -539,6 +611,7 @@ fn handle_crafting_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut crafting: ResMut<CraftingSystem>,
     mut inventory: ResMut<Inventory>,
+    tech_tree: Res<TechTree>,
 ) {
     if keyboard.just_pressed(KeyCode::KeyC) {
         crafting.is_open = !crafting.is_open;
@@ -556,7 +629,7 @@ fn handle_crafting_input(
     let near_advanced_forge = inventory.has_items(ItemType::AdvancedForge, 1);
     let near_ancient = inventory.has_items(ItemType::AncientWorkstation, 1);
 
-    let available = crafting.available_recipes(near_workbench, near_forge, near_campfire, near_advanced_forge, near_ancient);
+    let available = crafting.available_recipes(near_workbench, near_forge, near_campfire, near_advanced_forge, near_ancient, &tech_tree);
 
     if available.is_empty() {
         return;

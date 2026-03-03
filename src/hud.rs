@@ -10,10 +10,17 @@ use crate::weather::WeatherSystem;
 use crate::npc::{TradeMenu, Trader, HermitDialogueDisplay};
 use crate::lore::{LoreRegistry, LoreMessage};
 use crate::experiment::{ExperimentSlots, ExperimentMessage};
+use crate::techtree::TechTree;
 
 #[derive(Resource, Default)]
 pub struct PauseState {
     pub paused: bool,
+}
+
+/// Run condition: returns `true` when the game is NOT paused.
+/// Use with `.run_if(not_paused)` to gate gameplay systems.
+pub fn not_paused(pause: Res<PauseState>) -> bool {
+    !pause.paused
 }
 
 pub struct HudPlugin;
@@ -203,6 +210,7 @@ fn update_hud(
     weather: Res<WeatherSystem>,
     lore_registry: Res<LoreRegistry>,
     pause_state: Res<PauseState>,
+    tech_tree: Res<TechTree>,
     mut hud_query: Query<&mut Text, (With<HudText>, Without<CraftingHudText>, Without<StatusHudText>, Without<NpcHudText>, Without<FeedbackHudText>)>,
     mut craft_hud_query: Query<&mut Text, (With<CraftingHudText>, Without<HudText>, Without<StatusHudText>, Without<NpcHudText>, Without<FeedbackHudText>)>,
 ) {
@@ -316,7 +324,7 @@ fn update_hud(
         let near_campfire = inventory.has_items(ItemType::Campfire, 1);
         let near_advanced_forge = inventory.has_items(ItemType::AdvancedForge, 1);
         let near_ancient = inventory.has_items(ItemType::AncientWorkstation, 1);
-        let available = crafting.available_recipes(near_workbench, near_forge, near_campfire, near_advanced_forge, near_ancient);
+        let available = crafting.available_recipes(near_workbench, near_forge, near_campfire, near_advanced_forge, near_ancient, &tech_tree);
 
         let mut lines = vec!["== CRAFTING ==".to_string(), String::new()];
 
