@@ -160,6 +160,24 @@ fn toggle_pause(
     }
 }
 
+/// Build an ASCII bar: 20 characters wide using Unicode block chars.
+/// `fraction` should be in 0.0..=1.0.
+fn ascii_bar(fraction: f32) -> String {
+    let width = 20;
+    let filled = ((fraction.clamp(0.0, 1.0) * width as f32).round()) as usize;
+    let empty = width - filled;
+    let mut bar = String::with_capacity(width + 2);
+    bar.push('[');
+    for _ in 0..filled {
+        bar.push('\u{2588}'); // █
+    }
+    for _ in 0..empty {
+        bar.push('\u{2591}'); // ░
+    }
+    bar.push(']');
+    bar
+}
+
 fn update_status_hud(
     player_query: Query<(&Health, &Hunger, Option<&ActiveBuff>), With<Player>>,
     mut status_query: Query<(&mut Text, &mut TextColor), With<StatusHudText>>,
@@ -170,16 +188,21 @@ fn update_status_hud(
     let Ok((health, hunger, active_buff)) = player_query.get_single() else { return };
     let Ok((mut text, mut color)) = status_query.get_single_mut() else { return };
 
-    let hp_color = if health.current < health.max * 0.25 { "!!" } else { "" };
-    let hunger_color = if hunger.current < hunger.max * 0.3 { "!!" } else { "" };
+    let hp_frac = if health.max > 0.0 { health.current / health.max } else { 0.0 };
+    let hunger_frac = if hunger.max > 0.0 { hunger.current / hunger.max } else { 0.0 };
+
+    let hp_warn = if health.current < health.max * 0.25 { " !!" } else { "" };
+    let hunger_warn = if hunger.current < hunger.max * 0.3 { " !!" } else { "" };
 
     let atk = inventory.selected_item()
         .and_then(|s| s.item.weapon_damage())
         .unwrap_or(5.0);
 
     let mut lines = vec![
-        format!("HP: {:.0}/{:.0} {}  Armor: {}  ATK: {:.0}", health.current, health.max, hp_color, armor.total_armor(), atk),
-        format!("Hunger: {:.0}/{:.0} {}", hunger.current, hunger.max, hunger_color),
+        format!("HP   {} {:.0}/{:.0}{}  Armor: {}  ATK: {:.0}",
+            ascii_bar(hp_frac), health.current, health.max, hp_warn, armor.total_armor(), atk),
+        format!("FOOD {} {:.0}/{:.0}{}",
+            ascii_bar(hunger_frac), hunger.current, hunger.max, hunger_warn),
     ];
 
     // Show active buff in status area
@@ -280,22 +303,43 @@ fn update_hud(
             lines.push(String::new());
         }
 
-        lines.push("-- Hotbar --".into());
+        // Visual hotbar: each slot is fixed-width with brackets and selection indicator
+        let mut hotbar_top = String::new();
+        let mut hotbar_sel = String::new();
         for i in 0..inventory.hotbar_size {
-            let marker = if i == inventory.selected_slot { ">" } else { " " };
-            let slot_text = match &inventory.slots[i] {
+            let is_selected = i == inventory.selected_slot;
+            let content = match &inventory.slots[i] {
                 Some(slot) => {
+                    // Abbreviate item name to first 4 chars
+                    let name: String = slot.item.display_name().chars().take(4).collect();
                     if let Some(dur) = slot.durability {
                         let max_dur = slot.item.max_durability().unwrap_or(dur);
-                        format!("{} [{}] {} ({}/{})", marker, i + 1, slot.item.display_name(), dur, max_dur)
+                        format!("{}:{}/{}", name, dur, max_dur)
+                    } else if slot.count > 1 {
+                        format!("{}x{}", name, slot.count)
                     } else {
-                        format!("{} [{}] {} x{}", marker, i + 1, slot.item.display_name(), slot.count)
+                        name
                     }
                 }
-                None => format!("{} [{}] ---", marker, i + 1),
+                None => "    ".to_string(),
             };
-            lines.push(slot_text);
+            // Pad or truncate content to 9 chars for uniform slot width
+            let padded = format!("{:<9}", content);
+            let padded = if padded.len() > 9 {
+                padded.chars().take(9).collect::<String>()
+            } else {
+                padded
+            };
+            if is_selected {
+                hotbar_top.push_str(&format!(">>{}:{}<< ", i + 1, padded));
+                hotbar_sel.push_str(&format!("  ^^^{}   ", " ".repeat(padded.len().saturating_sub(3))));
+            } else {
+                hotbar_top.push_str(&format!("[{}:{}] ", i + 1, padded));
+                hotbar_sel.push_str(&format!(" {}  ", " ".repeat(padded.len() + 2)));
+            }
         }
+        lines.push(hotbar_top.trim_end().to_string());
+        lines.push(hotbar_sel.trim_end().to_string());
 
         // Show non-hotbar items if inventory is open
         if inventory.is_open {

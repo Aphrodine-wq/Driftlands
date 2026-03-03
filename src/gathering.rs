@@ -5,6 +5,7 @@ use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
 use crate::building::BuildingState;
 use crate::combat::Enemy;
+use crate::particles::SpawnParticlesEvent;
 use crate::world::generation::WorldGenerator;
 
 pub struct GatheringPlugin;
@@ -47,6 +48,7 @@ fn gather_resources(
     world_state: Res<WorldState>,
     time: Res<Time>,
     mut gathering_state: ResMut<GatheringState>,
+    mut particle_events: EventWriter<SpawnParticlesEvent>,
 ) {
     // Default: not gathering anything this frame
     gathering_state.target = None;
@@ -103,6 +105,24 @@ fn gather_resources(
         if object.health <= 0.0 {
             // Object destroyed — clear target so bars aren't drawn for it
             gathering_state.target = None;
+
+            // Spawn particle effects at destroyed object position
+            let obj_pos = obj_transform.translation.truncate();
+            let (particle_color, particle_count) = match object.object_type {
+                WorldObjectType::OakTree | WorldObjectType::PineTree => {
+                    (Color::srgb(0.5, 0.35, 0.2), 4)
+                }
+                WorldObjectType::Rock | WorldObjectType::IronVein | WorldObjectType::CoalDeposit
+                | WorldObjectType::RuinWall => {
+                    (Color::srgb(0.6, 0.6, 0.6), 4)
+                }
+                _ => (Color::srgb(0.2, 0.7, 0.2), 3),
+            };
+            particle_events.send(SpawnParticlesEvent {
+                position: obj_pos,
+                color: particle_color,
+                count: particle_count,
+            });
 
             // Derive a deterministic hash from world position for rare drops
             let tile_x = (obj_transform.translation.x / 16.0) as i32;

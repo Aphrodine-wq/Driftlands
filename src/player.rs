@@ -26,6 +26,15 @@ impl Plugin for PlayerPlugin {
 #[derive(Component)]
 pub struct Player {
     pub speed: f32,
+    pub walk_timer: f32,
+}
+
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub enum PlayerFacing {
+    Up,
+    Down,
+    Left,
+    Right,
 }
 
 #[derive(Component)]
@@ -98,7 +107,8 @@ const PLAYER_SIZE: f32 = 12.0;
 
 fn spawn_player(mut commands: Commands) {
     commands.spawn((
-        Player { speed: PLAYER_SPEED },
+        Player { speed: PLAYER_SPEED, walk_timer: 0.0 },
+        PlayerFacing::Down,
         Health::new(100.0),
         Hunger::new(100.0),
         Sprite {
@@ -115,14 +125,14 @@ fn spawn_player(mut commands: Commands) {
 }
 
 fn player_movement(
-    mut query: Query<(&Player, &Hunger, &mut Transform)>,
+    mut query: Query<(&mut Player, &Hunger, &mut Transform, &mut PlayerFacing, &mut Sprite)>,
     buffs_query: Query<&ActiveBuff>,
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     chunk_query: Query<&Chunk>,
     building_query: Query<(&Transform, &Building, Option<&Door>), Without<Player>>,
 ) {
-    let Ok((player, hunger, mut transform)) = query.get_single_mut() else { return };
+    let Ok((mut player, hunger, mut transform, mut facing, mut sprite)) = query.get_single_mut() else { return };
 
     let mut direction = Vec2::ZERO;
 
@@ -141,6 +151,22 @@ fn player_movement(
 
     if direction != Vec2::ZERO {
         direction = direction.normalize();
+
+        // Determine facing from the largest axis of movement
+        if direction.x.abs() >= direction.y.abs() {
+            if direction.x > 0.0 {
+                *facing = PlayerFacing::Right;
+                sprite.flip_x = false;
+            } else {
+                *facing = PlayerFacing::Left;
+                sprite.flip_x = true;
+            }
+        } else if direction.y > 0.0 {
+            *facing = PlayerFacing::Up;
+        } else {
+            *facing = PlayerFacing::Down;
+        }
+
         let hunger_multiplier = if hunger.is_slow() { 0.7 } else { 1.0 };
 
         let speed_buff = buffs_query.iter()
@@ -166,6 +192,14 @@ fn player_movement(
         {
             transform.translation.y = target_y;
         }
+
+        // Walk bob: oscillate y by ±1.0 pixels using sine wave
+        player.walk_timer += time.delta_secs();
+        let bob_offset = (player.walk_timer * 8.0 * std::f32::consts::PI).sin();
+        transform.translation.y += bob_offset;
+    } else {
+        // Reset walk timer when not moving
+        player.walk_timer = 0.0;
     }
 }
 

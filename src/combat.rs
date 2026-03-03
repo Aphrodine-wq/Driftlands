@@ -9,6 +9,9 @@ use crate::world::generation::Biome;
 use crate::world::{CHUNK_WORLD_SIZE};
 use crate::npc::Invulnerable;
 use crate::building::{Building, BuildingType, Door};
+use crate::camera::ScreenShake;
+use crate::death::DeathStats;
+use crate::particles::SpawnParticlesEvent;
 
 pub struct CombatPlugin;
 
@@ -26,6 +29,7 @@ impl Plugin for CombatPlugin {
                 update_enemy_health_bars,
                 projectile_movement,
                 projectile_hit,
+                knockback_system,
             ).run_if(not_paused));
     }
 }
@@ -171,6 +175,12 @@ pub struct Projectile {
     pub velocity: Vec2,
     pub damage: f32,
     pub lifetime: f32,
+}
+
+#[derive(Component)]
+pub struct Knockback {
+    pub direction: Vec2,
+    pub timer: f32,
 }
 
 // --- Loot ---
@@ -368,10 +378,13 @@ fn player_attack(
     time: Res<Time>,
     building_state: Res<crate::building::BuildingState>,
     mut player_query: Query<(Entity, &Transform, Option<&ActiveBuff>), With<Player>>,
-    mut enemy_query: Query<(Entity, &Transform, &mut Enemy, &mut Sprite), (Without<Player>, Without<Invulnerable>)>,
+    mut enemy_query: Query<(Entity, &Transform, &mut Enemy, &mut Sprite, Option<&Boss>), (Without<Player>, Without<Invulnerable>)>,
     mut cooldown_query: Query<&mut PlayerAttackCooldown>,
     mut inventory: ResMut<Inventory>,
     mut rp_events: EventWriter<ResearchPointEvent>,
+    mut screen_shake: ResMut<ScreenShake>,
+    mut death_stats: ResMut<DeathStats>,
+    mut particle_events: EventWriter<SpawnParticlesEvent>,
 ) {
     // Don't attack in build mode
     if building_state.active {
@@ -404,7 +417,7 @@ fn player_attack(
         // Find nearest enemy for aim direction, or shoot right
         let mut aim_dir = Vec2::X;
         let mut nearest_dist = f32::MAX;
-        for (_, tf, _, _) in enemy_query.iter() {
+        for (_, tf, _, _, _) in enemy_query.iter() {
             let dist = player_pos.distance(tf.translation.truncate());
             if dist < nearest_dist && dist <= 300.0 {
                 nearest_dist = dist;
@@ -453,7 +466,7 @@ fn player_attack(
 
     // Find nearest enemy within 40px
     let mut nearest: Option<(Entity, f32)> = None;
-    for (entity, tf, _, _) in enemy_query.iter() {
+    for (entity, tf, _, _, _) in enemy_query.iter() {
         let dist = player_pos.distance(tf.translation.truncate());
         if dist <= 40.0 {
             if nearest.is_none() || dist < nearest.unwrap().1 {
@@ -466,7 +479,7 @@ fn player_attack(
 
     // Deal damage
     let mut killed = false;
-    if let Ok((_, _, mut enemy, mut sprite)) = enemy_query.get_mut(target_entity) {
+    if let Ok((_, enemy_tf, mut enemy, mut sprite, maybe_boss)) = enemy_query.get_mut(target_entity) {
         enemy.health -= damage;
 
         // Flash white on hit
@@ -477,6 +490,25 @@ fn player_attack(
             original_color,
         });
 
+        // Screen shake: stronger for bosses
+        let is_boss = maybe_boss.is_some();
+        screen_shake.timer = 0.15;
+        screen_shake.intensity = if is_boss { 6.0 } else { 3.0 };
+
+        // Knockback: push enemy away from player
+        let knockback_dir = (enemy_tf.translation.truncate() - player_pos).normalize_or_zero();
+        commands.entity(target_entity).insert(Knockback {
+            direction: knockback_dir,
+            timer: 0.1,
+        });
+
+        // Spawn red hit particles at enemy position
+        particle_events.send(SpawnParticlesEvent {
+            position: enemy_tf.translation.truncate(),
+            color: Color::srgb(0.8, 0.1, 0.1),
+            count: 4,
+        });
+
         if enemy.health <= 0.0 {
             killed = true;
         }
@@ -484,12 +516,15 @@ fn player_attack(
 
     if killed {
         // Get enemy type before despawning
-        let enemy_type = enemy_query.get(target_entity).map(|(_, _, e, _)| e.enemy_type).unwrap_or(EnemyType::ShadowCrawler);
+        let enemy_type = enemy_query.get(target_entity).map(|(_, _, e, _, _)| e.enemy_type).unwrap_or(EnemyType::ShadowCrawler);
         let (drop_item, drop_count) = loot_for_enemy(enemy_type);
         inventory.add_item(drop_item, drop_count);
 
         // Award research points for a kill (+5 RP)
         rp_events.send(ResearchPointEvent { amount: 5 });
+
+        // Track kill in death stats
+        death_stats.total_kills += 1;
 
         // Note: boss loot is handled by boss_death_loot; despawn happens there
         // for bosses. For regular enemies we despawn here.
@@ -572,6 +607,7 @@ fn boss_death_loot(
     boss_query: Query<(Entity, &Enemy, &Boss)>,
     mut inventory: ResMut<Inventory>,
     mut rp_events: EventWriter<ResearchPointEvent>,
+    mut death_stats: ResMut<DeathStats>,
 ) {
     for (entity, enemy, boss) in boss_query.iter() {
         if enemy.health <= 0.0 {
@@ -581,6 +617,8 @@ fn boss_death_loot(
             }
             // Boss kill grants 20 research points
             rp_events.send(ResearchPointEvent { amount: 20 });
+            // Track kill in death stats
+            death_stats.total_kills += 1;
             commands.entity(entity).despawn();
         }
     }
@@ -604,16 +642,27 @@ fn projectile_movement(
 fn projectile_hit(
     mut commands: Commands,
     proj_query: Query<(Entity, &Transform, &Projectile)>,
-    mut enemy_query: Query<(Entity, &Transform, &mut Enemy, &mut Sprite), Without<Invulnerable>>,
+    mut enemy_query: Query<(Entity, &Transform, &mut Enemy, &mut Sprite, Option<&Boss>), Without<Invulnerable>>,
     mut inventory: ResMut<Inventory>,
     mut rp_events: EventWriter<ResearchPointEvent>,
+    mut death_stats: ResMut<DeathStats>,
+    mut screen_shake: ResMut<ScreenShake>,
+    mut particle_events: EventWriter<SpawnParticlesEvent>,
 ) {
     for (proj_entity, proj_tf, proj) in proj_query.iter() {
         let proj_pos = proj_tf.translation.truncate();
-        for (enemy_entity, enemy_tf, mut enemy, mut sprite) in enemy_query.iter_mut() {
+        for (enemy_entity, enemy_tf, mut enemy, mut sprite, maybe_boss) in enemy_query.iter_mut() {
             let dist = proj_pos.distance(enemy_tf.translation.truncate());
             if dist <= 15.0 {
                 enemy.health -= proj.damage;
+
+                // Spawn red hit particles at enemy position
+                particle_events.send(SpawnParticlesEvent {
+                    position: enemy_tf.translation.truncate(),
+                    color: Color::srgb(0.8, 0.1, 0.1),
+                    count: 4,
+                });
+
                 // Flash
                 let original_color = sprite.color;
                 sprite.color = Color::WHITE;
@@ -621,15 +670,46 @@ fn projectile_hit(
                     timer: Timer::from_seconds(0.1, TimerMode::Once),
                     original_color,
                 });
+
+                // Screen shake on projectile hit
+                let is_boss = maybe_boss.is_some();
+                screen_shake.timer = 0.15;
+                screen_shake.intensity = if is_boss { 6.0 } else { 3.0 };
+
+                // Knockback from projectile direction
+                let knockback_dir = proj.velocity.normalize_or_zero();
+                commands.entity(enemy_entity).insert(Knockback {
+                    direction: knockback_dir,
+                    timer: 0.1,
+                });
+
                 commands.entity(proj_entity).despawn();
                 if enemy.health <= 0.0 {
                     let (drop_item, drop_count) = loot_for_enemy(enemy.enemy_type);
                     inventory.add_item(drop_item, drop_count);
                     rp_events.send(ResearchPointEvent { amount: 5 });
+                    // Track kill in death stats
+                    death_stats.total_kills += 1;
                     commands.entity(enemy_entity).despawn();
                 }
                 break;
             }
+        }
+    }
+}
+
+fn knockback_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut Knockback, &mut Transform)>,
+) {
+    for (entity, mut kb, mut tf) in query.iter_mut() {
+        let move_amount = kb.direction * 80.0 * time.delta_secs();
+        tf.translation.x += move_amount.x;
+        tf.translation.y += move_amount.y;
+        kb.timer -= time.delta_secs();
+        if kb.timer <= 0.0 {
+            commands.entity(entity).remove::<Knockback>();
         }
     }
 }

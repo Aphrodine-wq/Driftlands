@@ -1,12 +1,20 @@
 use bevy::prelude::*;
 use bevy::input::mouse::MouseWheel;
+use rand::Rng;
 use crate::player::Player;
+
+#[derive(Resource, Default)]
+pub struct ScreenShake {
+    pub timer: f32,
+    pub intensity: f32,
+}
 
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_camera)
+        app.init_resource::<ScreenShake>()
+            .add_systems(Startup, spawn_camera)
             .add_systems(Update, (camera_follow, camera_zoom));
     }
 }
@@ -32,6 +40,7 @@ fn camera_follow(
     player_query: Query<&Transform, (With<Player>, Without<GameCamera>)>,
     mut camera_query: Query<&mut Transform, With<GameCamera>>,
     time: Res<Time>,
+    mut shake: ResMut<ScreenShake>,
 ) {
     let Ok(player_tf) = player_query.get_single() else { return };
     let Ok(mut cam_tf) = camera_query.get_single_mut() else { return };
@@ -44,6 +53,20 @@ fn camera_follow(
     cam_tf.translation = cam_tf
         .translation
         .lerp(target, CAMERA_LERP_SPEED * time.delta_secs());
+
+    // Apply screen shake
+    if shake.timer > 0.0 {
+        let mut rng = rand::thread_rng();
+        let offset_x = rng.gen_range(-shake.intensity..shake.intensity);
+        let offset_y = rng.gen_range(-shake.intensity..shake.intensity);
+        cam_tf.translation.x += offset_x;
+        cam_tf.translation.y += offset_y;
+        shake.timer -= time.delta_secs();
+        if shake.timer <= 0.0 {
+            shake.timer = 0.0;
+            shake.intensity = 0.0;
+        }
+    }
 }
 
 fn camera_zoom(

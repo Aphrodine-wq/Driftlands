@@ -19,6 +19,8 @@ mod techtree;
 mod npc;
 mod lore;
 mod experiment;
+mod particles;
+mod audio;
 
 use bevy::prelude::*;
 
@@ -61,6 +63,8 @@ fn main() {
             npc::NpcPlugin,
             lore::LorePlugin,
             experiment::ExperimentPlugin,
+            particles::ParticlePlugin,
+            audio::GameAudioPlugin,
         ))
         .run();
 }
