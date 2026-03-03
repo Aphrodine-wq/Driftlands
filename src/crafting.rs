@@ -446,6 +446,45 @@ impl CraftingSystem {
                     output: (ItemType::AncientPickaxe, 1),
                     tier: CraftingTier::Ancient,
                 },
+                // Phase 5 — Stone building recipes (Forge tier)
+                Recipe {
+                    name: "Stone Floor",
+                    inputs: vec![(ItemType::StoneBlock, 4)],
+                    output: (ItemType::StoneFloor, 1),
+                    tier: CraftingTier::Forge,
+                },
+                Recipe {
+                    name: "Stone Door",
+                    inputs: vec![(ItemType::StoneBlock, 6), (ItemType::IronIngot, 2)],
+                    output: (ItemType::StoneDoor, 1),
+                    tier: CraftingTier::Forge,
+                },
+                Recipe {
+                    name: "Stone Roof",
+                    inputs: vec![(ItemType::StoneBlock, 6)],
+                    output: (ItemType::StoneRoof, 1),
+                    tier: CraftingTier::Forge,
+                },
+                // Phase 5 — Metal building recipes (AdvancedForge tier)
+                Recipe {
+                    name: "Metal Wall",
+                    inputs: vec![(ItemType::SteelAlloy, 4), (ItemType::IronIngot, 2)],
+                    output: (ItemType::MetalWall, 1),
+                    tier: CraftingTier::AdvancedForge,
+                },
+                Recipe {
+                    name: "Metal Door",
+                    inputs: vec![(ItemType::SteelAlloy, 6)],
+                    output: (ItemType::MetalDoor, 1),
+                    tier: CraftingTier::AdvancedForge,
+                },
+                // Phase 5 — Bed recipe (Hand tier)
+                Recipe {
+                    name: "Bed",
+                    inputs: vec![(ItemType::WoodPlank, 6), (ItemType::PlantFiber, 4)],
+                    output: (ItemType::Bed, 1),
+                    tier: CraftingTier::Hand,
+                },
             ],
             is_open: false,
             selected_recipe: 0,

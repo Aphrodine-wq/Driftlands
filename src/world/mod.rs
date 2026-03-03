@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use tile::TileType;
 
 use crate::player::Player;
-use crate::dungeon::{DungeonRegistry, should_spawn_entrance, spawn_entrance};
+use crate::dungeon::{DungeonRegistry, should_spawn_entrance};
 
 pub const TILE_SIZE: f32 = 16.0;
 pub const CHUNK_WORLD_SIZE: f32 = TILE_SIZE * CHUNK_SIZE as f32;
@@ -21,7 +21,8 @@ pub struct WorldPlugin;
 
 impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(WorldState::new(42))
+        let seed = rand::random::<u32>();
+        app.insert_resource(WorldState::new(seed))
             .add_systems(Startup, spawn_initial_chunks)
             .add_systems(Update, manage_chunks);
     }
@@ -69,6 +70,9 @@ pub enum WorldObjectType {
     CoalDeposit,
     // Phase 4
     AncientRuin,
+    // Phase 5 — Ruins & campsites
+    SupplyCrate,
+    RuinWall,
 }
 
 impl WorldObjectType {
@@ -89,6 +93,8 @@ impl WorldObjectType {
             WorldObjectType::IronVein => 150.0,
             WorldObjectType::CoalDeposit => 130.0,
             WorldObjectType::AncientRuin => 200.0,
+            WorldObjectType::SupplyCrate => 40.0,
+            WorldObjectType::RuinWall => 200.0,
         }
     }
 
@@ -109,6 +115,16 @@ impl WorldObjectType {
             WorldObjectType::IronVein => Color::srgb(0.35, 0.3, 0.3),
             WorldObjectType::CoalDeposit => Color::srgb(0.15, 0.12, 0.12),
             WorldObjectType::AncientRuin => Color::srgb(0.6, 0.5, 0.2),
+            WorldObjectType::SupplyCrate => Color::srgb(0.5, 0.35, 0.2),
+            WorldObjectType::RuinWall => Color::srgb(0.4, 0.38, 0.35),
+        }
+    }
+
+    pub fn min_tool_tier(&self) -> u32 {
+        match self {
+            WorldObjectType::IronVein | WorldObjectType::CrystalNode => 2,
+            WorldObjectType::AncientRuin => 3,
+            _ => 0,
         }
     }
 
@@ -129,6 +145,8 @@ impl WorldObjectType {
             WorldObjectType::IronVein => Vec2::new(14.0, 10.0),
             WorldObjectType::CoalDeposit => Vec2::new(12.0, 10.0),
             WorldObjectType::AncientRuin => Vec2::new(16.0, 16.0),
+            WorldObjectType::SupplyCrate => Vec2::new(10.0, 8.0),
+            WorldObjectType::RuinWall => Vec2::new(16.0, 20.0),
         }
     }
 }
@@ -170,7 +188,11 @@ fn spawn_chunk(
     let world_x = chunk_pos.x as f32 * CHUNK_WORLD_SIZE + CHUNK_WORLD_SIZE / 2.0;
     let world_y = chunk_pos.y as f32 * CHUNK_WORLD_SIZE + CHUNK_WORLD_SIZE / 2.0;
 
-    // Spawn terrain chunk
+    // Use chunk data for object spawning BEFORE moving into ECS
+    let seed = world_state.seed;
+    spawn_chunk_objects(commands, chunk_pos, &chunk, seed, dungeon_registry);
+
+    // Spawn terrain chunk (moves chunk into ECS)
     commands.spawn((
         chunk,
         Sprite {
@@ -181,21 +203,16 @@ fn spawn_chunk(
         Transform::from_xyz(world_x, world_y, 0.0),
     ));
 
-    // Spawn world objects on this chunk
-    let seed = world_state.seed;
-    spawn_chunk_objects(commands, chunk_pos, &world_state.generator, seed, dungeon_registry);
-
     world_state.loaded_chunks.insert(chunk_pos);
 }
 
 fn spawn_chunk_objects(
     commands: &mut Commands,
     chunk_pos: IVec2,
-    generator: &WorldGenerator,
+    chunk: &Chunk,
     seed: u32,
     dungeon_registry: &mut ResMut<DungeonRegistry>,
 ) {
-    let chunk = generator.generate_chunk(chunk_pos);
     let biome = chunk.biome;
 
     // Track whether we have already placed one entrance in this chunk so we
@@ -220,12 +237,11 @@ fn spawn_chunk_objects(
             let density_roll = hash % 100;
             let variant_roll = hash2 % 100;
 
-            // --- Dungeon entrance for eligible biomes ---
+            // --- Dungeon entrance for all biomes ---
             if !entrance_placed_this_chunk
-                && matches!(biome, Biome::Mountain | Biome::Volcanic | Biome::CrystalCave)
                 && should_spawn_entrance(world_tile_x, world_tile_y, seed)
             {
-                spawn_entrance(commands, dungeon_registry, wx, wy, chunk_pos);
+                crate::dungeon::spawn_entrance_with_biome(commands, dungeon_registry, wx, wy, chunk_pos, biome);
                 entrance_placed_this_chunk = true;
                 // Skip placing a world object on the same tile.
                 continue;
@@ -240,6 +256,9 @@ fn spawn_chunk_objects(
                         spawn_world_object(commands, WorldObjectType::Bush, wx, wy, chunk_pos);
                     } else if density_roll < 12 {
                         spawn_world_object(commands, WorldObjectType::Rock, wx, wy, chunk_pos);
+                    } else if density_roll == 99 {
+                        // Abandoned campsite
+                        spawn_world_object(commands, WorldObjectType::SupplyCrate, wx, wy, chunk_pos);
                     }
                 }
                 Biome::Coastal => {
@@ -263,6 +282,9 @@ fn spawn_chunk_objects(
                         spawn_world_object(commands, WorldObjectType::Cactus, wx, wy, chunk_pos);
                     } else if density_roll < 5 {
                         spawn_world_object(commands, WorldObjectType::Rock, wx, wy, chunk_pos);
+                    } else if density_roll == 99 {
+                        // Desert ruins
+                        spawn_world_object(commands, WorldObjectType::RuinWall, wx, wy, chunk_pos);
                     }
                 }
                 Biome::Tundra => {
@@ -310,6 +332,8 @@ fn spawn_chunk_objects(
                         spawn_world_object(commands, WorldObjectType::IronVein, wx, wy, chunk_pos);
                     } else if density_roll < 11 {
                         spawn_world_object(commands, WorldObjectType::CoalDeposit, wx, wy, chunk_pos);
+                    } else if density_roll == 99 {
+                        spawn_world_object(commands, WorldObjectType::RuinWall, wx, wy, chunk_pos);
                     }
                 }
             }

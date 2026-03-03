@@ -1,24 +1,389 @@
 {
   "project": "Driftlands",
-  "branchName": "ralph/phase-4-depth-polish",
-  "description": "Phase 4: Depth & Polish - Tier 4-5 crafting, tech tree, boss monsters, NPCs, lore, experimentation crafting",
+  "branchName": "ralph/phase-5-early-access",
+  "description": "Phase 5: Early Access Release — Close all PRD gaps, add collision, expand building/combat systems, polish UI, optimize performance, and prepare for release",
   "userStories": [
-    {"id":"US-001","title":"Tier 4 materials + AdvancedForge","priority":1,"passes":true,"notes":"AdvancedForge, AlchemyLab, RareHerb, Gemstone, AncientCore items. CraftingTier::AdvancedForge."},
-    {"id":"US-002","title":"Tier 4 equipment recipes","priority":2,"passes":true,"notes":"SteelSword/Axe/Pickaxe/Armor, 3 potions. 7 AdvancedForge recipes."},
-    {"id":"US-003","title":"Potion consumption with buffs","priority":3,"passes":true,"notes":"ActiveBuff component, Speed/Strength buffs, buff_tick system, HUD display."},
-    {"id":"US-004","title":"Tier 5 Ancient Workstation","priority":4,"passes":true,"notes":"AncientWorkstation/Blade/Armor/Pickaxe. CraftingTier::Ancient. 500/400 durability."},
-    {"id":"US-005","title":"Tier 4-5 material world drops","priority":5,"passes":true,"notes":"AncientRuin WorldObject in Mountain/Volcanic. CrystalNode+Gemstone, AlpineFlower+RareHerb."},
-    {"id":"US-006","title":"Tech tree + blueprint discovery","priority":6,"passes":true,"notes":"TechTree resource, research points from crafting/kills, Blueprint item unlocks recipes."},
-    {"id":"US-007","title":"Boss monsters in dungeons","priority":7,"passes":true,"notes":"Boss component, StoneGolem 200hp. Loot table drops on death. boss_death_loot system."},
-    {"id":"US-008","title":"Biome boss variants","priority":8,"passes":true,"notes":"7 biome bosses with unique drops. boss_for_biome(). Dungeon uses biome-specific boss."},
-    {"id":"US-009","title":"Wandering trader NPC","priority":9,"passes":true,"notes":"Trader component, spawn every 3-5 days, 3-5 offers, despawn after 2 days."},
-    {"id":"US-010","title":"Trader interaction UI","priority":10,"passes":true,"notes":"TradeMenu resource, E key toggle, arrow select, Enter buy. Offer pool randomized."},
-    {"id":"US-011","title":"Hermit NPCs with dialogue","priority":11,"passes":true,"notes":"Hermit component, dialogue cycling, Invulnerable marker."},
-    {"id":"US-012","title":"Journal page lore","priority":12,"passes":true,"notes":"LoreRegistry with 20 entries. JournalPage consumption. Lore count in HUD."},
-    {"id":"US-013","title":"Experimentation crafting","priority":13,"passes":true,"notes":"ExperimentSlots, X key UI, 5 hidden recipes, success/failure feedback."},
-    {"id":"US-014","title":"Weapon damage scaling","priority":14,"passes":true,"notes":"weapon_damage() on ItemType. Combat uses equipped weapon. Strength buff 2x. Fist=5 base."},
-    {"id":"US-015","title":"Armor damage reduction","priority":15,"passes":true,"notes":"ArmorSlots resource, R to equip, total_armor reduces incoming damage. HUD shows armor+ATK."},
-    {"id":"US-016","title":"Save/load Phase 4 systems","priority":16,"passes":true,"notes":"New ItemTypes serialize. TechTree/Lore/Armor save deferred to Phase 5 polish."},
-    {"id":"US-017","title":"Recipe count + crafting polish","priority":17,"passes":true,"notes":"50+ recipes across 6 tiers. Crafting menu handles scroll correctly."}
+    {
+      "id": "US-001",
+      "title": "Tile collision for player movement",
+      "description": "As a player, I want to be blocked by water, deep water, and lava tiles so that the world feels solid and exploration requires finding paths around obstacles.",
+      "acceptanceCriteria": [
+        "Player cannot walk onto Water, DeepWater, or Lava tiles",
+        "Collision check uses the chunk tile data at the player's target position",
+        "Player slides along impassable tile edges instead of stopping dead",
+        "Movement still works normally on all walkable tile types",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "Check TileType::is_walkable() in player_movement system. Convert player target position to chunk coords, look up tile, reject movement into non-walkable tiles."
+    },
+    {
+      "id": "US-002",
+      "title": "Building collision blocks player and enemies",
+      "description": "As a player, I want placed walls and closed doors to block movement so that I can build defensive structures.",
+      "acceptanceCriteria": [
+        "Player cannot walk through WoodWall, StoneWall, or closed WoodDoor buildings",
+        "Enemies cannot path through walls or closed doors",
+        "Open doors allow passage for both player and enemies",
+        "Floors and roofs do not block movement",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "Add collision check in player_movement and enemy_ai systems. Query all Building entities, check AABB overlap for walls/closed doors."
+    },
+    {
+      "id": "US-003",
+      "title": "Stone and metal building tiers",
+      "description": "As a player, I want to build with stone, brick, and metal materials so that my structures match higher crafting tiers.",
+      "acceptanceCriteria": [
+        "BuildingType enum includes StoneFloor, StoneWall, StoneDoor, StoneRoof, MetalWall, MetalDoor",
+        "Each new type has a unique color, required item, and salvage table",
+        "Q key cycles through all building types when in build mode",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "Extend BuildingType enum. Add ItemType variants for new building pieces. Add crafting recipes at Forge (stone) and AdvancedForge (metal) tiers."
+    },
+    {
+      "id": "US-004",
+      "title": "Stone and metal building recipes",
+      "description": "As a player, I want crafting recipes for stone and metal building pieces at the appropriate crafting stations.",
+      "acceptanceCriteria": [
+        "StoneFloor recipe at Forge tier: 4 StoneBlock",
+        "StoneDoor recipe at Forge tier: 6 StoneBlock, 2 IronIngot",
+        "StoneRoof recipe at Forge tier: 6 StoneBlock",
+        "MetalWall recipe at AdvancedForge tier: 4 SteelAlloy, 2 IronIngot",
+        "MetalDoor recipe at AdvancedForge tier: 6 SteelAlloy",
+        "New ItemType variants exist for all new building pieces",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "Add ItemType variants, display_name entries, max_stack (64), and recipes to CraftingSystem::new()."
+    },
+    {
+      "id": "US-005",
+      "title": "Shield damage reduction in combat",
+      "description": "As a player, I want shields to reduce incoming damage when equipped so that defensive gear matters.",
+      "acceptanceCriteria": [
+        "WoodShield and IronShield have shield_value() method returning damage reduction (2 and 5 respectively)",
+        "ArmorSlots gets a new shield: Option<ItemType> field",
+        "R key equips shields (detected via is_shield() method)",
+        "total_armor() includes shield value",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "Add shield_value() to ItemType, is_shield() check, ArmorSlots.shield field, update equip_armor system."
+    },
+    {
+      "id": "US-006",
+      "title": "Ranged combat with bow and arrows",
+      "description": "As a player, I want to shoot arrows at enemies when holding a bow so that I can attack from a distance.",
+      "acceptanceCriteria": [
+        "Left-click while holding WoodBow spawns a Projectile entity moving toward nearest enemy or cursor direction",
+        "Projectile consumes 1 Arrow from inventory per shot",
+        "Projectile deals 8 damage on contact with an enemy then despawns",
+        "Projectile despawns after traveling 300px or 2 seconds",
+        "No arrows in inventory = no shot fired",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "Add Projectile component with velocity, lifetime. Add projectile_movement and projectile_hit systems. Check selected item is WoodBow in player_attack."
+    },
+    {
+      "id": "US-007",
+      "title": "Proximity-based crafting station detection",
+      "description": "As a player, I want crafting to check if I'm near a placed crafting station rather than just having it in my inventory.",
+      "acceptanceCriteria": [
+        "Crafting recipes requiring Workbench only available when player is within 48px of a placed Workbench building",
+        "Same proximity check for Forge, Campfire, AdvancedForge, AncientWorkstation",
+        "Placed crafting stations are Building entities with a CraftingStation component",
+        "Building system spawns CraftingStation component when placing station items",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "Add CraftingStation { tier: CraftingTier } component. Modify handle_crafting_input to query placed station buildings near player instead of checking inventory."
+    },
+    {
+      "id": "US-008",
+      "title": "Coastal and Mountain unique boss types",
+      "description": "As a player, I want unique boss encounters in Coastal and Mountain biomes instead of the generic StoneGolem fallback.",
+      "acceptanceCriteria": [
+        "New EnemyType::TidalSerpent for Coastal biome boss with 240hp, 16 damage, aquatic color",
+        "New EnemyType::MountainTitan for Mountain biome boss with 260hp, 17 damage, grey/brown color",
+        "boss_for_biome returns TidalSerpent for Coastal and MountainTitan for Mountain",
+        "Each boss has unique loot drops: CoralEssence and TitanBone items",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": "Add 2 new EnemyType variants, stats, 2 new ItemType drops, update boss_for_biome and spawn_dungeon_boss loot tables."
+    },
+    {
+      "id": "US-009",
+      "title": "Dungeon entrances in all biomes",
+      "description": "As a player, I want to find dungeon entrances in every biome so that all areas have underground content to explore.",
+      "acceptanceCriteria": [
+        "Dungeon entrance spawning no longer limited to Mountain/Volcanic/CrystalCave",
+        "All 9 biomes can spawn dungeon entrances at ~0.5% tile probability",
+        "Entrance passes the chunk's biome to spawn_entrance_with_biome",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": "Remove the biome filter in spawn_chunk_objects. Move dungeon entrance check before the biome match block so all biomes participate."
+    },
+    {
+      "id": "US-010",
+      "title": "Fog of war on minimap",
+      "description": "As a player, I want unexplored areas on the minimap to be hidden so that exploration feels rewarding.",
+      "acceptanceCriteria": [
+        "New ExploredChunks resource tracks which chunk positions the player has visited",
+        "Chunks within 2 chunks of the player are marked as explored",
+        "Minimap pixels for unexplored chunks render as dark/black instead of terrain colors",
+        "Explored chunks persist across sessions (saved with game state)",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": "Add ExploredChunks(HashSet<IVec2>) resource. Update update_minimap to check explored set. Mark chunks explored in manage_chunks."
+    },
+    {
+      "id": "US-011",
+      "title": "Bed spawn point system",
+      "description": "As a player, I want to craft and place a bed that becomes my respawn point so that death doesn't always send me to world origin.",
+      "acceptanceCriteria": [
+        "New ItemType::Bed with Hand crafting recipe (WoodPlank x6, PlantFiber x4)",
+        "Bed is a placeable BuildingType that can be placed via build mode",
+        "SpawnPoint resource stores the last bed position (default: world origin)",
+        "Interacting (E key) with a placed bed sets it as spawn point with HUD feedback",
+        "Death respawn uses SpawnPoint position instead of hardcoded world origin",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": "Add Bed component, SpawnPoint resource, update death.rs to use SpawnPoint, add bed interaction in building.rs."
+    },
+    {
+      "id": "US-012",
+      "title": "Chest storage UI",
+      "description": "As a player, I want to interact with placed chests to store and retrieve items so that I can manage my inventory.",
+      "acceptanceCriteria": [
+        "Placed Chest building has a ChestStorage component with 18 inventory slots",
+        "E key near a chest opens a chest UI panel showing chest contents",
+        "Player can transfer items between inventory and chest via number keys",
+        "Chest contents persist (stored in the ChestStorage component)",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": "Add ChestStorage component with slots Vec. Add chest_interaction system, chest HUD rendering. Place chest via build mode."
+    },
+    {
+      "id": "US-013",
+      "title": "Biome-specific enemy loot drops",
+      "description": "As a player, I want enemies to drop biome-relevant resources instead of only Stone and PlantFiber.",
+      "acceptanceCriteria": [
+        "Forest enemies drop Wood and Berry",
+        "Desert enemies drop CactusFiber and Sand",
+        "Tundra enemies drop IceShard",
+        "Volcanic enemies drop Sulfur and ObsidianShard",
+        "Fungal enemies drop MushroomCap and Spore",
+        "Swamp enemies drop Reed and Peat",
+        "Crystal Cave enemies drop CrystalShard",
+        "Mountain enemies drop IronOre and Stone",
+        "Coastal enemies drop PlantFiber and Stone",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": "Replace hardcoded drop in player_attack with loot_for_biome() function. Determine biome from enemy position and chunk lookup."
+    },
+    {
+      "id": "US-014",
+      "title": "Expanded save/load for all game state",
+      "description": "As a player, I want save/load to persist buildings, tech tree, armor, lore, explored chunks, and spawn point.",
+      "acceptanceCriteria": [
+        "Buildings are saved and restored (position, type)",
+        "TechTree unlocked nodes persist across save/load",
+        "ArmorSlots equipped items persist",
+        "LoreRegistry collected entries persist",
+        "ExploredChunks set persists",
+        "SpawnPoint position persists",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": "Extend SaveData struct in saveload.rs with new fields. Add Serialize/Deserialize derives to relevant types. Query buildings on save, spawn them on load."
+    },
+    {
+      "id": "US-015",
+      "title": "World seed configuration",
+      "description": "As a player, I want to specify a world seed or get a random one so that I can share interesting worlds.",
+      "acceptanceCriteria": [
+        "WorldState seed is randomized on new game instead of hardcoded 42",
+        "Seed is displayed in the HUD status area",
+        "Seed is saved and restored with save/load",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": "Use rand to generate seed in WorldState::new. Save seed in SaveData. Show seed in update_status_hud."
+    },
+    {
+      "id": "US-016",
+      "title": "Procedural ruins with loot chests",
+      "description": "As a player, I want to discover procedurally generated ruins on the surface that contain loot chests and journal pages.",
+      "acceptanceCriteria": [
+        "New RuinStructure WorldObjectType spawns as a cluster of 4-8 stone wall/floor tiles",
+        "Ruins spawn at ~0.3% probability per chunk in Forest, Desert, Swamp, Mountain biomes",
+        "Each ruin contains 1 loot chest entity with randomized items (Blueprint, JournalPage, or resources)",
+        "Ruins are visually distinct from regular buildings (darker stone color, partially broken)",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": "Add spawn_ruin function in world/mod.rs. Generate small template-based structure with RuinTile components and a LootChest entity."
+    },
+    {
+      "id": "US-017",
+      "title": "Abandoned campsite points of interest",
+      "description": "As a player, I want to find abandoned campsites with leftover supplies so that exploration is rewarding.",
+      "acceptanceCriteria": [
+        "Campsite POI spawns a campfire and 1-2 supply crates in a small cleared area",
+        "Supply crates drop random low-tier items when gathered (food, tools, rope)",
+        "Campsites spawn at ~0.5% probability per chunk in Forest and Coastal biomes",
+        "Campsite entities use ChunkObject for proper loading/unloading",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": "Add SupplyCrate WorldObjectType. spawn_campsite function places crate objects + a decorative campfire sprite."
+    },
+    {
+      "id": "US-018",
+      "title": "Tool tier requirements for gathering",
+      "description": "As a player, I want harder resources to require better tools so that tool progression matters.",
+      "acceptanceCriteria": [
+        "IronVein requires at least a StonePickaxe or better to gather (no wood/bare hands)",
+        "AncientRuin requires at least an IronPickaxe or better",
+        "CrystalNode requires at least a StonePickaxe",
+        "Gathering without the right tool shows a HUD message: 'Need better pickaxe'",
+        "Gathering speed is 50% faster with tool one tier above minimum",
+        "Typecheck passes"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": "Add tool_tier() to ItemType (0=hand, 1=wood, 2=stone, 3=iron, 4=steel, 5=ancient). Add min_tool_tier to WorldObjectType. Check in gather_resources."
+    },
+    {
+      "id": "US-019",
+      "title": "Enemy health bars",
+      "description": "As a player, I want to see enemy health bars so that I know how much damage I'm dealing.",
+      "acceptanceCriteria": [
+        "Each enemy renders a small health bar sprite above its main sprite",
+        "Health bar shows red (damage) and green (remaining) proportional to health/max_health",
+        "Health bar is only visible when enemy health < max_health (hidden at full HP)",
+        "Boss enemies show a larger health bar with their name",
+        "Typecheck passes"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": "Spawn child entities with Sprite for health bar background and fill. Update in a new update_enemy_health_bars system."
+    },
+    {
+      "id": "US-020",
+      "title": "Camera zoom levels",
+      "description": "As a player, I want to zoom the camera in and out so that I can see more of the world or focus on details.",
+      "acceptanceCriteria": [
+        "Scroll wheel or +/- keys cycle between 3 zoom levels: close (0.5x), normal (1.0x), far (2.0x)",
+        "Camera zoom uses Bevy's OrthographicProjection scale",
+        "Current zoom level persists during gameplay",
+        "Minimap position adjusts correctly at all zoom levels",
+        "Typecheck passes"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": "Add zoom_level field to camera system. Handle scroll input. Modify OrthographicProjection.scale. Adjust minimap offset calculation."
+    },
+    {
+      "id": "US-021",
+      "title": "Gathering progress indicator",
+      "description": "As a player, I want visual feedback showing gathering progress instead of objects just disappearing.",
+      "acceptanceCriteria": [
+        "While gathering (holding left click on object), a progress bar shows above the object",
+        "Progress bar fills proportionally as object health decreases",
+        "Object sprite shrinks slightly as health decreases (scale to 0.7 at 0 HP)",
+        "Typecheck passes"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": "Add GatheringProgress component spawned as child entity of WorldObject being gathered. Update sprite scale in gather_resources."
+    },
+    {
+      "id": "US-022",
+      "title": "Pause menu with controls reference",
+      "description": "As a player, I want a pause menu that shows controls and lets me save/quit.",
+      "acceptanceCriteria": [
+        "Escape key toggles a pause menu overlay",
+        "Game time and systems pause while menu is open (Time<Virtual> paused)",
+        "Menu shows: Resume, Save Game, Controls Reference, Quit buttons",
+        "Controls reference lists all keybindings",
+        "Typecheck passes"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": "Add PauseState resource. Escape toggles. Guard gameplay systems with run_if(not(paused)). Render menu text in HUD."
+    },
+    {
+      "id": "US-023",
+      "title": "Day counter and time display polish",
+      "description": "As a player, I want a cleaner time display showing the current day, time of day as a clock, and season.",
+      "acceptanceCriteria": [
+        "Day/night indicator shows sun/moon icon text (Day: SUN, Night: MOON, etc.)",
+        "Time displays as approximate hour (6AM, 12PM, 9PM) instead of raw percentage",
+        "Season shows day X of Y in current season",
+        "Weather indicator more visible with distinct text colors per weather type",
+        "Typecheck passes"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": "Update update_hud to format time_of_day as 24h clock. Add season day counter. Color weather text."
+    },
+    {
+      "id": "US-024",
+      "title": "Performance: chunk image caching",
+      "description": "As a developer, I want chunk terrain images to be cached so that regenerating chunks on reload is faster.",
+      "acceptanceCriteria": [
+        "Chunk terrain images are only regenerated when the chunk is first created, not on every manage_chunks cycle",
+        "When a chunk is unloaded and reloaded, its image is regenerated from seed (not cached to disk)",
+        "The generate_chunk call in spawn_chunk_objects is removed (chunk data reused from the spawned Chunk component)",
+        "Typecheck passes"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": "spawn_chunk_objects currently calls generator.generate_chunk again redundantly. Pass the already-generated chunk data instead."
+    },
+    {
+      "id": "US-025",
+      "title": "Performance: spatial hash for entity queries",
+      "description": "As a developer, I want a spatial hash grid for nearby-entity lookups so that combat and gathering don't iterate all entities.",
+      "acceptanceCriteria": [
+        "SpatialGrid resource divides world into 64px cells tracking entity positions",
+        "Enemy queries in player_attack use spatial grid to find nearby enemies instead of iterating all",
+        "Gathering queries in gather_resources use spatial grid for nearby objects",
+        "Grid updates every frame based on Transform changes",
+        "Typecheck passes"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": "Add SpatialGrid resource with HashMap<(i32,i32), Vec<Entity>>. Update in a system. Query grid cell + neighbors for nearby entities."
+    }
   ]
 }

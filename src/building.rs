@@ -57,6 +57,14 @@ pub enum BuildingType {
     WoodWall,
     WoodDoor,
     WoodRoof,
+    WoodFence,
+    StoneFloor,
+    StoneWall,
+    StoneDoor,
+    StoneRoof,
+    MetalWall,
+    MetalDoor,
+    Bed,
 }
 
 impl BuildingType {
@@ -65,7 +73,15 @@ impl BuildingType {
             BuildingType::WoodFloor => BuildingType::WoodWall,
             BuildingType::WoodWall => BuildingType::WoodDoor,
             BuildingType::WoodDoor => BuildingType::WoodRoof,
-            BuildingType::WoodRoof => BuildingType::WoodFloor,
+            BuildingType::WoodRoof => BuildingType::WoodFence,
+            BuildingType::WoodFence => BuildingType::StoneFloor,
+            BuildingType::StoneFloor => BuildingType::StoneWall,
+            BuildingType::StoneWall => BuildingType::StoneDoor,
+            BuildingType::StoneDoor => BuildingType::StoneRoof,
+            BuildingType::StoneRoof => BuildingType::MetalWall,
+            BuildingType::MetalWall => BuildingType::MetalDoor,
+            BuildingType::MetalDoor => BuildingType::Bed,
+            BuildingType::Bed => BuildingType::WoodFloor,
         }
     }
 
@@ -75,6 +91,14 @@ impl BuildingType {
             BuildingType::WoodWall => "Wood Wall",
             BuildingType::WoodDoor => "Wood Door",
             BuildingType::WoodRoof => "Wood Roof",
+            BuildingType::WoodFence => "Wood Fence",
+            BuildingType::StoneFloor => "Stone Floor",
+            BuildingType::StoneWall => "Stone Wall",
+            BuildingType::StoneDoor => "Stone Door",
+            BuildingType::StoneRoof => "Stone Roof",
+            BuildingType::MetalWall => "Metal Wall",
+            BuildingType::MetalDoor => "Metal Door",
+            BuildingType::Bed => "Bed",
         }
     }
 
@@ -84,6 +108,14 @@ impl BuildingType {
             BuildingType::WoodWall => ItemType::WoodWall,
             BuildingType::WoodDoor => ItemType::WoodDoor,
             BuildingType::WoodRoof => ItemType::WoodRoof,
+            BuildingType::WoodFence => ItemType::WoodFence,
+            BuildingType::StoneFloor => ItemType::StoneFloor,
+            BuildingType::StoneWall => ItemType::StoneWall,
+            BuildingType::StoneDoor => ItemType::StoneDoor,
+            BuildingType::StoneRoof => ItemType::StoneRoof,
+            BuildingType::MetalWall => ItemType::MetalWall,
+            BuildingType::MetalDoor => ItemType::MetalDoor,
+            BuildingType::Bed => ItemType::Bed,
         }
     }
 
@@ -93,6 +125,14 @@ impl BuildingType {
             BuildingType::WoodWall => Color::srgb(0.5, 0.3, 0.15),
             BuildingType::WoodDoor => Color::srgb(0.55, 0.35, 0.2),
             BuildingType::WoodRoof => Color::srgb(0.35, 0.2, 0.1),
+            BuildingType::WoodFence => Color::srgb(0.5, 0.35, 0.2),
+            BuildingType::StoneFloor => Color::srgb(0.55, 0.55, 0.55),
+            BuildingType::StoneWall => Color::srgb(0.5, 0.5, 0.5),
+            BuildingType::StoneDoor => Color::srgb(0.55, 0.52, 0.5),
+            BuildingType::StoneRoof => Color::srgb(0.4, 0.4, 0.4),
+            BuildingType::MetalWall => Color::srgb(0.6, 0.62, 0.65),
+            BuildingType::MetalDoor => Color::srgb(0.58, 0.6, 0.63),
+            BuildingType::Bed => Color::srgb(0.7, 0.3, 0.3),
         }
     }
 
@@ -102,6 +142,14 @@ impl BuildingType {
             BuildingType::WoodWall => Vec2::new(TILE_SIZE, 24.0),
             BuildingType::WoodDoor => Vec2::new(10.0, 20.0),
             BuildingType::WoodRoof => Vec2::new(TILE_SIZE, TILE_SIZE),
+            BuildingType::WoodFence => Vec2::new(TILE_SIZE, 12.0),
+            BuildingType::StoneFloor => Vec2::new(TILE_SIZE, TILE_SIZE),
+            BuildingType::StoneWall => Vec2::new(TILE_SIZE, 24.0),
+            BuildingType::StoneDoor => Vec2::new(10.0, 20.0),
+            BuildingType::StoneRoof => Vec2::new(TILE_SIZE, TILE_SIZE),
+            BuildingType::MetalWall => Vec2::new(TILE_SIZE, 24.0),
+            BuildingType::MetalDoor => Vec2::new(10.0, 20.0),
+            BuildingType::Bed => Vec2::new(TILE_SIZE, TILE_SIZE),
         }
     }
 
@@ -111,6 +159,11 @@ impl BuildingType {
             BuildingType::WoodWall => 3.0,
             BuildingType::WoodDoor => 3.0,
             BuildingType::WoodRoof => 15.0,
+            BuildingType::WoodFence => 2.0,
+            BuildingType::StoneFloor | BuildingType::Bed => 1.0,
+            BuildingType::StoneWall | BuildingType::MetalWall => 3.0,
+            BuildingType::StoneDoor | BuildingType::MetalDoor => 3.0,
+            BuildingType::StoneRoof => 15.0,
         }
     }
 
@@ -121,6 +174,14 @@ impl BuildingType {
             BuildingType::WoodWall => vec![(ItemType::WoodPlank, 2), (ItemType::Stick, 1)],
             BuildingType::WoodDoor => vec![(ItemType::WoodPlank, 3)],
             BuildingType::WoodRoof => vec![(ItemType::WoodPlank, 3), (ItemType::Stick, 2)],
+            BuildingType::WoodFence => vec![(ItemType::Stick, 3)],
+            BuildingType::StoneFloor => vec![(ItemType::StoneBlock, 2)],
+            BuildingType::StoneWall => vec![(ItemType::StoneBlock, 2)],
+            BuildingType::StoneDoor => vec![(ItemType::StoneBlock, 3), (ItemType::IronIngot, 1)],
+            BuildingType::StoneRoof => vec![(ItemType::StoneBlock, 3)],
+            BuildingType::MetalWall => vec![(ItemType::SteelAlloy, 2), (ItemType::IronIngot, 1)],
+            BuildingType::MetalDoor => vec![(ItemType::SteelAlloy, 3)],
+            BuildingType::Bed => vec![(ItemType::WoodPlank, 3), (ItemType::PlantFiber, 2)],
         }
     }
 }
@@ -213,10 +274,10 @@ fn place_building(
         Transform::from_xyz(snapped_x, snapped_y, bt.z_depth()),
     ));
 
-    if bt == BuildingType::WoodDoor {
+    if matches!(bt, BuildingType::WoodDoor | BuildingType::StoneDoor | BuildingType::MetalDoor) {
         entity_commands.insert(Door { is_open: false });
     }
-    if bt == BuildingType::WoodRoof {
+    if matches!(bt, BuildingType::WoodRoof | BuildingType::StoneRoof) {
         entity_commands.insert(Roof);
     }
 }

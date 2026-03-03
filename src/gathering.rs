@@ -55,7 +55,23 @@ fn gather_resources(
     let Some((target_entity, _)) = nearest else { return };
 
     if let Ok((_, obj_transform, mut object)) = objects_query.get_mut(target_entity) {
-        object.health -= 30.0 * time.delta_secs();
+        // Check tool tier requirement
+        let required_tier = object.object_type.min_tool_tier();
+        if required_tier > 0 {
+            let player_tool_tier = inventory.selected_item()
+                .map(|s| s.item.tool_tier())
+                .unwrap_or(0);
+            if player_tool_tier < required_tier {
+                return; // Need better tool
+            }
+        }
+
+        let tool_bonus = if required_tier > 0 {
+            let tier = inventory.selected_item().map(|s| s.item.tool_tier()).unwrap_or(0);
+            if tier > required_tier { 1.5 } else { 1.0 }
+        } else { 1.0 };
+
+        object.health -= 30.0 * tool_bonus * time.delta_secs();
 
         if object.health <= 0.0 {
             // Derive a deterministic hash from world position for rare drops
@@ -124,6 +140,19 @@ fn gather_resources(
                 WorldObjectType::AncientRuin => {
                     inventory.add_item(ItemType::AncientCore, 1);
                     inventory.add_item(ItemType::Gemstone, 1);
+                }
+                WorldObjectType::SupplyCrate => {
+                    // Random supplies
+                    let supply_roll = WorldGenerator::position_hash(tile_x, tile_y, world_state.seed.wrapping_add(200));
+                    match supply_roll % 4 {
+                        0 => { inventory.add_item(ItemType::Berry, 3); }
+                        1 => { inventory.add_item(ItemType::Rope, 2); }
+                        2 => { inventory.add_item(ItemType::Torch, 2); }
+                        _ => { inventory.add_item(ItemType::Stick, 4); }
+                    }
+                }
+                WorldObjectType::RuinWall => {
+                    inventory.add_item(ItemType::StoneBlock, 2);
                 }
             }
             // Consume tool durability

@@ -7,6 +7,7 @@ use crate::world::chunk::Chunk;
 use crate::world::generation::Biome;
 use crate::world::{CHUNK_WORLD_SIZE};
 use crate::npc::Invulnerable;
+use crate::building::{Building, BuildingType, Door};
 
 pub struct CombatPlugin;
 
@@ -21,6 +22,9 @@ impl Plugin for CombatPlugin {
                 enemy_attack_player,
                 update_hit_flash,
                 boss_death_loot,
+                update_enemy_health_bars,
+                projectile_movement,
+                projectile_hit,
             ));
     }
 }
@@ -79,6 +83,8 @@ pub enum EnemyType {
     MagmaKing,
     FungalOverlord,
     CrystalSentinel,
+    TidalSerpent,
+    MountainTitan,
 }
 
 impl EnemyType {
@@ -103,6 +109,8 @@ impl EnemyType {
             EnemyType::MagmaKing       => (300.0, 20.0, 20.0, 200.0, Color::srgb(0.9, 0.4, 0.1), Vec2::new(24.0, 24.0)),
             EnemyType::FungalOverlord  => (160.0, 10.0, 50.0, 200.0, Color::srgb(0.5, 0.2, 0.6), Vec2::new(18.0, 18.0)),
             EnemyType::CrystalSentinel => (220.0, 15.0, 30.0, 200.0, Color::srgb(0.6, 0.5, 0.8), Vec2::new(20.0, 22.0)),
+            EnemyType::TidalSerpent   => (240.0, 16.0, 35.0, 200.0, Color::srgb(0.2, 0.5, 0.8), Vec2::new(22.0, 20.0)),
+            EnemyType::MountainTitan  => (260.0, 17.0, 25.0, 200.0, Color::srgb(0.5, 0.45, 0.35), Vec2::new(24.0, 24.0)),
         }
     }
 
@@ -131,9 +139,8 @@ pub fn boss_for_biome(biome: Biome) -> EnemyType {
         Biome::Volcanic    => EnemyType::MagmaKing,
         Biome::Fungal      => EnemyType::FungalOverlord,
         Biome::CrystalCave => EnemyType::CrystalSentinel,
-        // Fallback biomes use the generic dungeon boss
-        Biome::Coastal     => EnemyType::StoneGolem,
-        Biome::Mountain    => EnemyType::StoneGolem,
+        Biome::Coastal     => EnemyType::TidalSerpent,
+        Biome::Mountain    => EnemyType::MountainTitan,
     }
 }
 
@@ -151,8 +158,34 @@ pub struct HitFlash {
 }
 
 #[derive(Component)]
+pub struct EnemyHealthBar;
+
+#[derive(Component)]
 pub struct PlayerAttackCooldown {
     pub timer: Timer,
+}
+
+#[derive(Component)]
+pub struct Projectile {
+    pub velocity: Vec2,
+    pub damage: f32,
+    pub lifetime: f32,
+}
+
+// --- Loot ---
+
+fn loot_for_enemy(enemy_type: EnemyType) -> (ItemType, u32) {
+    match enemy_type {
+        EnemyType::FeralWolf => (ItemType::Wood, 2),
+        EnemyType::ShadowCrawler => (ItemType::PlantFiber, 2),
+        EnemyType::CaveSpider => (ItemType::CrystalShard, 1),
+        EnemyType::FungalZombie => (ItemType::MushroomCap, 2),
+        EnemyType::LavaElemental => (ItemType::Sulfur, 2),
+        EnemyType::IceWraith => (ItemType::IceShard, 2),
+        EnemyType::BogLurker => (ItemType::Reed, 2),
+        EnemyType::SandScorpion => (ItemType::CactusFiber, 2),
+        _ => (ItemType::Stone, 2),
+    }
 }
 
 // --- Systems ---
@@ -235,6 +268,7 @@ fn enemy_ai(
     mut enemy_query: Query<(&mut Enemy, &mut Transform), Without<Player>>,
     player_query: Query<&Transform, With<Player>>,
     time: Res<Time>,
+    building_query: Query<(&Transform, &Building, Option<&Door>), (Without<Player>, Without<Enemy>)>,
 ) {
     let Ok(player_tf) = player_query.get_single() else { return };
     let player_pos = player_tf.translation.truncate();
@@ -263,8 +297,12 @@ fn enemy_ai(
                     // Move toward patrol target at half speed
                     let dir = (enemy.patrol_target - enemy_pos).normalize_or_zero();
                     let move_delta = dir * enemy.speed * 0.5 * time.delta_secs();
-                    tf.translation.x += move_delta.x;
-                    tf.translation.y += move_delta.y;
+                    let new_x = tf.translation.x + move_delta.x;
+                    let new_y = tf.translation.y + move_delta.y;
+                    if !is_blocked_by_building_enemy(new_x, new_y, &building_query) {
+                        tf.translation.x = new_x;
+                        tf.translation.y = new_y;
+                    }
 
                     // If close to target, go idle again
                     if enemy_pos.distance(enemy.patrol_target) < 10.0 {
@@ -279,12 +317,48 @@ fn enemy_ai(
                     // Move toward player at full speed
                     let dir = (player_pos - enemy_pos).normalize_or_zero();
                     let move_delta = dir * enemy.speed * time.delta_secs();
-                    tf.translation.x += move_delta.x;
-                    tf.translation.y += move_delta.y;
+                    let new_x = tf.translation.x + move_delta.x;
+                    let new_y = tf.translation.y + move_delta.y;
+                    if !is_blocked_by_building_enemy(new_x, new_y, &building_query) {
+                        tf.translation.x = new_x;
+                        tf.translation.y = new_y;
+                    }
                 }
             }
         }
     }
+}
+
+fn is_blocked_by_building_enemy(
+    x: f32,
+    y: f32,
+    building_query: &Query<(&Transform, &Building, Option<&Door>), (Without<Player>, Without<Enemy>)>,
+) -> bool {
+    let half = 5.0;
+    for (tf, building, door) in building_query.iter() {
+        let blocks = match building.building_type {
+            BuildingType::WoodWall | BuildingType::StoneWall | BuildingType::MetalWall | BuildingType::WoodFence => true,
+            BuildingType::WoodDoor | BuildingType::StoneDoor | BuildingType::MetalDoor => {
+                door.map(|d| !d.is_open).unwrap_or(true)
+            }
+            _ => false,
+        };
+        if !blocks {
+            continue;
+        }
+        let bpos = tf.translation.truncate();
+        let bsize = building.building_type.size();
+        let half_w = bsize.x / 2.0;
+        let half_h = bsize.y / 2.0;
+        if x + half > bpos.x - half_w
+            && x - half < bpos.x + half_w
+            && y + half > bpos.y - half_h
+            && y - half < bpos.y + half_h
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn player_attack(
@@ -317,6 +391,54 @@ fn player_attack(
 
     let Ok((player_entity, player_tf, maybe_buff)) = player_query.get_single_mut() else { return };
     let player_pos = player_tf.translation.truncate();
+
+    // Ranged attack with bow
+    let is_bow = inventory.selected_item()
+        .map(|s| s.item == ItemType::WoodBow)
+        .unwrap_or(false);
+    if is_bow {
+        if !inventory.has_items(ItemType::Arrow, 1) {
+            return;
+        }
+        // Find nearest enemy for aim direction, or shoot right
+        let mut aim_dir = Vec2::X;
+        let mut nearest_dist = f32::MAX;
+        for (_, tf, _, _) in enemy_query.iter() {
+            let dist = player_pos.distance(tf.translation.truncate());
+            if dist < nearest_dist && dist <= 300.0 {
+                nearest_dist = dist;
+                aim_dir = (tf.translation.truncate() - player_pos).normalize_or_zero();
+            }
+        }
+        if aim_dir == Vec2::ZERO {
+            aim_dir = Vec2::X;
+        }
+
+        inventory.remove_items(ItemType::Arrow, 1);
+        commands.spawn((
+            Projectile {
+                velocity: aim_dir * 400.0,
+                damage: 8.0,
+                lifetime: 2.0,
+            },
+            Sprite {
+                color: Color::srgb(0.8, 0.7, 0.3),
+                custom_size: Some(Vec2::new(4.0, 2.0)),
+                ..default()
+            },
+            Transform::from_xyz(player_pos.x, player_pos.y, 8.0),
+        ));
+
+        // Set/reset cooldown
+        if let Ok(mut cd) = cooldown_query.get_single_mut() {
+            cd.timer.reset();
+        } else {
+            commands.entity(player_entity).insert(PlayerAttackCooldown {
+                timer: Timer::from_seconds(0.5, TimerMode::Once),
+            });
+        }
+        return;
+    }
 
     // Calculate weapon damage from equipped item
     let base_damage = inventory.selected_item()
@@ -360,10 +482,10 @@ fn player_attack(
     }
 
     if killed {
-        // Drop random item
-        let mut rng = rand::thread_rng();
-        let drop_item = if rng.gen_bool(0.5) { ItemType::Stone } else { ItemType::PlantFiber };
-        inventory.add_item(drop_item, 1);
+        // Get enemy type before despawning
+        let enemy_type = enemy_query.get(target_entity).map(|(_, _, e, _)| e.enemy_type).unwrap_or(EnemyType::ShadowCrawler);
+        let (drop_item, drop_count) = loot_for_enemy(enemy_type);
+        inventory.add_item(drop_item, drop_count);
 
         // Award research points for a kill (+5 RP)
         rp_events.send(ResearchPointEvent { amount: 5 });
@@ -460,5 +582,99 @@ fn boss_death_loot(
             rp_events.send(ResearchPointEvent { amount: 20 });
             commands.entity(entity).despawn();
         }
+    }
+}
+
+fn projectile_movement(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut Projectile, &mut Transform)>,
+) {
+    for (entity, mut proj, mut tf) in query.iter_mut() {
+        tf.translation.x += proj.velocity.x * time.delta_secs();
+        tf.translation.y += proj.velocity.y * time.delta_secs();
+        proj.lifetime -= time.delta_secs();
+        if proj.lifetime <= 0.0 {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+fn projectile_hit(
+    mut commands: Commands,
+    proj_query: Query<(Entity, &Transform, &Projectile)>,
+    mut enemy_query: Query<(Entity, &Transform, &mut Enemy, &mut Sprite), Without<Invulnerable>>,
+    mut inventory: ResMut<Inventory>,
+    mut rp_events: EventWriter<ResearchPointEvent>,
+) {
+    for (proj_entity, proj_tf, proj) in proj_query.iter() {
+        let proj_pos = proj_tf.translation.truncate();
+        for (enemy_entity, enemy_tf, mut enemy, mut sprite) in enemy_query.iter_mut() {
+            let dist = proj_pos.distance(enemy_tf.translation.truncate());
+            if dist <= 15.0 {
+                enemy.health -= proj.damage;
+                // Flash
+                let original_color = sprite.color;
+                sprite.color = Color::WHITE;
+                commands.entity(enemy_entity).insert(HitFlash {
+                    timer: Timer::from_seconds(0.1, TimerMode::Once),
+                    original_color,
+                });
+                commands.entity(proj_entity).despawn();
+                if enemy.health <= 0.0 {
+                    let (drop_item, drop_count) = loot_for_enemy(enemy.enemy_type);
+                    inventory.add_item(drop_item, drop_count);
+                    rp_events.send(ResearchPointEvent { amount: 5 });
+                    commands.entity(enemy_entity).despawn();
+                }
+                break;
+            }
+        }
+    }
+}
+
+fn update_enemy_health_bars(
+    mut commands: Commands,
+    enemy_query: Query<(&Transform, &Enemy), Without<EnemyHealthBar>>,
+    bar_query: Query<Entity, With<EnemyHealthBar>>,
+) {
+    // Remove all existing health bars each frame
+    for entity in bar_query.iter() {
+        commands.entity(entity).despawn();
+    }
+
+    // Recreate bars only for damaged enemies
+    for (tf, enemy) in enemy_query.iter() {
+        if enemy.health >= enemy.max_health {
+            continue;
+        }
+        let ratio = (enemy.health / enemy.max_health).clamp(0.0, 1.0);
+        let bar_width = 16.0;
+        let bar_height = 2.0;
+        let bar_y = tf.translation.y + 12.0;
+
+        // Background (red)
+        commands.spawn((
+            EnemyHealthBar,
+            Sprite {
+                color: Color::srgb(0.6, 0.1, 0.1),
+                custom_size: Some(Vec2::new(bar_width, bar_height)),
+                ..default()
+            },
+            Transform::from_xyz(tf.translation.x, bar_y, 9.0),
+        ));
+
+        // Fill (green)
+        let fill_width = bar_width * ratio;
+        let fill_offset = (bar_width - fill_width) / 2.0;
+        commands.spawn((
+            EnemyHealthBar,
+            Sprite {
+                color: Color::srgb(0.1, 0.7, 0.1),
+                custom_size: Some(Vec2::new(fill_width, bar_height)),
+                ..default()
+            },
+            Transform::from_xyz(tf.translation.x - fill_offset, bar_y, 9.1),
+        ));
     }
 }

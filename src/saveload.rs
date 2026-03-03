@@ -70,6 +70,14 @@ enum SaveBuildingType {
     WoodWall,
     WoodDoor,
     WoodRoof,
+    WoodFence,
+    StoneFloor,
+    StoneWall,
+    StoneDoor,
+    StoneRoof,
+    MetalWall,
+    MetalDoor,
+    Bed,
 }
 
 impl From<BuildingType> for SaveBuildingType {
@@ -79,6 +87,14 @@ impl From<BuildingType> for SaveBuildingType {
             BuildingType::WoodWall => SaveBuildingType::WoodWall,
             BuildingType::WoodDoor => SaveBuildingType::WoodDoor,
             BuildingType::WoodRoof => SaveBuildingType::WoodRoof,
+            BuildingType::WoodFence => SaveBuildingType::WoodFence,
+            BuildingType::StoneFloor => SaveBuildingType::StoneFloor,
+            BuildingType::StoneWall => SaveBuildingType::StoneWall,
+            BuildingType::StoneDoor => SaveBuildingType::StoneDoor,
+            BuildingType::StoneRoof => SaveBuildingType::StoneRoof,
+            BuildingType::MetalWall => SaveBuildingType::MetalWall,
+            BuildingType::MetalDoor => SaveBuildingType::MetalDoor,
+            BuildingType::Bed => SaveBuildingType::Bed,
         }
     }
 }
@@ -90,6 +106,14 @@ impl From<SaveBuildingType> for BuildingType {
             SaveBuildingType::WoodWall => BuildingType::WoodWall,
             SaveBuildingType::WoodDoor => BuildingType::WoodDoor,
             SaveBuildingType::WoodRoof => BuildingType::WoodRoof,
+            SaveBuildingType::WoodFence => BuildingType::WoodFence,
+            SaveBuildingType::StoneFloor => BuildingType::StoneFloor,
+            SaveBuildingType::StoneWall => BuildingType::StoneWall,
+            SaveBuildingType::StoneDoor => BuildingType::StoneDoor,
+            SaveBuildingType::StoneRoof => BuildingType::StoneRoof,
+            SaveBuildingType::MetalWall => BuildingType::MetalWall,
+            SaveBuildingType::MetalDoor => BuildingType::MetalDoor,
+            SaveBuildingType::Bed => BuildingType::Bed,
         }
     }
 }
@@ -236,10 +260,10 @@ fn handle_load_input(
             Transform::from_xyz(sb.pos[0], sb.pos[1], sb.pos[2]),
         ));
 
-        if bt == BuildingType::WoodDoor {
+        if matches!(bt, BuildingType::WoodDoor | BuildingType::StoneDoor | BuildingType::MetalDoor) {
             entity_commands.insert(Door { is_open: sb.is_door_open.unwrap_or(false) });
         }
-        if bt == BuildingType::WoodRoof {
+        if matches!(bt, BuildingType::WoodRoof | BuildingType::StoneRoof) {
             entity_commands.insert(Roof);
         }
     }

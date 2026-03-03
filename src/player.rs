@@ -1,7 +1,8 @@
 use bevy::prelude::*;
-use crate::building::BuildingState;
+use crate::building::{Building, BuildingState, BuildingType, Door};
 use crate::inventory::{Inventory, ItemType};
-use crate::world::TILE_SIZE;
+use crate::world::{TILE_SIZE, CHUNK_WORLD_SIZE};
+use crate::world::chunk::{Chunk, CHUNK_SIZE};
 
 pub struct PlayerPlugin;
 
@@ -117,6 +118,8 @@ fn player_movement(
     buffs_query: Query<&ActiveBuff>,
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
+    chunk_query: Query<&Chunk>,
+    building_query: Query<(&Transform, &Building, Option<&Door>), Without<Player>>,
 ) {
     let Ok((player, hunger, mut transform)) = query.get_single_mut() else { return };
 
@@ -139,16 +142,82 @@ fn player_movement(
         direction = direction.normalize();
         let hunger_multiplier = if hunger.is_slow() { 0.7 } else { 1.0 };
 
-        // Apply speed buff if present (ActiveBuff is attached to the player entity)
         let speed_buff = buffs_query.iter()
             .find(|b| b.buff_type == BuffType::Speed)
             .map(|b| b.magnitude)
             .unwrap_or(1.0);
 
         let speed = player.speed * hunger_multiplier * speed_buff;
-        transform.translation.x += direction.x * speed * time.delta_secs();
-        transform.translation.y += direction.y * speed * time.delta_secs();
+        let delta = direction * speed * time.delta_secs();
+
+        // Check X movement
+        let target_x = transform.translation.x + delta.x;
+        if is_position_walkable(target_x, transform.translation.y, &chunk_query)
+            && !is_blocked_by_building(target_x, transform.translation.y, &building_query)
+        {
+            transform.translation.x = target_x;
+        }
+
+        // Check Y movement independently (allows sliding along walls)
+        let target_y = transform.translation.y + delta.y;
+        if is_position_walkable(transform.translation.x, target_y, &chunk_query)
+            && !is_blocked_by_building(transform.translation.x, target_y, &building_query)
+        {
+            transform.translation.y = target_y;
+        }
     }
+}
+
+fn is_position_walkable(x: f32, y: f32, chunk_query: &Query<&Chunk>) -> bool {
+    let chunk_x = (x / CHUNK_WORLD_SIZE).floor() as i32;
+    let chunk_y = (y / CHUNK_WORLD_SIZE).floor() as i32;
+
+    let tile_x = ((x / TILE_SIZE).floor() as i32 - chunk_x * CHUNK_SIZE as i32).clamp(0, CHUNK_SIZE as i32 - 1) as usize;
+    let tile_y = ((y / TILE_SIZE).floor() as i32 - chunk_y * CHUNK_SIZE as i32).clamp(0, CHUNK_SIZE as i32 - 1) as usize;
+
+    for chunk in chunk_query.iter() {
+        if chunk.position.x == chunk_x && chunk.position.y == chunk_y {
+            return chunk.get_tile(tile_x, tile_y).is_walkable();
+        }
+    }
+
+    true // Allow movement if chunk not loaded
+}
+
+fn is_blocked_by_building(
+    x: f32,
+    y: f32,
+    building_query: &Query<(&Transform, &Building, Option<&Door>), Without<Player>>,
+) -> bool {
+    let player_half = 6.0; // Half of PLAYER_SIZE (12/2)
+    for (tf, building, door) in building_query.iter() {
+        // Only walls and closed doors block movement
+        let blocks = match building.building_type {
+            BuildingType::WoodWall | BuildingType::StoneWall | BuildingType::MetalWall | BuildingType::WoodFence => true,
+            BuildingType::WoodDoor | BuildingType::StoneDoor | BuildingType::MetalDoor => {
+                door.map(|d| !d.is_open).unwrap_or(true)
+            }
+            _ => false,
+        };
+        if !blocks {
+            continue;
+        }
+
+        let bpos = tf.translation.truncate();
+        let bsize = building.building_type.size();
+        let half_w = bsize.x / 2.0;
+        let half_h = bsize.y / 2.0;
+
+        // AABB overlap check
+        if x + player_half > bpos.x - half_w
+            && x - player_half < bpos.x + half_w
+            && y + player_half > bpos.y - half_h
+            && y - player_half < bpos.y + half_h
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn hunger_depletion(
@@ -266,13 +335,15 @@ fn buff_tick(
 pub struct ArmorSlots {
     pub helmet: Option<ItemType>,
     pub chest: Option<ItemType>,
+    pub shield: Option<ItemType>,
 }
 
 impl ArmorSlots {
     pub fn total_armor(&self) -> u32 {
         let h = self.helmet.map(|i| i.armor_value()).unwrap_or(0);
         let c = self.chest.map(|i| i.armor_value()).unwrap_or(0);
-        h + c
+        let s = self.shield.map(|i| i.shield_value()).unwrap_or(0);
+        h + c + s
     }
 }
 
@@ -302,6 +373,13 @@ fn equip_armor(
                 inventory.add_item(old, 1);
             }
             armor.chest = Some(item);
+        }
+    } else if item.is_shield() {
+        if inventory.remove_items(item, 1) {
+            if let Some(old) = armor.shield.take() {
+                inventory.add_item(old, 1);
+            }
+            armor.shield = Some(item);
         }
     }
 }

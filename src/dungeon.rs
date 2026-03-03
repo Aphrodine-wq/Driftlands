@@ -457,7 +457,19 @@ fn spawn_dungeon_boss(commands: &mut Commands, pos: Vec2, biome: Biome) {
             (ItemType::Blueprint, 1),
             (ItemType::CrystalHeart, 1),
         ],
-        // Generic StoneGolem (Coastal / Mountain fallback)
+        EnemyType::TidalSerpent => vec![
+            (ItemType::AncientCore, 1),
+            (ItemType::Gemstone, 1),
+            (ItemType::Blueprint, 1),
+            (ItemType::CoralEssence, 1),
+        ],
+        EnemyType::MountainTitan => vec![
+            (ItemType::AncientCore, 1),
+            (ItemType::Gemstone, 1),
+            (ItemType::Blueprint, 1),
+            (ItemType::TitanBone, 1),
+        ],
+        // Generic StoneGolem fallback
         _ => vec![
             (ItemType::AncientCore, 1),
             (ItemType::Gemstone, 1),

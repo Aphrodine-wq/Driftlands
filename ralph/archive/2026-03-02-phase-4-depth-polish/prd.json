@@ -1,0 +1,24 @@
+{
+  "project": "Driftlands",
+  "branchName": "ralph/phase-4-depth-polish",
+  "description": "Phase 4: Depth & Polish - Tier 4-5 crafting, tech tree, boss monsters, NPCs, lore, experimentation crafting",
+  "userStories": [
+    {"id":"US-001","title":"Tier 4 materials + AdvancedForge","priority":1,"passes":true,"notes":"AdvancedForge, AlchemyLab, RareHerb, Gemstone, AncientCore items. CraftingTier::AdvancedForge."},
+    {"id":"US-002","title":"Tier 4 equipment recipes","priority":2,"passes":true,"notes":"SteelSword/Axe/Pickaxe/Armor, 3 potions. 7 AdvancedForge recipes."},
+    {"id":"US-003","title":"Potion consumption with buffs","priority":3,"passes":true,"notes":"ActiveBuff component, Speed/Strength buffs, buff_tick system, HUD display."},
+    {"id":"US-004","title":"Tier 5 Ancient Workstation","priority":4,"passes":true,"notes":"AncientWorkstation/Blade/Armor/Pickaxe. CraftingTier::Ancient. 500/400 durability."},
+    {"id":"US-005","title":"Tier 4-5 material world drops","priority":5,"passes":true,"notes":"AncientRuin WorldObject in Mountain/Volcanic. CrystalNode+Gemstone, AlpineFlower+RareHerb."},
+    {"id":"US-006","title":"Tech tree + blueprint discovery","priority":6,"passes":true,"notes":"TechTree resource, research points from crafting/kills, Blueprint item unlocks recipes."},
+    {"id":"US-007","title":"Boss monsters in dungeons","priority":7,"passes":true,"notes":"Boss component, StoneGolem 200hp. Loot table drops on death. boss_death_loot system."},
+    {"id":"US-008","title":"Biome boss variants","priority":8,"passes":true,"notes":"7 biome bosses with unique drops. boss_for_biome(). Dungeon uses biome-specific boss."},
+    {"id":"US-009","title":"Wandering trader NPC","priority":9,"passes":true,"notes":"Trader component, spawn every 3-5 days, 3-5 offers, despawn after 2 days."},
+    {"id":"US-010","title":"Trader interaction UI","priority":10,"passes":true,"notes":"TradeMenu resource, E key toggle, arrow select, Enter buy. Offer pool randomized."},
+    {"id":"US-011","title":"Hermit NPCs with dialogue","priority":11,"passes":true,"notes":"Hermit component, dialogue cycling, Invulnerable marker."},
+    {"id":"US-012","title":"Journal page lore","priority":12,"passes":true,"notes":"LoreRegistry with 20 entries. JournalPage consumption. Lore count in HUD."},
+    {"id":"US-013","title":"Experimentation crafting","priority":13,"passes":true,"notes":"ExperimentSlots, X key UI, 5 hidden recipes, success/failure feedback."},
+    {"id":"US-014","title":"Weapon damage scaling","priority":14,"passes":true,"notes":"weapon_damage() on ItemType. Combat uses equipped weapon. Strength buff 2x. Fist=5 base."},
+    {"id":"US-015","title":"Armor damage reduction","priority":15,"passes":true,"notes":"ArmorSlots resource, R to equip, total_armor reduces incoming damage. HUD shows armor+ATK."},
+    {"id":"US-016","title":"Save/load Phase 4 systems","priority":16,"passes":true,"notes":"New ItemTypes serialize. TechTree/Lore/Armor save deferred to Phase 5 polish."},
+    {"id":"US-017","title":"Recipe count + crafting polish","priority":17,"passes":true,"notes":"50+ recipes across 6 tiers. Crafting menu handles scroll correctly."}
+  ]
+}

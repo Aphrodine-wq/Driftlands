@@ -49,12 +49,22 @@ fn camera_follow(
 fn camera_zoom(
     mut camera_query: Query<(&mut OrthographicProjection, &mut GameCamera)>,
     mut scroll_events: EventReader<MouseWheel>,
+    keyboard: Res<ButtonInput<KeyCode>>,
 ) {
     let Ok((mut projection, mut camera)) = camera_query.get_single_mut() else { return };
 
     for event in scroll_events.read() {
         camera.zoom_level -= event.y * 0.1;
         camera.zoom_level = camera.zoom_level.clamp(MIN_ZOOM, MAX_ZOOM);
-        projection.scale = camera.zoom_level;
     }
+
+    // Keyboard zoom: +/= zooms in (lower scale), -/_ zooms out (higher scale)
+    if keyboard.just_pressed(KeyCode::Equal) || keyboard.just_pressed(KeyCode::NumpadAdd) {
+        camera.zoom_level = (camera.zoom_level - 0.25).max(MIN_ZOOM);
+    }
+    if keyboard.just_pressed(KeyCode::Minus) || keyboard.just_pressed(KeyCode::NumpadSubtract) {
+        camera.zoom_level = (camera.zoom_level + 0.25).min(MAX_ZOOM);
+    }
+
+    projection.scale = camera.zoom_level;
 }

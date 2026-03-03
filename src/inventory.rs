@@ -106,6 +106,17 @@ pub enum ItemType {
     CrystalHeart,
     // Phase 4 — NPC / lore items (US-012)
     JournalPage,
+    // Phase 5 — Building tiers
+    StoneFloor,
+    StoneDoor,
+    StoneRoof,
+    MetalWall,
+    MetalDoor,
+    // Phase 5 — Bed
+    Bed,
+    // Phase 5 — Boss drops
+    CoralEssence,
+    TitanBone,
 }
 
 impl ItemType {
@@ -193,6 +204,14 @@ impl ItemType {
             ItemType::FungalSporeEssence => "Fungal Spore Essence",
             ItemType::CrystalHeart => "Crystal Heart",
             ItemType::JournalPage => "Journal Page",
+            ItemType::StoneFloor => "Stone Floor",
+            ItemType::StoneDoor => "Stone Door",
+            ItemType::StoneRoof => "Stone Roof",
+            ItemType::MetalWall => "Metal Wall",
+            ItemType::MetalDoor => "Metal Door",
+            ItemType::Bed => "Bed",
+            ItemType::CoralEssence => "Coral Essence",
+            ItemType::TitanBone => "Titan Bone",
         }
     }
 
@@ -260,6 +279,29 @@ impl ItemType {
 
     pub fn is_chestplate(&self) -> bool {
         matches!(self, ItemType::IronChestplate | ItemType::SteelArmor | ItemType::AncientArmor)
+    }
+
+    pub fn shield_value(&self) -> u32 {
+        match self {
+            ItemType::WoodShield => 2,
+            ItemType::IronShield => 5,
+            _ => 0,
+        }
+    }
+
+    pub fn is_shield(&self) -> bool {
+        matches!(self, ItemType::WoodShield | ItemType::IronShield)
+    }
+
+    pub fn tool_tier(&self) -> u32 {
+        match self {
+            ItemType::WoodAxe | ItemType::WoodPickaxe => 1,
+            ItemType::StoneAxe | ItemType::StonePickaxe => 2,
+            ItemType::IronAxe | ItemType::IronPickaxe | ItemType::IronSword | ItemType::Hoe => 3,
+            ItemType::SteelAxe | ItemType::SteelPickaxe | ItemType::SteelSword => 4,
+            ItemType::AncientPickaxe | ItemType::AncientBlade => 5,
+            _ => 0,
+        }
     }
 }
 

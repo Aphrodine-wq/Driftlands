@@ -11,12 +11,19 @@ use crate::npc::{TradeMenu, Trader, HermitDialogueDisplay};
 use crate::lore::{LoreRegistry, LoreMessage};
 use crate::experiment::{ExperimentSlots, ExperimentMessage};
 
+#[derive(Resource, Default)]
+pub struct PauseState {
+    pub paused: bool,
+}
+
 pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_hud)
+        app.insert_resource(PauseState::default())
+            .add_systems(Startup, spawn_hud)
             .add_systems(Update, (
+                toggle_pause,
                 update_hud,
                 update_status_hud,
                 update_npc_hud,
@@ -129,6 +136,17 @@ fn spawn_hud(mut commands: Commands) {
     ));
 }
 
+fn toggle_pause(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut pause_state: ResMut<PauseState>,
+    mut cycle: ResMut<crate::daynight::DayNightCycle>,
+) {
+    if keyboard.just_pressed(KeyCode::Escape) {
+        pause_state.paused = !pause_state.paused;
+        cycle.paused = pause_state.paused;
+    }
+}
+
 fn update_status_hud(
     player_query: Query<(&Health, &Hunger, Option<&ActiveBuff>), With<Player>>,
     mut status_query: Query<(&mut Text, &mut TextColor), With<StatusHudText>>,
@@ -184,18 +202,59 @@ fn update_hud(
     season: Res<SeasonCycle>,
     weather: Res<WeatherSystem>,
     lore_registry: Res<LoreRegistry>,
+    pause_state: Res<PauseState>,
     mut hud_query: Query<&mut Text, (With<HudText>, Without<CraftingHudText>, Without<StatusHudText>, Without<NpcHudText>, Without<FeedbackHudText>)>,
     mut craft_hud_query: Query<&mut Text, (With<CraftingHudText>, Without<HudText>, Without<StatusHudText>, Without<NpcHudText>, Without<FeedbackHudText>)>,
 ) {
     // Main HUD
     if let Ok(mut text) = hud_query.get_single_mut() {
+        if pause_state.paused {
+            let lines = vec![
+                "".to_string(),
+                "=== PAUSED ===".to_string(),
+                "".to_string(),
+                "[ESC] Resume".to_string(),
+                "[F5] Save Game".to_string(),
+                "".to_string(),
+                "--- Controls ---".to_string(),
+                "[WASD] Move".to_string(),
+                "[LClick] Gather / Attack".to_string(),
+                "[RClick] Use Item / Eat / Place".to_string(),
+                "[B] Build Mode  [Q] Cycle Type".to_string(),
+                "[C] Crafting Menu".to_string(),
+                "[I/Tab] Inventory".to_string(),
+                "[E] Interact (Door/NPC/Bed)".to_string(),
+                "[R] Equip Armor/Shield".to_string(),
+                "[X] Experiment Table".to_string(),
+                "[+/-] Zoom".to_string(),
+                "[F5] Save  [F9] Load".to_string(),
+            ];
+            **text = lines.join("\n");
+            return;
+        }
+
+        let hour = ((cycle.time_of_day * 24.0) as u32) % 24;
+        let time_str = if hour < 12 {
+            format!("{}AM", if hour == 0 { 12 } else { hour })
+        } else {
+            format!("{}PM", if hour == 12 { 12 } else { hour - 12 })
+        };
+        let season_day = ((cycle.day_count.saturating_sub(1)) % 5) + 1;
+        let weather_color = match weather.current {
+            crate::weather::Weather::Clear => "",
+            crate::weather::Weather::Rain => "[Rain]",
+            crate::weather::Weather::Snow => "[Snow]",
+            crate::weather::Weather::Storm => "!!STORM!!",
+        };
+
         let mut lines = vec![
-            format!("Day {} | {} | {:.0}% | {} | {}",
+            format!("Day {} | {} {} | {} (Day {}/5) | {}",
                 cycle.day_count,
                 cycle.phase_name(),
-                cycle.time_of_day * 100.0,
+                time_str,
                 season.current.name(),
-                weather.current.name(),
+                season_day,
+                if weather_color.is_empty() { weather.current.name().to_string() } else { weather_color.to_string() },
             ),
             String::new(),
         ];

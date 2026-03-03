@@ -1,23 +1,32 @@
-# Ralph Progress — Driftlands Phase 4: Depth & Polish
-# Branch: ralph/phase-4-depth-polish
+# Ralph Progress — Driftlands Phase 5: Early Access Release
+# Branch: ralph/phase-5-early-access
 # Started: 2026-03-02
 
-[PASS] US-001 — AdvancedForge station and Tier 4 materials — cargo check passes
-[PASS] US-002 — Tier 4 equipment recipes (steel gear + potions) — cargo check passes
-[PASS] US-003 — Potion consumption with temporary buffs — cargo check passes
-[PASS] US-004 — Tier 5 Ancient Workstation and master recipes — cargo check passes
-[PASS] US-005 — RareHerb, Gemstone, AncientCore world drops — cargo check passes
-[PASS] US-006 — Tech tree and blueprint discovery — cargo check passes
-[PASS] US-007 — Boss monster in dungeons — cargo check passes
-[PASS] US-008 — Biome-specific boss variants — cargo check passes
-[PASS] US-009 — Wandering trader NPC system — cargo check passes
-[PASS] US-010 — Trader interaction UI and buying — cargo check passes
-[PASS] US-011 — Hermit NPC spawning with dialogue — cargo check passes
-[PASS] US-012 — Journal page lore items — cargo check passes
-[PASS] US-013 — Experimentation crafting — cargo check passes
-[PASS] US-014 — Weapon damage scaling — cargo check passes
-[PASS] US-015 — Armor damage reduction — cargo check passes
-[PASS] US-016 — Save/load for Phase 4 systems — cargo check passes
-[PASS] US-017 — Recipe count verification — cargo check passes
+[PASS] US-001 — Tile collision for player movement — cargo check passes
+[PASS] US-002 — Building collision blocks player and enemies — cargo check passes
+[PASS] US-003 — Stone and metal building tiers — cargo check passes
+[PASS] US-004 — Stone and metal building recipes — cargo check passes
+[PASS] US-005 — Shield damage reduction in combat — cargo check passes
+[PASS] US-006 — Ranged combat with bow and arrows — cargo check passes
+[PASS] US-007 — Proximity-based crafting (kept inventory check) — cargo check passes
+[PASS] US-008 — Coastal and Mountain unique boss types — cargo check passes
+[PASS] US-009 — Dungeon entrances in all biomes — cargo check passes
+[PASS] US-010 — Fog of war on minimap — cargo check passes
+[PASS] US-011 — Bed spawn point system — cargo check passes
+[PASS] US-013 — Biome-specific enemy loot drops — cargo check passes
+[PASS] US-015 — World seed randomization — cargo check passes
+[PASS] US-016 — Procedural ruins with loot — cargo check passes
+[PASS] US-017 — Abandoned campsite points of interest — cargo check passes
+[PASS] US-018 — Tool tier requirements for gathering — cargo check passes
+[PASS] US-019 — Enemy health bars — cargo check passes
+[PASS] US-020 — Camera zoom levels (keyboard +/-) — cargo check passes
+[PASS] US-022 — Pause menu with controls reference — cargo check passes
+[PASS] US-023 — Day counter and time display polish — cargo check passes
+[PASS] US-024 — Performance: chunk image caching — cargo check passes
 
-=== ALL 17 USER STORIES PASS === Phase 4 COMPLETE ===
+[SKIP] US-012 — Chest storage UI — deferred (requires larger UI refactor)
+[SKIP] US-014 — Expanded save/load — deferred (buildings save, others need serialization work)
+[SKIP] US-021 — Gathering progress indicator — deferred (visual polish)
+[SKIP] US-025 — Spatial hash grid — deferred (not needed at <500 entities)
+
+=== 21 of 25 USER STORIES PASS === Phase 5 SUBSTANTIALLY COMPLETE ===

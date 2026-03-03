@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use std::collections::HashSet;
 use crate::player::Player;
 use crate::camera::GameCamera;
 use crate::world::chunk::{Chunk, CHUNK_SIZE};
@@ -10,8 +11,9 @@ pub struct MinimapPlugin;
 
 impl Plugin for MinimapPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_minimap)
-            .add_systems(Update, update_minimap);
+        app.insert_resource(ExploredChunks::default())
+            .add_systems(Startup, spawn_minimap)
+            .add_systems(Update, (update_explored_chunks, update_minimap));
     }
 }
 
@@ -20,6 +22,27 @@ const MINIMAP_SCALE: f32 = 4.0; // Each minimap pixel = 4 world pixels
 
 #[derive(Component)]
 pub struct Minimap;
+
+#[derive(Resource, Default)]
+pub struct ExploredChunks {
+    pub chunks: HashSet<IVec2>,
+}
+
+fn update_explored_chunks(
+    player_query: Query<&Transform, With<Player>>,
+    mut explored: ResMut<ExploredChunks>,
+) {
+    let Ok(player_tf) = player_query.get_single() else { return };
+    let player_chunk_x = (player_tf.translation.x / CHUNK_WORLD_SIZE).floor() as i32;
+    let player_chunk_y = (player_tf.translation.y / CHUNK_WORLD_SIZE).floor() as i32;
+
+    // Mark chunks within radius 2 as explored
+    for dy in -2..=2 {
+        for dx in -2..=2 {
+            explored.chunks.insert(IVec2::new(player_chunk_x + dx, player_chunk_y + dy));
+        }
+    }
+}
 
 fn spawn_minimap(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let image = create_minimap_image();
@@ -58,6 +81,7 @@ fn update_minimap(
     chunk_query: Query<&Chunk>,
     mut minimap_query: Query<(&Minimap, &Sprite, &mut Transform), (Without<Player>, Without<GameCamera>)>,
     mut images: ResMut<Assets<Image>>,
+    explored: Res<ExploredChunks>,
 ) {
     let Ok(player_tf) = player_query.get_single() else { return };
     let Ok(cam_tf) = camera_query.get_single() else { return };
@@ -94,6 +118,13 @@ fn update_minimap(
             // Find which chunk and tile this corresponds to
             let chunk_x = (world_x / CHUNK_WORLD_SIZE).floor() as i32;
             let chunk_y = (world_y / CHUNK_WORLD_SIZE).floor() as i32;
+
+            // Check if this chunk has been explored
+            let chunk_explored = explored.chunks.contains(&IVec2::new(chunk_x, chunk_y));
+            if !chunk_explored {
+                // Leave as dark background (already cleared)
+                continue;
+            }
 
             let tile_x = ((world_x / TILE_SIZE).floor() as i32 - chunk_x * CHUNK_SIZE as i32).clamp(0, CHUNK_SIZE as i32 - 1) as usize;
             let tile_y = ((world_y / TILE_SIZE).floor() as i32 - chunk_y * CHUNK_SIZE as i32).clamp(0, CHUNK_SIZE as i32 - 1) as usize;
