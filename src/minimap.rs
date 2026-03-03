@@ -2,10 +2,13 @@ use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::HashSet;
-use crate::player::Player;
+use crate::player::{Player, PlayerFacing};
 use crate::camera::GameCamera;
 use crate::world::chunk::{Chunk, CHUNK_SIZE};
 use crate::world::{TILE_SIZE, CHUNK_WORLD_SIZE};
+use crate::dungeon::DungeonEntrance;
+use crate::death::SpawnPoint;
+use crate::npc::Trader;
 
 pub struct MinimapPlugin;
 
@@ -76,14 +79,17 @@ fn create_minimap_image() -> Image {
 }
 
 fn update_minimap(
-    player_query: Query<&Transform, With<Player>>,
+    player_query: Query<(&Transform, &PlayerFacing), With<Player>>,
     camera_query: Query<&Transform, (With<GameCamera>, Without<Player>, Without<Minimap>)>,
     chunk_query: Query<&Chunk>,
     mut minimap_query: Query<(&Minimap, &Sprite, &mut Transform), (Without<Player>, Without<GameCamera>)>,
     mut images: ResMut<Assets<Image>>,
     explored: Res<ExploredChunks>,
+    dungeon_query: Query<&Transform, (With<DungeonEntrance>, Without<Player>, Without<GameCamera>, Without<Minimap>)>,
+    trader_query: Query<&Transform, (With<Trader>, Without<Player>, Without<GameCamera>, Without<Minimap>, Without<DungeonEntrance>)>,
+    spawn_point: Res<SpawnPoint>,
 ) {
-    let Ok(player_tf) = player_query.get_single() else { return };
+    let Ok((player_tf, player_facing)) = player_query.get_single() else { return };
     let Ok(cam_tf) = camera_query.get_single() else { return };
     let Ok((_, sprite, mut minimap_tf)) = minimap_query.get_single_mut() else { return };
 
@@ -147,19 +153,111 @@ fn update_minimap(
         }
     }
 
-    // Draw player dot (white, 3x3 pixels at center)
-    let center = MINIMAP_SIZE / 2;
-    for dy in 0..3_usize {
-        for dx in 0..3_usize {
-            let px = center - 1 + dx;
-            let py = center - 1 + dy;
-            let idx = (py * MINIMAP_SIZE + px) * 4;
-            if idx + 3 < image.data.len() {
-                image.data[idx] = 255;
-                image.data[idx + 1] = 255;
-                image.data[idx + 2] = 255;
-                image.data[idx + 3] = 255;
+    // Helper: set a pixel safely with bounds checking
+    let size = MINIMAP_SIZE;
+    let set_pixel = |data: &mut Vec<u8>, x: i32, y: i32, color: [u8; 4]| {
+        if x >= 0 && x < size as i32 && y >= 0 && y < size as i32 {
+            let idx = (y as usize * size + x as usize) * 4;
+            if idx + 3 < data.len() {
+                data[idx] = color[0];
+                data[idx + 1] = color[1];
+                data[idx + 2] = color[2];
+                data[idx + 3] = color[3];
             }
         }
+    };
+
+    // Helper: convert world position to minimap pixel coordinates
+    let world_to_minimap = |world_x: f32, world_y: f32| -> (i32, i32) {
+        let mx = ((world_x - player_world_x) / MINIMAP_SCALE + half).floor() as i32;
+        let my = ((player_world_y - world_y) / MINIMAP_SCALE + half).floor() as i32; // Flip Y
+        (mx, my)
+    };
+
+    // --- POI markers ---
+
+    // Dungeon entrances: purple dots (only if in explored chunks)
+    for entrance_tf in dungeon_query.iter() {
+        let wx = entrance_tf.translation.x;
+        let wy = entrance_tf.translation.y;
+        let chunk_x = (wx / CHUNK_WORLD_SIZE).floor() as i32;
+        let chunk_y = (wy / CHUNK_WORLD_SIZE).floor() as i32;
+        if explored.chunks.contains(&IVec2::new(chunk_x, chunk_y)) {
+            let (mx, my) = world_to_minimap(wx, wy);
+            let purple = [160, 80, 200, 255];
+            for dy in -1..=1_i32 {
+                for dx in -1..=1_i32 {
+                    set_pixel(&mut image.data, mx + dx, my + dy, purple);
+                }
+            }
+        }
+    }
+
+    // Spawn point: green dot
+    let (sx, sy) = world_to_minimap(spawn_point.position.x, spawn_point.position.y);
+    let green = [80, 200, 80, 255];
+    for dy in -1..=1_i32 {
+        for dx in -1..=1_i32 {
+            set_pixel(&mut image.data, sx + dx, sy + dy, green);
+        }
+    }
+
+    // Traders: yellow dots
+    for trader_tf in trader_query.iter() {
+        let (tx, ty) = world_to_minimap(trader_tf.translation.x, trader_tf.translation.y);
+        let yellow = [255, 220, 50, 255];
+        for dy in -1..=1_i32 {
+            for dx in -1..=1_i32 {
+                set_pixel(&mut image.data, tx + dx, ty + dy, yellow);
+            }
+        }
+    }
+
+    // --- Player directional arrow (white, at center) ---
+    let cx = (MINIMAP_SIZE / 2) as i32;
+    let cy = (MINIMAP_SIZE / 2) as i32;
+    let white = [255, 255, 255, 255];
+
+    // Center pixel always drawn
+    set_pixel(&mut image.data, cx, cy, white);
+
+    match player_facing {
+        PlayerFacing::Right => {
+            set_pixel(&mut image.data, cx + 1, cy, white);
+            set_pixel(&mut image.data, cx, cy - 1, white);
+            set_pixel(&mut image.data, cx, cy + 1, white);
+        }
+        PlayerFacing::Left => {
+            set_pixel(&mut image.data, cx - 1, cy, white);
+            set_pixel(&mut image.data, cx, cy - 1, white);
+            set_pixel(&mut image.data, cx, cy + 1, white);
+        }
+        PlayerFacing::Up => {
+            set_pixel(&mut image.data, cx, cy - 1, white);
+            set_pixel(&mut image.data, cx - 1, cy, white);
+            set_pixel(&mut image.data, cx + 1, cy, white);
+        }
+        PlayerFacing::Down => {
+            set_pixel(&mut image.data, cx, cy + 1, white);
+            set_pixel(&mut image.data, cx - 1, cy, white);
+            set_pixel(&mut image.data, cx + 1, cy, white);
+        }
+    }
+
+    // --- 2px border (dark gray) ---
+    let border_color = [40, 40, 40, 255];
+    for i in 0..size as i32 {
+        // Left border (x=0, x=1)
+        set_pixel(&mut image.data, 0, i, border_color);
+        set_pixel(&mut image.data, 1, i, border_color);
+        // Right border (x=118, x=119)
+        set_pixel(&mut image.data, size as i32 - 2, i, border_color);
+        set_pixel(&mut image.data, size as i32 - 1, i, border_color);
+        // Top border (y=0, y=1)
+        set_pixel(&mut image.data, i, 0, border_color);
+        set_pixel(&mut image.data, i, 1, border_color);
+        // Bottom border (y=118, y=119)
+        set_pixel(&mut image.data, i, size as i32 - 2, border_color);
+        set_pixel(&mut image.data, i, size as i32 - 1, border_color);
     }
 }

@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use rand::Rng;
+use std::f32::consts::PI;
 use crate::hud::not_paused;
 use crate::world::{WorldObject, WorldObjectType, WorldState};
 use crate::inventory::{Inventory, ItemType};
@@ -7,6 +9,7 @@ use crate::building::BuildingState;
 use crate::combat::Enemy;
 use crate::particles::SpawnParticlesEvent;
 use crate::world::generation::WorldGenerator;
+use crate::audio::SoundEvent;
 
 pub struct GatheringPlugin;
 
@@ -17,6 +20,7 @@ impl Plugin for GatheringPlugin {
                 gather_resources,
                 update_gathering_progress_bars,
                 cleanup_gathering_visuals,
+                pickup_dropped_items,
             ).chain().run_if(not_paused));
     }
 }
@@ -30,12 +34,72 @@ const GATHER_RANGE: f32 = 32.0;
 #[derive(Resource, Default)]
 pub struct GatheringState {
     pub target: Option<Entity>,
+    /// Throttle timer for gather sound events (fires every 0.5s).
+    pub sound_timer: f32,
 }
 
 /// A progress bar entity that tracks a WorldObject being gathered.
 /// Spawned as a separate world-space entity (not a child) so positioning is simple.
 #[derive(Component)]
 pub struct GatheringProgressBar;
+
+/// A dropped item entity that bobs in the world and gets picked up by the player.
+#[derive(Component)]
+pub struct DroppedItem {
+    pub item: ItemType,
+    pub count: u32,
+    /// Delay before the item can be picked up (seconds).
+    pub spawn_timer: f32,
+    /// Timer for the bobbing animation.
+    pub bob_timer: f32,
+    /// The base Y position (without bob offset applied).
+    pub base_y: f32,
+}
+
+/// Returns a color for a dropped item based on its type.
+fn dropped_item_color(item: ItemType) -> Color {
+    match item {
+        ItemType::Wood | ItemType::Stick | ItemType::WoodPlank => Color::srgb(0.6, 0.4, 0.2),
+        ItemType::Stone | ItemType::StoneBlock => Color::srgb(0.6, 0.6, 0.6),
+        ItemType::Flint => Color::srgb(0.45, 0.45, 0.4),
+        ItemType::PlantFiber | ItemType::Berry => Color::srgb(0.3, 0.7, 0.2),
+        ItemType::IronOre | ItemType::IronIngot => Color::srgb(0.55, 0.45, 0.35),
+        ItemType::Coal => Color::srgb(0.15, 0.15, 0.15),
+        ItemType::CrystalShard | ItemType::Gemstone => Color::srgb(0.5, 0.4, 0.9),
+        ItemType::AncientCore => Color::srgb(0.3, 0.8, 0.7),
+        ItemType::IceShard => Color::srgb(0.7, 0.85, 1.0),
+        ItemType::MushroomCap | ItemType::Spore => Color::srgb(0.5, 0.3, 0.5),
+        ItemType::Sulfur => Color::srgb(0.8, 0.75, 0.2),
+        ItemType::CactusFiber => Color::srgb(0.4, 0.6, 0.25),
+        ItemType::Reed | ItemType::Peat => Color::srgb(0.4, 0.5, 0.3),
+        ItemType::AlpineHerb | ItemType::RareHerb => Color::srgb(0.2, 0.8, 0.4),
+        _ => Color::srgb(0.9, 0.85, 0.6), // gold/white fallback
+    }
+}
+
+/// Spawns a DroppedItem entity at the given world position with a random offset.
+fn spawn_dropped_item(commands: &mut Commands, pos: Vec2, item: ItemType, count: u32, rng: &mut impl Rng) {
+    let offset = Vec2::new(
+        rng.gen_range(-8.0..8.0),
+        rng.gen_range(-8.0..8.0),
+    );
+    let spawn_pos = pos + offset;
+    commands.spawn((
+        DroppedItem {
+            item,
+            count,
+            spawn_timer: 0.3,
+            bob_timer: 0.0,
+            base_y: spawn_pos.y,
+        },
+        Sprite {
+            color: dropped_item_color(item),
+            custom_size: Some(Vec2::new(6.0, 6.0)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 7.0),
+    ));
+}
 
 fn gather_resources(
     mut commands: Commands,
@@ -49,6 +113,7 @@ fn gather_resources(
     time: Res<Time>,
     mut gathering_state: ResMut<GatheringState>,
     mut particle_events: EventWriter<SpawnParticlesEvent>,
+    mut sound_events: EventWriter<SoundEvent>,
 ) {
     // Default: not gathering anything this frame
     gathering_state.target = None;
@@ -102,6 +167,13 @@ fn gather_resources(
         // Record current gathering target for visual feedback systems
         gathering_state.target = Some(target_entity);
 
+        // Throttled gather sound (every 0.5s)
+        gathering_state.sound_timer -= time.delta_secs();
+        if gathering_state.sound_timer <= 0.0 {
+            gathering_state.sound_timer = 0.5;
+            sound_events.send(SoundEvent::Gather);
+        }
+
         if object.health <= 0.0 {
             // Object destroyed — clear target so bars aren't drawn for it
             gathering_state.target = None;
@@ -129,80 +201,78 @@ fn gather_resources(
             let tile_y = (obj_transform.translation.y / 16.0) as i32;
             let rare_hash = WorldGenerator::position_hash(tile_x, tile_y, world_state.seed.wrapping_add(99));
 
+            let mut rng = rand::thread_rng();
             match object.object_type {
                 WorldObjectType::OakTree | WorldObjectType::PineTree => {
-                    inventory.add_item(ItemType::Wood, 3);
-                    inventory.add_item(ItemType::Stick, 2);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Wood, 3, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stick, 2, &mut rng);
                 }
                 WorldObjectType::Rock => {
-                    inventory.add_item(ItemType::Stone, 2);
-                    inventory.add_item(ItemType::Flint, 1);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stone, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Flint, 1, &mut rng);
                 }
                 WorldObjectType::Bush => {
-                    inventory.add_item(ItemType::PlantFiber, 2);
-                    inventory.add_item(ItemType::Berry, 1);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::PlantFiber, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Berry, 1, &mut rng);
                 }
                 WorldObjectType::Cactus => {
-                    inventory.add_item(ItemType::CactusFiber, 2);
-                    inventory.add_item(ItemType::Stick, 1);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::CactusFiber, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stick, 1, &mut rng);
                 }
                 WorldObjectType::IceCrystal => {
-                    inventory.add_item(ItemType::IceShard, 2);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::IceShard, 2, &mut rng);
                 }
                 WorldObjectType::Mushroom => {
-                    inventory.add_item(ItemType::MushroomCap, 2);
-                    inventory.add_item(ItemType::Spore, 1);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::MushroomCap, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Spore, 1, &mut rng);
                 }
                 WorldObjectType::GiantMushroom => {
-                    inventory.add_item(ItemType::MushroomCap, 4);
-                    inventory.add_item(ItemType::Spore, 2);
-                    inventory.add_item(ItemType::Wood, 2);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::MushroomCap, 4, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Spore, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Wood, 2, &mut rng);
                 }
                 WorldObjectType::ReedClump => {
-                    inventory.add_item(ItemType::Reed, 3);
-                    inventory.add_item(ItemType::Peat, 1);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Reed, 3, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Peat, 1, &mut rng);
                 }
                 WorldObjectType::SulfurDeposit => {
-                    inventory.add_item(ItemType::Sulfur, 2);
-                    inventory.add_item(ItemType::Stone, 1);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Sulfur, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stone, 1, &mut rng);
                 }
                 WorldObjectType::CrystalNode => {
-                    inventory.add_item(ItemType::CrystalShard, 2);
-                    inventory.add_item(ItemType::Stone, 1);
-                    // Always drop 1 Gemstone
-                    inventory.add_item(ItemType::Gemstone, 1);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::CrystalShard, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stone, 1, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Gemstone, 1, &mut rng);
                 }
                 WorldObjectType::AlpineFlower => {
-                    inventory.add_item(ItemType::AlpineHerb, 1);
-                    // Rare drop: RareHerb on ~20% of harvests
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::AlpineHerb, 1, &mut rng);
                     if rare_hash % 100 < 20 {
-                        inventory.add_item(ItemType::RareHerb, 1);
+                        spawn_dropped_item(&mut commands, obj_pos, ItemType::RareHerb, 1, &mut rng);
                     }
                 }
                 WorldObjectType::IronVein => {
-                    inventory.add_item(ItemType::IronOre, 2);
-                    inventory.add_item(ItemType::Stone, 1);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::IronOre, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stone, 1, &mut rng);
                 }
                 WorldObjectType::CoalDeposit => {
-                    inventory.add_item(ItemType::Coal, 2);
-                    inventory.add_item(ItemType::Stone, 1);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Coal, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stone, 1, &mut rng);
                 }
                 WorldObjectType::AncientRuin => {
-                    inventory.add_item(ItemType::AncientCore, 1);
-                    inventory.add_item(ItemType::Gemstone, 1);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::AncientCore, 1, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Gemstone, 1, &mut rng);
                 }
                 WorldObjectType::SupplyCrate => {
-                    // Random supplies
                     let supply_roll = WorldGenerator::position_hash(tile_x, tile_y, world_state.seed.wrapping_add(200));
                     match supply_roll % 4 {
-                        0 => { inventory.add_item(ItemType::Berry, 3); }
-                        1 => { inventory.add_item(ItemType::Rope, 2); }
-                        2 => { inventory.add_item(ItemType::Torch, 2); }
-                        _ => { inventory.add_item(ItemType::Stick, 4); }
+                        0 => { spawn_dropped_item(&mut commands, obj_pos, ItemType::Berry, 3, &mut rng); }
+                        1 => { spawn_dropped_item(&mut commands, obj_pos, ItemType::Rope, 2, &mut rng); }
+                        2 => { spawn_dropped_item(&mut commands, obj_pos, ItemType::Torch, 2, &mut rng); }
+                        _ => { spawn_dropped_item(&mut commands, obj_pos, ItemType::Stick, 4, &mut rng); }
                     }
                 }
                 WorldObjectType::RuinWall => {
-                    inventory.add_item(ItemType::StoneBlock, 2);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::StoneBlock, 2, &mut rng);
                 }
             }
             // Consume tool durability
@@ -276,6 +346,63 @@ fn cleanup_gathering_visuals(
         } else if tf.scale != Vec3::ONE {
             // Reset scale on objects no longer being gathered
             tf.scale = Vec3::ONE;
+        }
+    }
+}
+
+/// Animates dropped items (bobbing), attracts them toward the player, and
+/// picks them up when close enough.
+fn pickup_dropped_items(
+    mut commands: Commands,
+    time: Res<Time>,
+    player_query: Query<&Transform, With<Player>>,
+    mut item_query: Query<(Entity, &mut DroppedItem, &mut Transform), Without<Player>>,
+    mut inventory: ResMut<Inventory>,
+    mut sound_events: EventWriter<SoundEvent>,
+) {
+    let Ok(player_tf) = player_query.get_single() else { return };
+    let player_pos = player_tf.translation.truncate();
+    let dt = time.delta_secs();
+
+    for (entity, mut dropped, mut tf) in item_query.iter_mut() {
+        // Tick spawn delay
+        if dropped.spawn_timer > 0.0 {
+            dropped.spawn_timer -= dt;
+        }
+
+        // Increment bob timer
+        dropped.bob_timer += dt;
+
+        // Bob animation: oscillate Y by +/-2px using absolute offset from base_y
+        let bob_offset = (dropped.bob_timer * 3.0 * PI * 2.0).sin() * 2.0;
+
+        // Use base_y for distance calculations (ignore bob offset)
+        let item_pos = Vec2::new(tf.translation.x, dropped.base_y);
+
+        // Skip pickup logic if still in spawn delay
+        if dropped.spawn_timer > 0.0 {
+            tf.translation.y = dropped.base_y + bob_offset;
+            continue;
+        }
+
+        let dist = item_pos.distance(player_pos);
+
+        // Attract toward player if within 48px
+        if dist <= 48.0 && dist > 8.0 {
+            let dir = (player_pos - item_pos).normalize_or_zero();
+            let move_amount = dir * 200.0 * dt;
+            tf.translation.x += move_amount.x;
+            dropped.base_y += move_amount.y;
+        }
+
+        // Apply bob on top of base_y
+        tf.translation.y = dropped.base_y + bob_offset;
+
+        // Pickup if within 8px
+        if dist <= 8.0 {
+            inventory.add_item(dropped.item, dropped.count);
+            sound_events.send(SoundEvent::Pickup);
+            commands.entity(entity).despawn();
         }
     }
 }

@@ -362,12 +362,16 @@ impl Inventory {
     }
 
     pub fn has_items(&self, item: ItemType, count: u32) -> bool {
-        let total: u32 = self.slots.iter()
+        self.count_items(item) >= count
+    }
+
+    /// Returns the total count of a given item type across all inventory slots.
+    pub fn count_items(&self, item: ItemType) -> u32 {
+        self.slots.iter()
             .filter_map(|s| s.as_ref())
             .filter(|s| s.item == item)
             .map(|s| s.count)
-            .sum();
-        total >= count
+            .sum()
     }
 
     pub fn remove_items(&mut self, item: ItemType, count: u32) -> bool {

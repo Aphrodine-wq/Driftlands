@@ -35,6 +35,7 @@ impl Plugin for HudPlugin {
                 update_status_hud,
                 update_npc_hud,
                 update_feedback_hud,
+                update_inventory_panel,
             ));
     }
 }
@@ -55,6 +56,10 @@ pub struct NpcHudText;
 /// Full-width bottom bar for lore / hermit / experiment feedback.
 #[derive(Component)]
 pub struct FeedbackHudText;
+
+/// Inventory grid panel (US-012) — toggled with Tab/I.
+#[derive(Component)]
+pub struct InventoryPanelText;
 
 fn spawn_hud(mut commands: Commands) {
     // Status HUD (HP/Hunger) — top-left
@@ -138,6 +143,23 @@ fn spawn_hud(mut commands: Commands) {
             position_type: PositionType::Absolute,
             bottom: Val::Px(40.0),
             left: Val::Px(10.0),
+            ..default()
+        },
+    ));
+
+    // Inventory grid panel (US-012) — center of screen
+    commands.spawn((
+        InventoryPanelText,
+        Text::new(""),
+        TextFont {
+            font_size: 13.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.9, 0.95, 1.0)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(80.0),
+            left: Val::Percent(30.0),
             ..default()
         },
     ));
@@ -240,8 +262,8 @@ fn update_hud(
     lore_registry: Res<LoreRegistry>,
     pause_state: Res<PauseState>,
     tech_tree: Res<TechTree>,
-    mut hud_query: Query<&mut Text, (With<HudText>, Without<CraftingHudText>, Without<StatusHudText>, Without<NpcHudText>, Without<FeedbackHudText>)>,
-    mut craft_hud_query: Query<&mut Text, (With<CraftingHudText>, Without<HudText>, Without<StatusHudText>, Without<NpcHudText>, Without<FeedbackHudText>)>,
+    mut hud_query: Query<&mut Text, (With<HudText>, Without<CraftingHudText>, Without<StatusHudText>, Without<NpcHudText>, Without<FeedbackHudText>, Without<InventoryPanelText>)>,
+    mut craft_hud_query: Query<&mut Text, (With<CraftingHudText>, Without<HudText>, Without<StatusHudText>, Without<NpcHudText>, Without<FeedbackHudText>, Without<InventoryPanelText>)>,
     station_query: Query<(&CraftingStation, &Transform), Without<Player>>,
     player_query: Query<&Transform, With<Player>>,
 ) {
@@ -341,15 +363,10 @@ fn update_hud(
         lines.push(hotbar_top.trim_end().to_string());
         lines.push(hotbar_sel.trim_end().to_string());
 
-        // Show non-hotbar items if inventory is open
+        // When the inventory panel is open, show a hint on the main HUD
         if inventory.is_open {
             lines.push(String::new());
-            lines.push("-- Inventory --".into());
-            for i in inventory.hotbar_size..inventory.slots.len() {
-                if let Some(slot) = &inventory.slots[i] {
-                    lines.push(format!("  {} x{}", slot.item.display_name(), slot.count));
-                }
-            }
+            lines.push("[Inventory open — see grid panel]".into());
         }
 
         lines.push(String::new());
@@ -364,7 +381,7 @@ fn update_hud(
         **text = lines.join("\n");
     }
 
-    // Crafting HUD
+    // Crafting HUD (US-013 — improved with ingredient availability)
     if let Ok(mut text) = craft_hud_query.get_single_mut() {
         if !crafting.is_open {
             **text = String::new();
@@ -394,22 +411,55 @@ fn update_hud(
         }
         let available = crafting.available_recipes(near_workbench, near_forge, near_campfire, near_advanced_forge, near_ancient, &tech_tree);
 
-        let mut lines = vec!["== CRAFTING ==".to_string(), String::new()];
+        let mut lines = vec!["=== CRAFTING (C to close) ===".to_string()];
+
+        // Show available station tiers
+        {
+            let mut stations = vec!["Hand"];
+            if near_workbench { stations.push("Workbench"); }
+            if near_campfire { stations.push("Campfire"); }
+            if near_forge { stations.push("Forge"); }
+            if near_advanced_forge { stations.push("AdvForge"); }
+            if near_ancient { stations.push("Ancient"); }
+            lines.push(format!("Stations: {}", stations.join(", ")));
+        }
+        lines.push(String::new());
 
         for (display_idx, &recipe_idx) in available.iter().enumerate() {
             let recipe = &crafting.recipes[recipe_idx];
-            let selected = if display_idx == crafting.selected_recipe { "> " } else { "  " };
-            let can_craft = if crafting.can_craft(recipe_idx, &inventory) { "" } else { " [missing]" };
+            let is_selected = display_idx == crafting.selected_recipe;
+            let sel_marker = if is_selected { "> " } else { "  " };
 
-            lines.push(format!("{}{} {} {}", selected, recipe.tier.label(), recipe.name, can_craft));
+            if is_selected {
+                let craftable = crafting.can_craft(recipe_idx, &inventory);
+                let craft_tag = if craftable { " [READY]" } else { "" };
+                lines.push(format!("{}{}{} [SELECTED]", sel_marker, recipe.name, craft_tag));
+            } else {
+                let can_craft = crafting.can_craft(recipe_idx, &inventory);
+                let status = if can_craft { "" } else { " [missing]" };
+                lines.push(format!("{}{} {}{}", sel_marker, recipe.tier.label(), recipe.name, status));
+            }
 
-            if display_idx == crafting.selected_recipe {
+            // Show ingredients for selected recipe, or compact view for all
+            if is_selected {
                 for (item, count) in &recipe.inputs {
-                    let has = inventory.has_items(*item, *count);
-                    let mark = if has { "+" } else { "x" };
-                    lines.push(format!("    {} {} x{}", mark, item.display_name(), count));
+                    let have = inventory.count_items(*item);
+                    let has_enough = have >= *count;
+                    let mark = if has_enough { "\u{2713}" } else { "\u{2717}" }; // checkmark / cross
+                    lines.push(format!("    {} {} x{} (have {})", mark, item.display_name(), count, have));
+                }
+                // Show output
+                let (out_item, out_count) = recipe.output;
+                if out_count > 1 {
+                    lines.push(format!("    -> {} x{}", out_item.display_name(), out_count));
+                } else {
+                    lines.push(format!("    -> {}", out_item.display_name()));
                 }
             }
+        }
+
+        if available.is_empty() {
+            lines.push("  (no recipes available)".to_string());
         }
 
         lines.push(String::new());
@@ -545,4 +595,56 @@ fn update_feedback_hud(
     } else {
         **text = String::new();
     }
+}
+
+/// US-012 — Renders a grid-style inventory panel when the inventory is open.
+fn update_inventory_panel(
+    inventory: Res<Inventory>,
+    mut panel_query: Query<&mut Text, With<InventoryPanelText>>,
+) {
+    let Ok(mut text) = panel_query.get_single_mut() else { return };
+
+    if !inventory.is_open {
+        **text = String::new();
+        return;
+    }
+
+    let mut lines = Vec::new();
+    lines.push("=== INVENTORY (Tab to close) ===".to_string());
+    lines.push(String::new());
+
+    let slots_per_row = 9;
+    for row_start in (0..inventory.slots.len()).step_by(slots_per_row) {
+        let row_end = (row_start + slots_per_row).min(inventory.slots.len());
+        let mut row = String::new();
+        for i in row_start..row_end {
+            let slot_num = i + 1;
+            let cell = match &inventory.slots[i] {
+                Some(slot) => {
+                    // Abbreviate name to 8 chars
+                    let name: String = slot.item.display_name().chars().take(8).collect();
+                    if let Some(dur) = slot.durability {
+                        let max_dur = slot.item.max_durability().unwrap_or(dur);
+                        format!("{:02}: {:<8} {}/{}", slot_num, name, dur, max_dur)
+                    } else if slot.count > 1 {
+                        format!("{:02}: {:<8} x{}", slot_num, name, slot.count)
+                    } else {
+                        format!("{:02}: {:<8}    ", slot_num, name)
+                    }
+                }
+                None => {
+                    format!("{:02}: --------    ", slot_num)
+                }
+            };
+            // Mark selected slot
+            let prefix = if i == inventory.selected_slot { ">" } else { " " };
+            row.push_str(&format!("{}[{}] ", prefix, cell));
+        }
+        lines.push(row.trim_end().to_string());
+    }
+
+    lines.push(String::new());
+    lines.push("[1-9] Select hotbar  [Tab/I] Close".to_string());
+
+    **text = lines.join("\n");
 }

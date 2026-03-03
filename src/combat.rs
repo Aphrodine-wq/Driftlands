@@ -12,6 +12,7 @@ use crate::building::{Building, BuildingType, Door};
 use crate::camera::ScreenShake;
 use crate::death::DeathStats;
 use crate::particles::SpawnParticlesEvent;
+use crate::audio::SoundEvent;
 
 pub struct CombatPlugin;
 
@@ -65,6 +66,7 @@ pub struct Enemy {
 pub struct Boss {
     pub name: String,
     pub loot_table: Vec<(ItemType, u32)>,
+    pub has_roared: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -276,17 +278,18 @@ fn despawn_enemies_at_sunrise(
 }
 
 fn enemy_ai(
-    mut enemy_query: Query<(&mut Enemy, &mut Transform), Without<Player>>,
+    mut enemy_query: Query<(&mut Enemy, &mut Transform, Option<&mut Boss>), Without<Player>>,
     player_query: Query<&Transform, With<Player>>,
     time: Res<Time>,
     building_query: Query<(&Transform, &Building, Option<&Door>), (Without<Player>, Without<Enemy>)>,
+    mut sound_events: EventWriter<SoundEvent>,
 ) {
     let Ok(player_tf) = player_query.get_single() else { return };
     let player_pos = player_tf.translation.truncate();
 
     let mut rng = rand::thread_rng();
 
-    for (mut enemy, mut tf) in enemy_query.iter_mut() {
+    for (mut enemy, mut tf, mut maybe_boss) in enemy_query.iter_mut() {
         let enemy_pos = tf.translation.truncate();
         let dist_to_player = enemy_pos.distance(player_pos);
 
@@ -304,6 +307,13 @@ fn enemy_ai(
             EnemyState::Patrol => {
                 if dist_to_player <= enemy.aggro_range {
                     enemy.state = EnemyState::Chase;
+                    // Boss roar on first Chase
+                    if let Some(ref mut boss) = maybe_boss {
+                        if !boss.has_roared {
+                            boss.has_roared = true;
+                            sound_events.send(SoundEvent::BossRoar);
+                        }
+                    }
                 } else {
                     // Move toward patrol target at half speed
                     let dir = (enemy.patrol_target - enemy_pos).normalize_or_zero();
@@ -385,6 +395,7 @@ fn player_attack(
     mut screen_shake: ResMut<ScreenShake>,
     mut death_stats: ResMut<DeathStats>,
     mut particle_events: EventWriter<SpawnParticlesEvent>,
+    mut sound_events: EventWriter<SoundEvent>,
 ) {
     // Don't attack in build mode
     if building_state.active {
@@ -509,6 +520,9 @@ fn player_attack(
             count: 4,
         });
 
+        // Sound: hit
+        sound_events.send(SoundEvent::Hit);
+
         if enemy.health <= 0.0 {
             killed = true;
         }
@@ -525,6 +539,9 @@ fn player_attack(
 
         // Track kill in death stats
         death_stats.total_kills += 1;
+
+        // Sound: death
+        sound_events.send(SoundEvent::Death);
 
         // Note: boss loot is handled by boss_death_loot; despawn happens there
         // for bosses. For regular enemies we despawn here.
@@ -608,6 +625,7 @@ fn boss_death_loot(
     mut inventory: ResMut<Inventory>,
     mut rp_events: EventWriter<ResearchPointEvent>,
     mut death_stats: ResMut<DeathStats>,
+    mut sound_events: EventWriter<SoundEvent>,
 ) {
     for (entity, enemy, boss) in boss_query.iter() {
         if enemy.health <= 0.0 {
@@ -619,6 +637,8 @@ fn boss_death_loot(
             rp_events.send(ResearchPointEvent { amount: 20 });
             // Track kill in death stats
             death_stats.total_kills += 1;
+            // Sound: boss death
+            sound_events.send(SoundEvent::Death);
             commands.entity(entity).despawn();
         }
     }
@@ -648,6 +668,7 @@ fn projectile_hit(
     mut death_stats: ResMut<DeathStats>,
     mut screen_shake: ResMut<ScreenShake>,
     mut particle_events: EventWriter<SpawnParticlesEvent>,
+    mut sound_events: EventWriter<SoundEvent>,
 ) {
     for (proj_entity, proj_tf, proj) in proj_query.iter() {
         let proj_pos = proj_tf.translation.truncate();
@@ -683,6 +704,9 @@ fn projectile_hit(
                     timer: 0.1,
                 });
 
+                // Sound: ranged hit
+                sound_events.send(SoundEvent::Hit);
+
                 commands.entity(proj_entity).despawn();
                 if enemy.health <= 0.0 {
                     let (drop_item, drop_count) = loot_for_enemy(enemy.enemy_type);
@@ -690,6 +714,8 @@ fn projectile_hit(
                     rp_events.send(ResearchPointEvent { amount: 5 });
                     // Track kill in death stats
                     death_stats.total_kills += 1;
+                    // Sound: death
+                    sound_events.send(SoundEvent::Death);
                     commands.entity(enemy_entity).despawn();
                 }
                 break;

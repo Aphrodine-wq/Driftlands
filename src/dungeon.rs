@@ -557,6 +557,7 @@ fn spawn_dungeon_boss(commands: &mut Commands, pos: Vec2, biome: Biome) {
         Boss {
             name: boss_name,
             loot_table,
+            has_roared: false,
         },
         Sprite {
             color,

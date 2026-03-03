@@ -3,6 +3,7 @@ use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
 use crate::techtree::TechTree;
 use crate::building::CraftingStation;
+use crate::audio::SoundEvent;
 
 pub struct CraftingPlugin;
 
@@ -618,6 +619,7 @@ fn handle_crafting_input(
     tech_tree: Res<TechTree>,
     station_query: Query<(&CraftingStation, &Transform)>,
     player_query: Query<&Transform, With<Player>>,
+    mut sound_events: EventWriter<SoundEvent>,
 ) {
     if keyboard.just_pressed(KeyCode::KeyC) {
         crafting.is_open = !crafting.is_open;
@@ -674,6 +676,8 @@ fn handle_crafting_input(
 
     if keyboard.just_pressed(KeyCode::Enter) {
         let actual_idx = available[crafting.selected_recipe];
-        crafting.craft(actual_idx, &mut inventory);
+        if crafting.craft(actual_idx, &mut inventory) {
+            sound_events.send(SoundEvent::Craft);
+        }
     }
 }

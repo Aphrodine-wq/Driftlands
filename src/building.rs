@@ -3,6 +3,7 @@ use crate::player::Player;
 use crate::inventory::{Inventory, InventorySlot, ItemType};
 use crate::world::TILE_SIZE;
 use crate::crafting::CraftingTier;
+use crate::audio::SoundEvent;
 
 pub struct BuildingPlugin;
 
@@ -330,6 +331,7 @@ fn place_building(
     mut inventory: ResMut<Inventory>,
     player_query: Query<&Transform, With<Player>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    mut sound_events: EventWriter<SoundEvent>,
 ) {
     if !building_state.active || !mouse.just_pressed(MouseButton::Right) {
         return;
@@ -346,6 +348,7 @@ fn place_building(
     let snapped_y = (player_tf.translation.y / TILE_SIZE).round() * TILE_SIZE;
 
     inventory.remove_items(bt.required_item(), 1);
+    sound_events.send(SoundEvent::Build);
 
     let mut entity_commands = commands.spawn((
         Building { building_type: bt },

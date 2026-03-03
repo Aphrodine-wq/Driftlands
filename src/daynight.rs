@@ -8,7 +8,9 @@ impl Plugin for DayNightPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(DayNightCycle::default())
             .add_systems(Startup, spawn_overlay)
-            .add_systems(Update, (update_day_night, apply_ambient_light).run_if(not_paused));
+            .add_systems(Update, (update_day_night, apply_ambient_light).run_if(not_paused))
+            // Ambient light color updates even when paused (purely visual)
+            .add_systems(Update, update_clear_color);
     }
 }
 
@@ -115,4 +117,58 @@ fn apply_ambient_light(
     };
 
     sprite.color = Color::srgba(0.02, 0.02, 0.12, darkness);
+}
+
+/// Smoothly shifts ClearColor between day/night atmosphere colors.
+fn update_clear_color(
+    cycle: Res<DayNightCycle>,
+    mut clear_color: ResMut<ClearColor>,
+) {
+    let t = cycle.time_of_day;
+
+    // Key colors for each phase
+    let midnight = Color::srgb(0.02, 0.02, 0.06);
+    let dawn = Color::srgb(0.15, 0.08, 0.05);
+    let day = Color::srgb(0.05, 0.05, 0.1); // Keep dark — background behind tiles
+    let dusk = Color::srgb(0.12, 0.05, 0.08);
+
+    // Lerp between phases
+    let color = if t < 0.2 {
+        // Night (midnight to pre-dawn)
+        midnight
+    } else if t < 0.3 {
+        // Dawn transition
+        let frac = ((t - 0.2) / 0.1).clamp(0.0, 1.0);
+        lerp_color(midnight, dawn, frac)
+    } else if t < 0.4 {
+        // Dawn to day
+        let frac = ((t - 0.3) / 0.1).clamp(0.0, 1.0);
+        lerp_color(dawn, day, frac)
+    } else if t < 0.7 {
+        // Daytime
+        day
+    } else if t < 0.8 {
+        // Dusk transition
+        let frac = ((t - 0.7) / 0.1).clamp(0.0, 1.0);
+        lerp_color(day, dusk, frac)
+    } else if t < 0.9 {
+        // Dusk to night
+        let frac = ((t - 0.8) / 0.1).clamp(0.0, 1.0);
+        lerp_color(dusk, midnight, frac)
+    } else {
+        // Deep night
+        midnight
+    };
+
+    clear_color.0 = color;
+}
+
+fn lerp_color(a: Color, b: Color, t: f32) -> Color {
+    let a = a.to_srgba();
+    let b = b.to_srgba();
+    Color::srgb(
+        a.red + (b.red - a.red) * t,
+        a.green + (b.green - a.green) * t,
+        a.blue + (b.blue - a.blue) * t,
+    )
 }
