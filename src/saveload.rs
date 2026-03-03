@@ -3,12 +3,17 @@ use serde::{Serialize, Deserialize};
 use std::fs;
 use std::path::Path;
 
-use crate::player::{Player, Health, Hunger};
+use crate::player::{Player, Health, Hunger, ArmorSlots};
 use crate::inventory::{Inventory, InventorySlot, ItemType};
 use crate::world::chunk::{Chunk, CHUNK_SIZE};
 use crate::world::tile::TileType;
+use crate::world::WorldState;
 use crate::daynight::DayNightCycle;
-use crate::building::{Building, BuildingType, Door, Roof};
+use crate::building::{Building, BuildingType, ChestStorage, CraftingStation, Door, Roof};
+use crate::techtree::TechTree;
+use crate::lore::LoreRegistry;
+use crate::death::SpawnPoint;
+use crate::minimap::ExploredChunks;
 
 pub struct SaveLoadPlugin;
 
@@ -41,6 +46,35 @@ struct SaveData {
     buildings: Vec<SaveBuilding>,
     day_time: f32,
     day_count: u32,
+    // US-006: World seed
+    #[serde(default)]
+    seed: u32,
+    // US-007: Tech tree
+    #[serde(default)]
+    tech_tree_unlocks: Vec<String>,
+    #[serde(default)]
+    research_points: u32,
+    // US-007: Armor slots (stored as Debug string of ItemType)
+    #[serde(default)]
+    armor_helmet: Option<String>,
+    #[serde(default)]
+    armor_chest: Option<String>,
+    #[serde(default)]
+    armor_shield: Option<String>,
+    // US-007: Lore entries (stored as the collected entry strings)
+    #[serde(default)]
+    lore_entries: Vec<String>,
+    // US-007: Spawn point
+    #[serde(default = "default_spawn_point")]
+    spawn_point: (f32, f32),
+    // US-007: Explored chunks
+    #[serde(default)]
+    explored_chunks: Vec<(i32, i32)>,
+}
+
+fn default_spawn_point() -> (f32, f32) {
+    use crate::world::TILE_SIZE;
+    (TILE_SIZE * 16.0, TILE_SIZE * 16.0)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -78,6 +112,12 @@ enum SaveBuildingType {
     MetalWall,
     MetalDoor,
     Bed,
+    Chest,
+    Workbench,
+    Forge,
+    Campfire,
+    AdvancedForge,
+    AncientWorkstation,
 }
 
 impl From<BuildingType> for SaveBuildingType {
@@ -95,6 +135,12 @@ impl From<BuildingType> for SaveBuildingType {
             BuildingType::MetalWall => SaveBuildingType::MetalWall,
             BuildingType::MetalDoor => SaveBuildingType::MetalDoor,
             BuildingType::Bed => SaveBuildingType::Bed,
+            BuildingType::Chest => SaveBuildingType::Chest,
+            BuildingType::Workbench => SaveBuildingType::Workbench,
+            BuildingType::Forge => SaveBuildingType::Forge,
+            BuildingType::Campfire => SaveBuildingType::Campfire,
+            BuildingType::AdvancedForge => SaveBuildingType::AdvancedForge,
+            BuildingType::AncientWorkstation => SaveBuildingType::AncientWorkstation,
         }
     }
 }
@@ -114,6 +160,12 @@ impl From<SaveBuildingType> for BuildingType {
             SaveBuildingType::MetalWall => BuildingType::MetalWall,
             SaveBuildingType::MetalDoor => BuildingType::MetalDoor,
             SaveBuildingType::Bed => BuildingType::Bed,
+            SaveBuildingType::Chest => BuildingType::Chest,
+            SaveBuildingType::Workbench => BuildingType::Workbench,
+            SaveBuildingType::Forge => BuildingType::Forge,
+            SaveBuildingType::Campfire => BuildingType::Campfire,
+            SaveBuildingType::AdvancedForge => BuildingType::AdvancedForge,
+            SaveBuildingType::AncientWorkstation => BuildingType::AncientWorkstation,
         }
     }
 }
@@ -126,6 +178,12 @@ fn handle_save_input(
     building_query: Query<(&Building, &Transform, Option<&Door>), Without<Player>>,
     cycle: Res<DayNightCycle>,
     mut save_msg: ResMut<SaveMessage>,
+    world_state: Res<WorldState>,
+    tech_tree: Res<TechTree>,
+    armor: Res<ArmorSlots>,
+    lore_registry: Res<LoreRegistry>,
+    spawn_point: Res<SpawnPoint>,
+    explored: Res<ExploredChunks>,
 ) {
     if !keyboard.just_pressed(KeyCode::F5) {
         return;
@@ -162,6 +220,21 @@ fn handle_save_input(
         }).collect(),
         day_time: cycle.time_of_day,
         day_count: cycle.day_count,
+        // US-006: World seed
+        seed: world_state.seed,
+        // US-007: Tech tree
+        tech_tree_unlocks: tech_tree.unlocked_recipes.iter().cloned().collect(),
+        research_points: tech_tree.research_points,
+        // US-007: Armor slots
+        armor_helmet: armor.helmet.map(|i| format!("{:?}", i)),
+        armor_chest: armor.chest.map(|i| format!("{:?}", i)),
+        armor_shield: armor.shield.map(|i| format!("{:?}", i)),
+        // US-007: Lore entries
+        lore_entries: lore_registry.collected_entries.clone(),
+        // US-007: Spawn point
+        spawn_point: (spawn_point.position.x, spawn_point.position.y),
+        // US-007: Explored chunks
+        explored_chunks: explored.chunks.iter().map(|v| (v.x, v.y)).collect(),
     };
 
     // Create directory
@@ -186,6 +259,23 @@ fn handle_save_input(
     save_msg.timer = 2.0;
 }
 
+/// Parse an ItemType from its Debug string representation (e.g. "IronHelmet" -> ItemType::IronHelmet).
+/// Used to restore armor slots from save data.
+fn parse_armor_item(s: &str) -> Option<ItemType> {
+    match s {
+        "IronHelmet" => Some(ItemType::IronHelmet),
+        "IronChestplate" => Some(ItemType::IronChestplate),
+        "SteelArmor" => Some(ItemType::SteelArmor),
+        "AncientArmor" => Some(ItemType::AncientArmor),
+        "WoodShield" => Some(ItemType::WoodShield),
+        "IronShield" => Some(ItemType::IronShield),
+        _ => {
+            warn!("Unknown armor item in save: '{}'", s);
+            None
+        }
+    }
+}
+
 fn handle_load_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut player_query: Query<(&mut Transform, &mut Health, &mut Hunger), With<Player>>,
@@ -194,6 +284,12 @@ fn handle_load_input(
     mut commands: Commands,
     building_entities: Query<Entity, With<Building>>,
     mut save_msg: ResMut<SaveMessage>,
+    mut world_state: ResMut<WorldState>,
+    mut tech_tree: ResMut<TechTree>,
+    mut armor: ResMut<ArmorSlots>,
+    mut lore_registry: ResMut<LoreRegistry>,
+    mut spawn_point: ResMut<SpawnPoint>,
+    mut explored: ResMut<ExploredChunks>,
 ) {
     if !keyboard.just_pressed(KeyCode::F9) {
         return;
@@ -266,11 +362,45 @@ fn handle_load_input(
         if matches!(bt, BuildingType::WoodRoof | BuildingType::StoneRoof) {
             entity_commands.insert(Roof);
         }
+        if let Some(tier) = bt.crafting_tier() {
+            entity_commands.insert(CraftingStation { tier });
+        }
+        if matches!(bt, BuildingType::Chest) {
+            entity_commands.insert(ChestStorage::new());
+        }
     }
 
     // Restore day/night
     cycle.time_of_day = save_data.day_time;
     cycle.day_count = save_data.day_count;
+
+    // US-006: Restore world seed so regenerated chunks match the saved world.
+    // The seed must be set BEFORE any chunk regeneration occurs (managed by
+    // WorldState/manage_chunks on subsequent frames).
+    if save_data.seed != 0 {
+        world_state.seed = save_data.seed;
+        world_state.generator = crate::world::generation::WorldGenerator::new(save_data.seed);
+        // Clear loaded_chunks so chunks will be regenerated with the restored seed
+        world_state.loaded_chunks.clear();
+    }
+
+    // US-007: Restore tech tree
+    tech_tree.unlocked_recipes = save_data.tech_tree_unlocks.into_iter().collect();
+    tech_tree.research_points = save_data.research_points;
+
+    // US-007: Restore armor slots
+    armor.helmet = save_data.armor_helmet.as_deref().and_then(parse_armor_item);
+    armor.chest = save_data.armor_chest.as_deref().and_then(parse_armor_item);
+    armor.shield = save_data.armor_shield.as_deref().and_then(parse_armor_item);
+
+    // US-007: Restore lore entries
+    lore_registry.collected_entries = save_data.lore_entries;
+
+    // US-007: Restore spawn point
+    spawn_point.position = Vec3::new(save_data.spawn_point.0, save_data.spawn_point.1, 10.0);
+
+    // US-007: Restore explored chunks
+    explored.chunks = save_data.explored_chunks.iter().map(|&(x, y)| IVec2::new(x, y)).collect();
 
     save_msg.text = "Game Loaded!".to_string();
     save_msg.timer = 2.0;

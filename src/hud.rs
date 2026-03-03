@@ -1,8 +1,8 @@
 use bevy::prelude::*;
-use crate::inventory::{Inventory, ItemType};
-use crate::crafting::CraftingSystem;
+use crate::inventory::Inventory;
+use crate::crafting::{CraftingSystem, CraftingTier};
 use crate::daynight::DayNightCycle;
-use crate::building::BuildingState;
+use crate::building::{BuildingState, ChestStorage, ChestUI, CraftingStation};
 use crate::player::{Player, Health, Hunger, ActiveBuff, BuffType, ArmorSlots};
 use crate::saveload::SaveMessage;
 use crate::season::SeasonCycle;
@@ -147,8 +147,14 @@ fn toggle_pause(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut pause_state: ResMut<PauseState>,
     mut cycle: ResMut<crate::daynight::DayNightCycle>,
+    chest_ui: Res<ChestUI>,
+    trade_menu: Res<TradeMenu>,
 ) {
     if keyboard.just_pressed(KeyCode::Escape) {
+        // Don't toggle pause when closing a modal UI with Escape
+        if chest_ui.is_open || trade_menu.is_open {
+            return;
+        }
         pause_state.paused = !pause_state.paused;
         cycle.paused = pause_state.paused;
     }
@@ -213,6 +219,8 @@ fn update_hud(
     tech_tree: Res<TechTree>,
     mut hud_query: Query<&mut Text, (With<HudText>, Without<CraftingHudText>, Without<StatusHudText>, Without<NpcHudText>, Without<FeedbackHudText>)>,
     mut craft_hud_query: Query<&mut Text, (With<CraftingHudText>, Without<HudText>, Without<StatusHudText>, Without<NpcHudText>, Without<FeedbackHudText>)>,
+    station_query: Query<(&CraftingStation, &Transform), Without<Player>>,
+    player_query: Query<&Transform, With<Player>>,
 ) {
     // Main HUD
     if let Ok(mut text) = hud_query.get_single_mut() {
@@ -319,11 +327,27 @@ fn update_hud(
             return;
         }
 
-        let near_workbench = inventory.has_items(ItemType::Workbench, 1);
-        let near_forge = inventory.has_items(ItemType::Forge, 1);
-        let near_campfire = inventory.has_items(ItemType::Campfire, 1);
-        let near_advanced_forge = inventory.has_items(ItemType::AdvancedForge, 1);
-        let near_ancient = inventory.has_items(ItemType::AncientWorkstation, 1);
+        let mut near_workbench = false;
+        let mut near_forge = false;
+        let mut near_campfire = false;
+        let mut near_advanced_forge = false;
+        let mut near_ancient = false;
+        if let Ok(player_tf) = player_query.get_single() {
+            let player_pos = player_tf.translation.truncate();
+            for (station, tf) in station_query.iter() {
+                let dist = player_pos.distance(tf.translation.truncate());
+                if dist <= 64.0 {
+                    match station.tier {
+                        CraftingTier::Workbench => near_workbench = true,
+                        CraftingTier::Forge => near_forge = true,
+                        CraftingTier::Campfire => near_campfire = true,
+                        CraftingTier::AdvancedForge => near_advanced_forge = true,
+                        CraftingTier::Ancient => near_ancient = true,
+                        CraftingTier::Hand => {}
+                    }
+                }
+            }
+        }
         let available = crafting.available_recipes(near_workbench, near_forge, near_campfire, near_advanced_forge, near_ancient, &tech_tree);
 
         let mut lines = vec!["== CRAFTING ==".to_string(), String::new()];
@@ -351,15 +375,50 @@ fn update_hud(
     }
 }
 
-/// Renders the trader trade menu or the experiment UI on the secondary right-side panel.
+/// Renders the chest UI, trader trade menu, or experiment UI on the secondary right-side panel.
 fn update_npc_hud(
     trade_menu: Res<TradeMenu>,
     experiment_slots: Res<ExperimentSlots>,
+    chest_ui: Res<ChestUI>,
     inventory: Res<Inventory>,
     trader_query: Query<&Trader>,
+    chest_query: Query<&ChestStorage>,
     mut npc_hud_query: Query<&mut Text, With<NpcHudText>>,
 ) {
     let Ok(mut text) = npc_hud_query.get_single_mut() else { return };
+
+    // Chest UI takes highest priority if open
+    if chest_ui.is_open {
+        if let Some(entity) = chest_ui.target_entity {
+            if let Ok(chest) = chest_query.get(entity) {
+                let mut lines = vec![
+                    "=== CHEST ===".to_string(),
+                    String::new(),
+                ];
+
+                for (i, slot) in chest.slots.iter().enumerate() {
+                    let marker = if i == chest_ui.selected_slot { "> " } else { "  " };
+                    let slot_text = match slot {
+                        Some(s) => {
+                            if let Some(dur) = s.durability {
+                                let max_dur = s.item.max_durability().unwrap_or(dur);
+                                format!("{}{:2}. {} ({}/{})", marker, i + 1, s.item.display_name(), dur, max_dur)
+                            } else {
+                                format!("{}{:2}. {} x{}", marker, i + 1, s.item.display_name(), s.count)
+                            }
+                        }
+                        None => format!("{}{:2}. (empty)", marker, i + 1),
+                    };
+                    lines.push(slot_text);
+                }
+
+                lines.push(String::new());
+                lines.push("1-9: Store hotbar item | Up/Down+Enter: Take | E: Close".to_string());
+                **text = lines.join("\n");
+                return;
+            }
+        }
+    }
 
     // Experiment UI takes priority if open
     if experiment_slots.is_open {

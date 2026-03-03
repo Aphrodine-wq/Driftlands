@@ -1,13 +1,15 @@
 use bevy::prelude::*;
 use crate::player::Player;
-use crate::inventory::{Inventory, ItemType};
+use crate::inventory::{Inventory, InventorySlot, ItemType};
 use crate::world::TILE_SIZE;
+use crate::crafting::CraftingTier;
 
 pub struct BuildingPlugin;
 
 impl Plugin for BuildingPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(BuildingState::default())
+            .insert_resource(ChestUI::default())
             .add_systems(Update, (
                 toggle_build_mode,
                 cycle_building_type,
@@ -16,6 +18,8 @@ impl Plugin for BuildingPlugin {
                 door_interaction,
                 roof_transparency,
                 destroy_building,
+                chest_interaction,
+                chest_transfer,
             ));
     }
 }
@@ -49,7 +53,30 @@ pub struct Door {
 pub struct Roof;
 
 #[derive(Component)]
+pub struct CraftingStation {
+    pub tier: CraftingTier,
+}
+
+#[derive(Component)]
 pub struct BuildPreview;
+
+#[derive(Component)]
+pub struct ChestStorage {
+    pub slots: Vec<Option<InventorySlot>>,
+}
+
+impl ChestStorage {
+    pub fn new() -> Self {
+        Self { slots: vec![None; 18] }
+    }
+}
+
+#[derive(Resource, Default)]
+pub struct ChestUI {
+    pub is_open: bool,
+    pub target_entity: Option<Entity>,
+    pub selected_slot: usize,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BuildingType {
@@ -65,6 +92,12 @@ pub enum BuildingType {
     MetalWall,
     MetalDoor,
     Bed,
+    Chest,
+    Workbench,
+    Forge,
+    Campfire,
+    AdvancedForge,
+    AncientWorkstation,
 }
 
 impl BuildingType {
@@ -74,13 +107,19 @@ impl BuildingType {
             BuildingType::WoodWall => BuildingType::WoodDoor,
             BuildingType::WoodDoor => BuildingType::WoodRoof,
             BuildingType::WoodRoof => BuildingType::WoodFence,
-            BuildingType::WoodFence => BuildingType::StoneFloor,
+            BuildingType::WoodFence => BuildingType::Workbench,
+            BuildingType::Workbench => BuildingType::Campfire,
+            BuildingType::Campfire => BuildingType::Chest,
+            BuildingType::Chest => BuildingType::StoneFloor,
             BuildingType::StoneFloor => BuildingType::StoneWall,
             BuildingType::StoneWall => BuildingType::StoneDoor,
             BuildingType::StoneDoor => BuildingType::StoneRoof,
-            BuildingType::StoneRoof => BuildingType::MetalWall,
+            BuildingType::StoneRoof => BuildingType::Forge,
+            BuildingType::Forge => BuildingType::MetalWall,
             BuildingType::MetalWall => BuildingType::MetalDoor,
-            BuildingType::MetalDoor => BuildingType::Bed,
+            BuildingType::MetalDoor => BuildingType::AdvancedForge,
+            BuildingType::AdvancedForge => BuildingType::AncientWorkstation,
+            BuildingType::AncientWorkstation => BuildingType::Bed,
             BuildingType::Bed => BuildingType::WoodFloor,
         }
     }
@@ -99,6 +138,12 @@ impl BuildingType {
             BuildingType::MetalWall => "Metal Wall",
             BuildingType::MetalDoor => "Metal Door",
             BuildingType::Bed => "Bed",
+            BuildingType::Chest => "Chest",
+            BuildingType::Workbench => "Workbench",
+            BuildingType::Forge => "Forge",
+            BuildingType::Campfire => "Campfire",
+            BuildingType::AdvancedForge => "Advanced Forge",
+            BuildingType::AncientWorkstation => "Ancient Workstation",
         }
     }
 
@@ -116,6 +161,12 @@ impl BuildingType {
             BuildingType::MetalWall => ItemType::MetalWall,
             BuildingType::MetalDoor => ItemType::MetalDoor,
             BuildingType::Bed => ItemType::Bed,
+            BuildingType::Chest => ItemType::Chest,
+            BuildingType::Workbench => ItemType::Workbench,
+            BuildingType::Forge => ItemType::Forge,
+            BuildingType::Campfire => ItemType::Campfire,
+            BuildingType::AdvancedForge => ItemType::AdvancedForge,
+            BuildingType::AncientWorkstation => ItemType::AncientWorkstation,
         }
     }
 
@@ -133,6 +184,12 @@ impl BuildingType {
             BuildingType::MetalWall => Color::srgb(0.6, 0.62, 0.65),
             BuildingType::MetalDoor => Color::srgb(0.58, 0.6, 0.63),
             BuildingType::Bed => Color::srgb(0.7, 0.3, 0.3),
+            BuildingType::Chest => Color::srgb(0.55, 0.4, 0.2),
+            BuildingType::Workbench => Color::srgb(0.65, 0.45, 0.25),
+            BuildingType::Forge => Color::srgb(0.7, 0.35, 0.15),
+            BuildingType::Campfire => Color::srgb(0.8, 0.5, 0.1),
+            BuildingType::AdvancedForge => Color::srgb(0.5, 0.35, 0.6),
+            BuildingType::AncientWorkstation => Color::srgb(0.3, 0.7, 0.6),
         }
     }
 
@@ -150,6 +207,10 @@ impl BuildingType {
             BuildingType::MetalWall => Vec2::new(TILE_SIZE, 24.0),
             BuildingType::MetalDoor => Vec2::new(10.0, 20.0),
             BuildingType::Bed => Vec2::new(TILE_SIZE, TILE_SIZE),
+            BuildingType::Chest => Vec2::new(TILE_SIZE * 0.75, TILE_SIZE * 0.75),
+            BuildingType::Workbench | BuildingType::Forge |
+            BuildingType::Campfire | BuildingType::AdvancedForge |
+            BuildingType::AncientWorkstation => Vec2::new(TILE_SIZE, TILE_SIZE),
         }
     }
 
@@ -164,6 +225,10 @@ impl BuildingType {
             BuildingType::StoneWall | BuildingType::MetalWall => 3.0,
             BuildingType::StoneDoor | BuildingType::MetalDoor => 3.0,
             BuildingType::StoneRoof => 15.0,
+            BuildingType::Chest => 2.0,
+            BuildingType::Workbench | BuildingType::Forge |
+            BuildingType::Campfire | BuildingType::AdvancedForge |
+            BuildingType::AncientWorkstation => 2.0,
         }
     }
 
@@ -182,6 +247,24 @@ impl BuildingType {
             BuildingType::MetalWall => vec![(ItemType::SteelAlloy, 2), (ItemType::IronIngot, 1)],
             BuildingType::MetalDoor => vec![(ItemType::SteelAlloy, 3)],
             BuildingType::Bed => vec![(ItemType::WoodPlank, 3), (ItemType::PlantFiber, 2)],
+            BuildingType::Chest => vec![(ItemType::WoodPlank, 3), (ItemType::IronIngot, 1)],
+            BuildingType::Workbench => vec![(ItemType::WoodPlank, 4), (ItemType::Stick, 2)],
+            BuildingType::Forge => vec![(ItemType::StoneBlock, 5), (ItemType::IronOre, 2), (ItemType::Coal, 1)],
+            BuildingType::Campfire => vec![(ItemType::Stone, 2), (ItemType::Stick, 1), (ItemType::Wood, 1)],
+            BuildingType::AdvancedForge => vec![(ItemType::SteelAlloy, 5), (ItemType::CrystalShard, 2), (ItemType::ObsidianShard, 1)],
+            BuildingType::AncientWorkstation => vec![(ItemType::AncientCore, 2), (ItemType::Gemstone, 2), (ItemType::SteelAlloy, 5)],
+        }
+    }
+
+    /// Returns the CraftingTier this building provides, if it is a crafting station.
+    pub fn crafting_tier(&self) -> Option<CraftingTier> {
+        match self {
+            BuildingType::Workbench => Some(CraftingTier::Workbench),
+            BuildingType::Forge => Some(CraftingTier::Forge),
+            BuildingType::Campfire => Some(CraftingTier::Campfire),
+            BuildingType::AdvancedForge => Some(CraftingTier::AdvancedForge),
+            BuildingType::AncientWorkstation => Some(CraftingTier::Ancient),
+            _ => None,
         }
     }
 }
@@ -280,14 +363,26 @@ fn place_building(
     if matches!(bt, BuildingType::WoodRoof | BuildingType::StoneRoof) {
         entity_commands.insert(Roof);
     }
+    if let Some(tier) = bt.crafting_tier() {
+        entity_commands.insert(CraftingStation { tier });
+    }
+    if matches!(bt, BuildingType::Chest) {
+        entity_commands.insert(ChestStorage::new());
+    }
 }
 
 fn door_interaction(
     keyboard: Res<ButtonInput<KeyCode>>,
+    chest_ui: Res<ChestUI>,
     player_query: Query<&Transform, With<Player>>,
     mut door_query: Query<(&Transform, &mut Door, &mut Sprite), Without<Player>>,
 ) {
     if !keyboard.just_pressed(KeyCode::KeyE) {
+        return;
+    }
+
+    // Don't toggle doors while chest UI is open
+    if chest_ui.is_open {
         return;
     }
 
@@ -362,6 +457,7 @@ fn destroy_building(
     player_query: Query<&Transform, With<Player>>,
     building_query: Query<(Entity, &Transform, &Building), Without<Player>>,
     mut inventory: ResMut<Inventory>,
+    mut chest_ui: ResMut<ChestUI>,
 ) {
     if !building_state.active || !mouse.just_pressed(MouseButton::Left) {
         return;
@@ -382,10 +478,134 @@ fn destroy_building(
     }
 
     if let Some((entity, _, bt)) = nearest {
+        // Close chest UI if we're destroying the chest that's open
+        if chest_ui.target_entity == Some(entity) {
+            chest_ui.is_open = false;
+            chest_ui.target_entity = None;
+            chest_ui.selected_slot = 0;
+        }
         // Return 50% materials
         for (item, count) in bt.salvage() {
             inventory.add_item(item, count);
         }
         commands.entity(entity).despawn();
+    }
+}
+
+fn chest_interaction(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    building_state: Res<BuildingState>,
+    crafting: Res<crate::crafting::CraftingSystem>,
+    trade_menu: Res<crate::npc::TradeMenu>,
+    player_query: Query<&Transform, With<Player>>,
+    chest_query: Query<(Entity, &Transform), With<ChestStorage>>,
+    mut chest_ui: ResMut<ChestUI>,
+) {
+    // Close chest UI with E or Escape
+    if chest_ui.is_open {
+        if keyboard.just_pressed(KeyCode::KeyE) || keyboard.just_pressed(KeyCode::Escape) {
+            chest_ui.is_open = false;
+            chest_ui.target_entity = None;
+            chest_ui.selected_slot = 0;
+        }
+        return;
+    }
+
+    // Don't open if other menus are active
+    if building_state.active || crafting.is_open || trade_menu.is_open {
+        return;
+    }
+
+    if !keyboard.just_pressed(KeyCode::KeyE) {
+        return;
+    }
+
+    let Ok(player_tf) = player_query.get_single() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    // Find nearest chest within 32px
+    let mut nearest: Option<(Entity, f32)> = None;
+    for (entity, tf) in chest_query.iter() {
+        let dist = player_pos.distance(tf.translation.truncate());
+        if dist <= 32.0 {
+            if nearest.is_none() || dist < nearest.unwrap().1 {
+                nearest = Some((entity, dist));
+            }
+        }
+    }
+
+    if let Some((entity, _)) = nearest {
+        chest_ui.is_open = true;
+        chest_ui.target_entity = Some(entity);
+        chest_ui.selected_slot = 0;
+    }
+}
+
+fn chest_transfer(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut chest_ui: ResMut<ChestUI>,
+    mut inventory: ResMut<Inventory>,
+    mut chest_query: Query<&mut ChestStorage>,
+) {
+    if !chest_ui.is_open {
+        return;
+    }
+
+    let Some(target) = chest_ui.target_entity else { return };
+    let Ok(mut chest) = chest_query.get_mut(target) else {
+        // Chest entity no longer exists
+        chest_ui.is_open = false;
+        chest_ui.target_entity = None;
+        return;
+    };
+
+    // Number keys 1-9: transfer from player hotbar slot to first empty chest slot
+    let hotbar_keys = [
+        KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
+        KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6,
+        KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9,
+    ];
+    for (i, key) in hotbar_keys.iter().enumerate() {
+        if keyboard.just_pressed(*key) {
+            // Take from player hotbar slot i
+            if let Some(slot_data) = inventory.slots[i].clone() {
+                // Find first empty chest slot
+                if let Some(empty_idx) = chest.slots.iter().position(|s| s.is_none()) {
+                    chest.slots[empty_idx] = Some(slot_data);
+                    inventory.slots[i] = None;
+                }
+            }
+        }
+    }
+
+    // Arrow Up/Down: select chest slot
+    if keyboard.just_pressed(KeyCode::ArrowUp) {
+        if chest_ui.selected_slot > 0 {
+            chest_ui.selected_slot -= 1;
+        }
+    }
+    if keyboard.just_pressed(KeyCode::ArrowDown) {
+        if chest_ui.selected_slot < 17 {
+            chest_ui.selected_slot += 1;
+        }
+    }
+
+    // Enter: transfer selected chest item to player inventory
+    if keyboard.just_pressed(KeyCode::Enter) {
+        let idx = chest_ui.selected_slot;
+        if let Some(slot_data) = chest.slots[idx].clone() {
+            let remaining = inventory.add_item(slot_data.item, slot_data.count);
+            if remaining == 0 {
+                chest.slots[idx] = None;
+            } else if remaining < slot_data.count {
+                // Partially transferred
+                chest.slots[idx] = Some(InventorySlot {
+                    item: slot_data.item,
+                    count: remaining,
+                    durability: slot_data.durability,
+                });
+            }
+            // If remaining == slot_data.count, inventory was full, nothing happens
+        }
     }
 }

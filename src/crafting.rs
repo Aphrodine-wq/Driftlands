@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
 use crate::techtree::TechTree;
+use crate::building::CraftingStation;
 
 pub struct CraftingPlugin;
 
@@ -607,11 +608,16 @@ impl CraftingSystem {
     }
 }
 
+/// Proximity radius (in pixels) within which the player can use a placed crafting station.
+const STATION_RANGE: f32 = 64.0;
+
 fn handle_crafting_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut crafting: ResMut<CraftingSystem>,
     mut inventory: ResMut<Inventory>,
     tech_tree: Res<TechTree>,
+    station_query: Query<(&CraftingStation, &Transform)>,
+    player_query: Query<&Transform, With<Player>>,
 ) {
     if keyboard.just_pressed(KeyCode::KeyC) {
         crafting.is_open = !crafting.is_open;
@@ -622,12 +628,29 @@ fn handle_crafting_input(
         return;
     }
 
-    // Check crafting station access (simplified: check inventory for station items)
-    let near_workbench = inventory.has_items(ItemType::Workbench, 1);
-    let near_forge = inventory.has_items(ItemType::Forge, 1);
-    let near_campfire = inventory.has_items(ItemType::Campfire, 1);
-    let near_advanced_forge = inventory.has_items(ItemType::AdvancedForge, 1);
-    let near_ancient = inventory.has_items(ItemType::AncientWorkstation, 1);
+    // Check crafting station access by proximity to placed buildings
+    let mut near_workbench = false;
+    let mut near_forge = false;
+    let mut near_campfire = false;
+    let mut near_advanced_forge = false;
+    let mut near_ancient = false;
+
+    if let Ok(player_tf) = player_query.get_single() {
+        let player_pos = player_tf.translation.truncate();
+        for (station, tf) in station_query.iter() {
+            let dist = player_pos.distance(tf.translation.truncate());
+            if dist <= STATION_RANGE {
+                match station.tier {
+                    CraftingTier::Workbench => near_workbench = true,
+                    CraftingTier::Forge => near_forge = true,
+                    CraftingTier::Campfire => near_campfire = true,
+                    CraftingTier::AdvancedForge => near_advanced_forge = true,
+                    CraftingTier::Ancient => near_ancient = true,
+                    CraftingTier::Hand => {}
+                }
+            }
+        }
+    }
 
     let available = crafting.available_recipes(near_workbench, near_forge, near_campfire, near_advanced_forge, near_ancient, &tech_tree);
 

@@ -11,11 +11,30 @@ pub struct GatheringPlugin;
 
 impl Plugin for GatheringPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, gather_resources.run_if(not_paused));
+        app.init_resource::<GatheringState>()
+            .add_systems(Update, (
+                gather_resources,
+                update_gathering_progress_bars,
+                cleanup_gathering_visuals,
+            ).chain().run_if(not_paused));
     }
 }
 
 const GATHER_RANGE: f32 = 32.0;
+
+/// Tracks which WorldObject the player is currently gathering (if any).
+/// Uses a Resource instead of a marker Component so that the value is
+/// available to later systems in the same frame without waiting for
+/// command buffer application.
+#[derive(Resource, Default)]
+pub struct GatheringState {
+    pub target: Option<Entity>,
+}
+
+/// A progress bar entity that tracks a WorldObject being gathered.
+/// Spawned as a separate world-space entity (not a child) so positioning is simple.
+#[derive(Component)]
+pub struct GatheringProgressBar;
 
 fn gather_resources(
     mut commands: Commands,
@@ -27,7 +46,11 @@ fn gather_resources(
     mut inventory: ResMut<Inventory>,
     world_state: Res<WorldState>,
     time: Res<Time>,
+    mut gathering_state: ResMut<GatheringState>,
 ) {
+    // Default: not gathering anything this frame
+    gathering_state.target = None;
+
     if !mouse.pressed(MouseButton::Left) || building_state.active {
         return;
     }
@@ -74,7 +97,13 @@ fn gather_resources(
 
         object.health -= 30.0 * tool_bonus * time.delta_secs();
 
+        // Record current gathering target for visual feedback systems
+        gathering_state.target = Some(target_entity);
+
         if object.health <= 0.0 {
+            // Object destroyed — clear target so bars aren't drawn for it
+            gathering_state.target = None;
+
             // Derive a deterministic hash from world position for rare drops
             let tile_x = (obj_transform.translation.x / 16.0) as i32;
             let tile_y = (obj_transform.translation.y / 16.0) as i32;
@@ -159,6 +188,74 @@ fn gather_resources(
             // Consume tool durability
             inventory.use_selected_tool();
             commands.entity(target_entity).despawn();
+        }
+    }
+}
+
+/// Spawns, updates, and positions gathering progress bar entities.
+/// Follows the same despawn-and-recreate pattern used by EnemyHealthBar in combat.rs.
+fn update_gathering_progress_bars(
+    mut commands: Commands,
+    bar_query: Query<Entity, With<GatheringProgressBar>>,
+    gathering_state: Res<GatheringState>,
+    object_query: Query<(&Transform, &WorldObject)>,
+) {
+    // Despawn all existing progress bar entities each frame
+    for entity in bar_query.iter() {
+        commands.entity(entity).despawn();
+    }
+
+    // Only draw bars if we're actively gathering something
+    let Some(target_entity) = gathering_state.target else { return };
+    let Ok((tf, object)) = object_query.get(target_entity) else { return };
+
+    let max_health = object.object_type.max_health();
+    let ratio = (object.health / max_health).clamp(0.0, 1.0);
+
+    let bar_width = 24.0;
+    let bar_height = 4.0;
+    let bar_y = tf.translation.y + 12.0;
+
+    // Background bar (dark gray)
+    commands.spawn((
+        GatheringProgressBar,
+        Sprite {
+            color: Color::srgb(0.2, 0.2, 0.2),
+            custom_size: Some(Vec2::new(bar_width, bar_height)),
+            ..default()
+        },
+        Transform::from_xyz(tf.translation.x, bar_y, 9.0),
+    ));
+
+    // Fill bar (green), shrinks from left as health decreases
+    let fill_width = bar_width * ratio;
+    let fill_offset = (bar_width - fill_width) / 2.0;
+    commands.spawn((
+        GatheringProgressBar,
+        Sprite {
+            color: Color::srgb(0.2, 0.8, 0.2),
+            custom_size: Some(Vec2::new(fill_width, bar_height)),
+            ..default()
+        },
+        Transform::from_xyz(tf.translation.x - fill_offset, bar_y, 9.1),
+    ));
+}
+
+/// Applies visual scale feedback to objects being gathered, and resets scale
+/// when gathering stops.
+fn cleanup_gathering_visuals(
+    gathering_state: Res<GatheringState>,
+    mut object_query: Query<(Entity, &WorldObject, &mut Transform)>,
+) {
+    for (entity, object, mut tf) in object_query.iter_mut() {
+        if gathering_state.target == Some(entity) {
+            // Scale down based on remaining health ratio
+            let max_health = object.object_type.max_health();
+            let ratio = (object.health / max_health).clamp(0.0, 1.0);
+            tf.scale = Vec3::splat(0.7 + 0.3 * ratio);
+        } else if tf.scale != Vec3::ONE {
+            // Reset scale on objects no longer being gathered
+            tf.scale = Vec3::ONE;
         }
     }
 }

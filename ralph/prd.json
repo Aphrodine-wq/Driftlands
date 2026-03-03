@@ -1,389 +1,684 @@
 {
   "project": "Driftlands",
-  "branchName": "ralph/phase-5-early-access",
-  "description": "Phase 5: Early Access Release — Close all PRD gaps, add collision, expand building/combat systems, polish UI, optimize performance, and prepare for release",
+  "branchName": "ralph/full-game-pass",
+  "description": "Complete game pass — fix all broken wiring, add missing features, build real UI, add audio foundation, and implement game feel. Transform the scaffold into a playable game.",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Tile collision for player movement",
-      "description": "As a player, I want to be blocked by water, deep water, and lava tiles so that the world feels solid and exploration requires finding paths around obstacles.",
+      "title": "Fix pause system — actually pause all gameplay systems",
+      "description": "As a player, I want the game to truly pause when I press Escape so that enemies stop attacking and time stops.",
       "acceptanceCriteria": [
-        "Player cannot walk onto Water, DeepWater, or Lava tiles",
-        "Collision check uses the chunk tile data at the player's target position",
-        "Player slides along impassable tile edges instead of stopping dead",
-        "Movement still works normally on all walkable tile types",
+        "Add a not_paused() run condition function that reads PauseState resource",
+        "Guard player_movement, player_attack, enemy_ai, enemy_spawn, enemy_despawn, gather_resources, farming growth, and weather systems with .run_if(not_paused)",
+        "DayNightCycle already has .paused field — ensure it is checked in the daynight update system",
+        "Combat damage, projectile movement, and NPC systems also gated by not_paused",
+        "HUD rendering systems are NOT paused (menu must still render)",
         "Typecheck passes"
       ],
       "priority": 1,
       "passes": false,
-      "notes": "Check TileType::is_walkable() in player_movement system. Convert player target position to chunk coords, look up tile, reject movement into non-walkable tiles."
+      "notes": "Create pub fn not_paused(pause: Res<PauseState>) -> bool { !pause.paused } in hud.rs and export it. Add .run_if(not_paused) to all gameplay system registrations in each plugin's build() method. Do NOT pause camera, HUD, save/load, or pause toggle systems."
     },
     {
       "id": "US-002",
-      "title": "Building collision blocks player and enemies",
-      "description": "As a player, I want placed walls and closed doors to block movement so that I can build defensive structures.",
+      "title": "Fix tech tree — connect unlocked recipes to crafting system",
+      "description": "As a player, I want blueprints and research to actually gate crafting recipes so that progression matters.",
       "acceptanceCriteria": [
-        "Player cannot walk through WoodWall, StoneWall, or closed WoodDoor buildings",
-        "Enemies cannot path through walls or closed doors",
-        "Open doors allow passage for both player and enemies",
-        "Floors and roofs do not block movement",
+        "Add an optional tech_key: Option<&'static str> field to the Recipe struct in crafting.rs",
+        "Recipes at AdvancedForge and Ancient tiers have tech_key set to their ALL_RECIPES name (e.g. 'steel_sword', 'ancient_blade')",
+        "Hand, Workbench, Forge, and Campfire recipes have tech_key: None (always available)",
+        "handle_crafting_input reads TechTree resource and filters out recipes where tech_key is Some but not in unlocked_recipes",
+        "available_recipes() method accepts a &TechTree parameter and checks is_unlocked() for gated recipes",
         "Typecheck passes"
       ],
       "priority": 2,
       "passes": false,
-      "notes": "Add collision check in player_movement and enemy_ai systems. Query all Building entities, check AABB overlap for walls/closed doors."
+      "notes": "Add tech_key field to Recipe struct. Update CraftingSystem::new() to set tech_key on the ~12 advanced recipes. Modify available_recipes() to take &TechTree and filter. Update handle_crafting_input to pass TechTree to available_recipes(). The existing TechTree.is_unlocked() method already works."
     },
     {
       "id": "US-003",
-      "title": "Stone and metal building tiers",
-      "description": "As a player, I want to build with stone, brick, and metal materials so that my structures match higher crafting tiers.",
+      "title": "Fix crafting station proximity — check placed buildings not inventory",
+      "description": "As a player, I want crafting to require standing near a placed workbench/forge rather than carrying it in my inventory.",
       "acceptanceCriteria": [
-        "BuildingType enum includes StoneFloor, StoneWall, StoneDoor, StoneRoof, MetalWall, MetalDoor",
-        "Each new type has a unique color, required item, and salvage table",
-        "Q key cycles through all building types when in build mode",
+        "Add CraftingStation { tier: CraftingTier } component to building.rs",
+        "When placing a Workbench, Forge, Campfire, AdvancedForge, or AncientWorkstation building, also insert CraftingStation component with appropriate tier",
+        "handle_crafting_input queries all CraftingStation entities with Transform, checks if player is within 64px of each",
+        "Builds a set of available CraftingTiers from nearby stations",
+        "Hand tier is always available (no station needed)",
+        "Remove the inventory.has_items() checks for station detection",
         "Typecheck passes"
       ],
       "priority": 3,
       "passes": false,
-      "notes": "Extend BuildingType enum. Add ItemType variants for new building pieces. Add crafting recipes at Forge (stone) and AdvancedForge (metal) tiers."
+      "notes": "Add CraftingStation component. In building.rs place_building system, add CraftingStation when the BuildingType corresponds to a station. In crafting.rs handle_crafting_input, add Query<(&CraftingStation, &Transform)> parameter, compute distances to player, build HashSet<CraftingTier> from nearby stations."
     },
     {
       "id": "US-004",
-      "title": "Stone and metal building recipes",
-      "description": "As a player, I want crafting recipes for stone and metal building pieces at the appropriate crafting stations.",
+      "title": "Fix dungeon room connectivity — add doorways between rooms",
+      "description": "As a player, I want to walk between dungeon rooms instead of being trapped in isolated boxes.",
       "acceptanceCriteria": [
-        "StoneFloor recipe at Forge tier: 4 StoneBlock",
-        "StoneDoor recipe at Forge tier: 6 StoneBlock, 2 IronIngot",
-        "StoneRoof recipe at Forge tier: 6 StoneBlock",
-        "MetalWall recipe at AdvancedForge tier: 4 SteelAlloy, 2 IronIngot",
-        "MetalDoor recipe at AdvancedForge tier: 6 SteelAlloy",
-        "New ItemType variants exist for all new building pieces",
+        "Dungeon rooms have 2-tile-wide doorway openings on the sides connecting to adjacent rooms",
+        "First room has doorway on right wall, last room on left wall, middle rooms on both sides",
+        "Doorways are centered vertically on the connecting wall",
+        "A corridor of floor tiles connects adjacent rooms through the gap",
+        "Player and enemies can walk through the corridor between rooms",
         "Typecheck passes"
       ],
       "priority": 4,
       "passes": false,
-      "notes": "Add ItemType variants, display_name entries, max_stack (64), and recipes to CraftingSystem::new()."
+      "notes": "In generate_dungeon, after spawning each room's walls, calculate doorway positions. Modify spawn_room_walls to skip wall tiles at the doorway location. Add spawn_corridor function that fills the gap between rooms with floor tiles. The gap_tiles=2 already exists — just need floor tiles in the gap and wall openings."
     },
     {
       "id": "US-005",
-      "title": "Shield damage reduction in combat",
-      "description": "As a player, I want shields to reduce incoming damage when equipped so that defensive gear matters.",
+      "title": "Fix hermit spawning — add hermits to world generation",
+      "description": "As a player, I want to find hermit NPCs in the world so that I can hear lore and get rare trades.",
       "acceptanceCriteria": [
-        "WoodShield and IronShield have shield_value() method returning damage reduction (2 and 5 respectively)",
-        "ArmorSlots gets a new shield: Option<ItemType> field",
-        "R key equips shields (detected via is_shield() method)",
-        "total_armor() includes shield value",
+        "spawn_hermit is called from world/mod.rs spawn_chunk_objects for appropriate biomes",
+        "Hermits spawn at ~0.2% probability per chunk in Forest, Swamp, Mountain, Desert, Tundra biomes",
+        "Hermits use the existing spawn_hermit() function from npc.rs",
+        "Hermits are tagged as ChunkObject with appropriate chunk_pos so they load/unload with chunks",
+        "At most 1 hermit per chunk",
         "Typecheck passes"
       ],
       "priority": 5,
       "passes": false,
-      "notes": "Add shield_value() to ItemType, is_shield() check, ArmorSlots.shield field, update equip_armor system."
+      "notes": "In world/mod.rs spawn_chunk_objects, add a hermit spawn check similar to dungeon entrance. Use position_hash with a unique offset. Call npc::spawn_hermit(). Make sure spawn_hermit is pub. Add ChunkObject component to hermit entities."
     },
     {
       "id": "US-006",
-      "title": "Ranged combat with bow and arrows",
-      "description": "As a player, I want to shoot arrows at enemies when holding a bow so that I can attack from a distance.",
+      "title": "Fix save/load — persist world seed",
+      "description": "As a player, I want my world to look the same after loading a save so that chunks regenerate correctly.",
       "acceptanceCriteria": [
-        "Left-click while holding WoodBow spawns a Projectile entity moving toward nearest enemy or cursor direction",
-        "Projectile consumes 1 Arrow from inventory per shot",
-        "Projectile deals 8 damage on contact with an enemy then despawns",
-        "Projectile despawns after traveling 300px or 2 seconds",
-        "No arrows in inventory = no shot fired",
+        "SaveData struct includes a seed: u32 field",
+        "On save, read seed from WorldState resource and store in SaveData",
+        "On load, restore the seed to WorldState before any chunk generation",
+        "WorldState generates a random seed on startup if no save is loaded (already does this)",
+        "Loading a save produces the same world terrain as when saved",
         "Typecheck passes"
       ],
       "priority": 6,
       "passes": false,
-      "notes": "Add Projectile component with velocity, lifetime. Add projectile_movement and projectile_hit systems. Check selected item is WoodBow in player_attack."
+      "notes": "Add seed field to SaveData. In save_game, read WorldState.seed. In load_game, set WorldState.seed before clearing and regenerating chunks. The existing WorldState resource should have a pub seed field."
     },
     {
       "id": "US-007",
-      "title": "Proximity-based crafting station detection",
-      "description": "As a player, I want crafting to check if I'm near a placed crafting station rather than just having it in my inventory.",
+      "title": "Fix save/load — persist tech tree, armor, lore, spawn point, explored chunks",
+      "description": "As a player, I want all my progress to be saved — not just inventory and buildings.",
       "acceptanceCriteria": [
-        "Crafting recipes requiring Workbench only available when player is within 48px of a placed Workbench building",
-        "Same proximity check for Forge, Campfire, AdvancedForge, AncientWorkstation",
-        "Placed crafting stations are Building entities with a CraftingStation component",
-        "Building system spawns CraftingStation component when placing station items",
+        "SaveData includes tech_tree_unlocks: Vec<String> from TechTree.unlocked_recipes",
+        "SaveData includes research_points: u32 from TechTree.research_points",
+        "SaveData includes armor_helmet, armor_chest, armor_shield as Option<String> from ArmorSlots",
+        "SaveData includes lore_entries: Vec<usize> from LoreRegistry",
+        "SaveData includes spawn_point: (f32, f32) from SpawnPoint resource",
+        "SaveData includes explored_chunks: Vec<(i32, i32)> from ExploredChunks",
+        "All fields are restored on load",
         "Typecheck passes"
       ],
       "priority": 7,
       "passes": false,
-      "notes": "Add CraftingStation { tier: CraftingTier } component. Modify handle_crafting_input to query placed station buildings near player instead of checking inventory."
+      "notes": "Extend SaveData with new fields. In save_game system, read each resource and populate fields. In load_game, restore each resource. For ArmorSlots, save item names as strings and parse back to ItemType on load. For ExploredChunks, save as Vec of tuples."
     },
     {
       "id": "US-008",
-      "title": "Coastal and Mountain unique boss types",
-      "description": "As a player, I want unique boss encounters in Coastal and Mountain biomes instead of the generic StoneGolem fallback.",
+      "title": "Add chest storage with interaction UI",
+      "description": "As a player, I want to interact with placed chests to store and retrieve items.",
       "acceptanceCriteria": [
-        "New EnemyType::TidalSerpent for Coastal biome boss with 240hp, 16 damage, aquatic color",
-        "New EnemyType::MountainTitan for Mountain biome boss with 260hp, 17 damage, grey/brown color",
-        "boss_for_biome returns TidalSerpent for Coastal and MountainTitan for Mountain",
-        "Each boss has unique loot drops: CoralEssence and TitanBone items",
+        "Add ChestStorage component with slots: Vec<Option<InventorySlot>> of 18 slots",
+        "When placing a Chest building, also insert ChestStorage component",
+        "E key near a chest (within 32px) opens a chest UI panel",
+        "ChestUI shows chest contents as text list and player inventory below",
+        "Number keys 1-9 transfer items from player hotbar to chest",
+        "Arrow keys + Enter transfer items from chest to player inventory",
+        "Press E again or Escape to close chest UI",
         "Typecheck passes"
       ],
       "priority": 8,
       "passes": false,
-      "notes": "Add 2 new EnemyType variants, stats, 2 new ItemType drops, update boss_for_biome and spawn_dungeon_boss loot tables."
+      "notes": "Add ChestStorage component in building.rs. Add ChestUI resource with is_open, target_entity. Create chest_interaction system in building.rs. Render chest UI in hud.rs. Transfer items between Inventory and ChestStorage."
     },
     {
       "id": "US-009",
-      "title": "Dungeon entrances in all biomes",
-      "description": "As a player, I want to find dungeon entrances in every biome so that all areas have underground content to explore.",
+      "title": "Add gathering progress bar and visual feedback",
+      "description": "As a player, I want to see a progress bar when gathering resources instead of objects just disappearing.",
       "acceptanceCriteria": [
-        "Dungeon entrance spawning no longer limited to Mountain/Volcanic/CrystalCave",
-        "All 9 biomes can spawn dungeon entrances at ~0.5% tile probability",
-        "Entrance passes the chunk's biome to spawn_entrance_with_biome",
+        "While player holds LMB on a gatherable object, a progress bar renders above the object",
+        "Progress bar is a colored rectangle that fills from left to right proportional to remaining health",
+        "Progress bar background is dark gray, fill is green",
+        "Progress bar is 24px wide and 4px tall, positioned 12px above the object",
+        "Progress bar entity is spawned when gathering starts, despawned when gathering stops or object is destroyed",
+        "Object sprite scale shrinks from 1.0 to 0.7 as health decreases",
         "Typecheck passes"
       ],
       "priority": 9,
       "passes": false,
-      "notes": "Remove the biome filter in spawn_chunk_objects. Move dungeon entrance check before the biome match block so all biomes participate."
+      "notes": "Add GatheringTarget component that tracks which entity is being gathered. Spawn progress bar as a child entity with Sprite. In gather_resources system, update the progress bar fill width and object scale each frame. Remove progress bar when player stops gathering or moves away."
     },
     {
       "id": "US-010",
-      "title": "Fog of war on minimap",
-      "description": "As a player, I want unexplored areas on the minimap to be hidden so that exploration feels rewarding.",
+      "title": "Sprite-based player health and hunger bars",
+      "description": "As a player, I want visual health and hunger bars instead of just text numbers.",
       "acceptanceCriteria": [
-        "New ExploredChunks resource tracks which chunk positions the player has visited",
-        "Chunks within 2 chunks of the player are marked as explored",
-        "Minimap pixels for unexplored chunks render as dark/black instead of terrain colors",
-        "Explored chunks persist across sessions (saved with game state)",
+        "Health bar renders as a red/green rectangle in the top-left corner of the screen",
+        "Health bar is 120px wide, 12px tall with a dark border",
+        "Green fill width is proportional to current_hp / max_hp",
+        "Hunger bar renders below health bar, same dimensions, yellow/orange fill",
+        "Both bars update each frame based on Player Health and Hunger components",
+        "Text labels 'HP' and 'FOOD' render to the left of each bar",
+        "Numeric values still show to the right of bars (e.g. '80/100')",
         "Typecheck passes"
       ],
       "priority": 10,
       "passes": false,
-      "notes": "Add ExploredChunks(HashSet<IVec2>) resource. Update update_minimap to check explored set. Mark chunks explored in manage_chunks."
+      "notes": "Use Bevy Node/Style UI with BackgroundColor for the bars. Create bar container, background, and fill as UI nodes in spawn_hud. Update fill width in update_status_hud based on health/hunger percentages. Use Style { width: Val::Px(fill_width), .. } for the fill node."
     },
     {
       "id": "US-011",
-      "title": "Bed spawn point system",
-      "description": "As a player, I want to craft and place a bed that becomes my respawn point so that death doesn't always send me to world origin.",
+      "title": "Visual hotbar with slot borders and selection indicator",
+      "description": "As a player, I want a visual hotbar at the bottom of the screen with bordered slots and a highlight on the selected slot.",
       "acceptanceCriteria": [
-        "New ItemType::Bed with Hand crafting recipe (WoodPlank x6, PlantFiber x4)",
-        "Bed is a placeable BuildingType that can be placed via build mode",
-        "SpawnPoint resource stores the last bed position (default: world origin)",
-        "Interacting (E key) with a placed bed sets it as spawn point with HUD feedback",
-        "Death respawn uses SpawnPoint position instead of hardcoded world origin",
+        "9 hotbar slots render as bordered rectangles at the bottom-center of the screen",
+        "Each slot is 40x40px with a 2px dark border",
+        "The selected slot has a bright yellow/white border instead of dark",
+        "Slot numbers 1-9 render in the top-left corner of each slot",
+        "Item names render centered in filled slots",
+        "Stack counts render in the bottom-right corner for stacked items",
+        "Empty slots show a darker background color",
         "Typecheck passes"
       ],
       "priority": 11,
       "passes": false,
-      "notes": "Add Bed component, SpawnPoint resource, update death.rs to use SpawnPoint, add bed interaction in building.rs."
+      "notes": "Create hotbar UI using Bevy's Node/Style system. Spawn 9 slot container nodes in spawn_hud positioned at bottom-center. Use BackgroundColor and BorderColor for styling. Update text content in update_hud based on inventory hotbar slots."
     },
     {
       "id": "US-012",
-      "title": "Chest storage UI",
-      "description": "As a player, I want to interact with placed chests to store and retrieve items so that I can manage my inventory.",
+      "title": "Inventory grid panel with item display",
+      "description": "As a player, I want a proper inventory grid panel that shows all 36 slots when I open inventory.",
       "acceptanceCriteria": [
-        "Placed Chest building has a ChestStorage component with 18 inventory slots",
-        "E key near a chest opens a chest UI panel showing chest contents",
-        "Player can transfer items between inventory and chest via number keys",
-        "Chest contents persist (stored in the ChestStorage component)",
+        "Tab key toggles an inventory panel overlay",
+        "Panel renders as a dark semi-transparent background covering the right side of screen",
+        "36 slots displayed in a 9x4 grid layout using Bevy UI nodes",
+        "Each slot shows item name abbreviated to 3-4 characters, stack count, and durability if applicable",
+        "Slots are 36x36px with borders matching hotbar style",
+        "Empty slots show darker background",
+        "Panel has 'INVENTORY' header text",
         "Typecheck passes"
       ],
       "priority": 12,
       "passes": false,
-      "notes": "Add ChestStorage component with slots Vec. Add chest_interaction system, chest HUD rendering. Place chest via build mode."
+      "notes": "Add InventoryPanelOpen resource or field to Inventory. Toggle with Tab. Create inventory panel UI nodes in spawn_hud (initially hidden via Display::None). Update slot contents in update_hud. Use Style flexbox for grid layout. Toggle visibility with Display::Flex / Display::None."
     },
     {
       "id": "US-013",
-      "title": "Biome-specific enemy loot drops",
-      "description": "As a player, I want enemies to drop biome-relevant resources instead of only Stone and PlantFiber.",
+      "title": "Improved crafting panel with recipe ingredients display",
+      "description": "As a player, I want the crafting panel to clearly show recipe ingredients, what I have, and what I'm missing.",
       "acceptanceCriteria": [
-        "Forest enemies drop Wood and Berry",
-        "Desert enemies drop CactusFiber and Sand",
-        "Tundra enemies drop IceShard",
-        "Volcanic enemies drop Sulfur and ObsidianShard",
-        "Fungal enemies drop MushroomCap and Spore",
-        "Swamp enemies drop Reed and Peat",
-        "Crystal Cave enemies drop CrystalShard",
-        "Mountain enemies drop IronOre and Stone",
-        "Coastal enemies drop PlantFiber and Stone",
+        "Crafting panel renders as a dark overlay on the right side when C is pressed",
+        "Each recipe line shows: recipe name, required ingredients with counts",
+        "Ingredients the player HAS are colored green, ingredients MISSING are colored red",
+        "Selected recipe is highlighted with a brighter background",
+        "Panel header shows current crafting tier access (e.g. 'Stations: Hand, Workbench')",
+        "Panel scrolls if more recipes than fit on screen (max 15 visible)",
         "Typecheck passes"
       ],
       "priority": 13,
       "passes": false,
-      "notes": "Replace hardcoded drop in player_attack with loot_for_biome() function. Determine biome from enemy position and chunk lookup."
+      "notes": "Refactor the existing CraftingHudText from a single Text node into a Bevy UI panel with Node/Style. Each recipe gets its own row with ingredient text nodes. Color ingredients based on inventory.has_items() check. Use Bevy UI scrolling or just clamp the visible window."
     },
     {
       "id": "US-014",
-      "title": "Expanded save/load for all game state",
-      "description": "As a player, I want save/load to persist buildings, tech tree, armor, lore, explored chunks, and spawn point.",
+      "title": "Player facing direction and movement animation",
+      "description": "As a player, I want my character to face the direction they're moving so the game feels responsive.",
       "acceptanceCriteria": [
-        "Buildings are saved and restored (position, type)",
-        "TechTree unlocked nodes persist across save/load",
-        "ArmorSlots equipped items persist",
-        "LoreRegistry collected entries persist",
-        "ExploredChunks set persists",
-        "SpawnPoint position persists",
+        "Player sprite flips horizontally when moving left vs right (Sprite.flip_x)",
+        "Add a PlayerFacing component with Up, Down, Left, Right variants",
+        "PlayerFacing updates each frame based on movement direction (largest axis wins)",
+        "Player sprite color shifts slightly when moving (lighter) vs idle (normal) to indicate state",
+        "Walking creates a subtle bobbing effect (±1px Y oscillation at 8Hz)",
         "Typecheck passes"
       ],
       "priority": 14,
       "passes": false,
-      "notes": "Extend SaveData struct in saveload.rs with new fields. Add Serialize/Deserialize derives to relevant types. Query buildings on save, spawn them on load."
+      "notes": "Add PlayerFacing enum and component. In player_movement, after computing velocity, set facing direction. Apply Sprite.flip_x based on facing. Add a walk_bob timer that oscillates transform.translation.y by ±1px when moving."
     },
     {
       "id": "US-015",
-      "title": "World seed configuration",
-      "description": "As a player, I want to specify a world seed or get a random one so that I can share interesting worlds.",
+      "title": "Hit feedback — screen shake, enemy knockback, and flash",
+      "description": "As a player, I want combat to feel impactful with screen shake and knockback.",
       "acceptanceCriteria": [
-        "WorldState seed is randomized on new game instead of hardcoded 42",
-        "Seed is displayed in the HUD status area",
-        "Seed is saved and restored with save/load",
+        "When player hits an enemy, camera shakes for 0.15 seconds (±3px random offset)",
+        "Add ScreenShake resource with timer and intensity fields",
+        "Camera system applies random offset to camera transform when shake timer > 0",
+        "Hit enemies are knocked back 8px away from the player over 0.1 seconds",
+        "Add Knockback component with direction, timer, and distance fields",
+        "Knockback system moves entities with Knockback component each frame",
+        "Boss hits shake harder (±6px for 0.2 seconds)",
         "Typecheck passes"
       ],
       "priority": 15,
       "passes": false,
-      "notes": "Use rand to generate seed in WorldState::new. Save seed in SaveData. Show seed in update_status_hud."
+      "notes": "Add ScreenShake resource in camera.rs. Trigger shake in combat.rs player_attack when damage dealt. Add Knockback component, insert on hit enemies. Apply knockback in a new knockback_system. Camera system reads ScreenShake and adds random offset."
     },
     {
       "id": "US-016",
-      "title": "Procedural ruins with loot chests",
-      "description": "As a player, I want to discover procedurally generated ruins on the surface that contain loot chests and journal pages.",
+      "title": "Death screen with stats before respawn",
+      "description": "As a player, I want a death screen showing what killed me and my stats before respawning.",
       "acceptanceCriteria": [
-        "New RuinStructure WorldObjectType spawns as a cluster of 4-8 stone wall/floor tiles",
-        "Ruins spawn at ~0.3% probability per chunk in Forest, Desert, Swamp, Mountain biomes",
-        "Each ruin contains 1 loot chest entity with randomized items (Blueprint, JournalPage, or resources)",
-        "Ruins are visually distinct from regular buildings (darker stone color, partially broken)",
+        "On death, a full-screen dark overlay appears for 3 seconds before respawn",
+        "Overlay shows 'YOU DIED' in large red text centered on screen",
+        "Below the title, show: 'Day X', 'Items Lost: Y', 'Enemies Killed: Z'",
+        "Add DeathStats resource tracking total_kills (incremented in combat)",
+        "After 3 seconds, respawn proceeds as normal (teleport to spawn, drop items at death marker)",
+        "Pressing any key skips the death screen timer",
         "Typecheck passes"
       ],
       "priority": 16,
       "passes": false,
-      "notes": "Add spawn_ruin function in world/mod.rs. Generate small template-based structure with RuinTile components and a LootChest entity."
+      "notes": "Add DeathScreen resource with timer and active flag. Add DeathStats resource with total_kills. In death.rs handle_death, set DeathScreen.active = true and timer = 3.0. Spawn a UI overlay. Tick timer, on expiry proceed with respawn logic. Increment DeathStats.total_kills in combat enemy death."
     },
     {
       "id": "US-017",
-      "title": "Abandoned campsite points of interest",
-      "description": "As a player, I want to find abandoned campsites with leftover supplies so that exploration is rewarding.",
+      "title": "Add audio system foundation with bevy_audio",
+      "description": "As a developer, I want an audio system set up so we can add sound effects and music.",
       "acceptanceCriteria": [
-        "Campsite POI spawns a campfire and 1-2 supply crates in a small cleared area",
-        "Supply crates drop random low-tier items when gathered (food, tools, rope)",
-        "Campsites spawn at ~0.5% probability per chunk in Forest and Coastal biomes",
-        "Campsite entities use ChunkObject for proper loading/unloading",
+        "Use Bevy's built-in AudioPlugin (already included in DefaultPlugins)",
+        "Add a GameAudio resource that tracks volume settings (master, sfx, music) as f32 0.0-1.0",
+        "Add a play_sfx helper function that spawns an AudioPlayer entity with the given audio source handle",
+        "Add an AudioAssets resource that will hold handles to loaded audio files",
+        "Add a SoundEvent event enum with variants: Hit, Gather, Build, Craft, Pickup, MenuOpen, MenuClose, Death, BossRoar",
+        "Add a handle_sound_events system that reads SoundEvent and plays placeholder audio (just logs for now since no audio files exist)",
         "Typecheck passes"
       ],
       "priority": 17,
       "passes": false,
-      "notes": "Add SupplyCrate WorldObjectType. spawn_campsite function places crate objects + a decorative campfire sprite."
+      "notes": "Create a new audio.rs module. Add GameAudio resource, SoundEvent event, AudioAssets resource. Register the plugin. The actual audio files don't exist yet — the system just needs to be wired up so that other systems can fire SoundEvent::Hit etc. and the audio system will eventually play them. For now, log events."
     },
     {
       "id": "US-018",
-      "title": "Tool tier requirements for gathering",
-      "description": "As a player, I want harder resources to require better tools so that tool progression matters.",
+      "title": "Wire sound events into combat, gathering, and building",
+      "description": "As a developer, I want combat, gathering, and building systems to fire sound events so audio plays when assets are added.",
       "acceptanceCriteria": [
-        "IronVein requires at least a StonePickaxe or better to gather (no wood/bare hands)",
-        "AncientRuin requires at least an IronPickaxe or better",
-        "CrystalNode requires at least a StonePickaxe",
-        "Gathering without the right tool shows a HUD message: 'Need better pickaxe'",
-        "Gathering speed is 50% faster with tool one tier above minimum",
+        "player_attack system sends SoundEvent::Hit when dealing damage to an enemy",
+        "Enemy death sends SoundEvent::Death (for enemy death sound)",
+        "Boss encounters send SoundEvent::BossRoar when boss first enters chase state",
+        "gather_resources sends SoundEvent::Gather on each gathering tick",
+        "place_building sends SoundEvent::Build when a building is placed",
+        "Crafting sends SoundEvent::Craft when a recipe is crafted",
+        "Item pickup sends SoundEvent::Pickup",
         "Typecheck passes"
       ],
       "priority": 18,
       "passes": false,
-      "notes": "Add tool_tier() to ItemType (0=hand, 1=wood, 2=stone, 3=iron, 4=steel, 5=ancient). Add min_tool_tier to WorldObjectType. Check in gather_resources."
+      "notes": "Add EventWriter<SoundEvent> parameter to relevant systems. Fire events at appropriate points. Import SoundEvent from audio module. Do not add audio files — just wire the events."
     },
     {
       "id": "US-019",
-      "title": "Enemy health bars",
-      "description": "As a player, I want to see enemy health bars so that I know how much damage I'm dealing.",
+      "title": "Particle effects for gathering and combat",
+      "description": "As a player, I want visual particle effects when chopping trees, mining rocks, and hitting enemies.",
       "acceptanceCriteria": [
-        "Each enemy renders a small health bar sprite above its main sprite",
-        "Health bar shows red (damage) and green (remaining) proportional to health/max_health",
-        "Health bar is only visible when enemy health < max_health (hidden at full HP)",
-        "Boss enemies show a larger health bar with their name",
+        "Add a Particle component with velocity, lifetime, color, and size fields",
+        "Add a particle_system that moves particles by velocity each frame and despawns when lifetime expires",
+        "When gathering a tree (Wood object), spawn 3-5 brown particles flying outward",
+        "When gathering a rock (Stone object), spawn 3-5 gray particles flying outward",
+        "When hitting an enemy, spawn 3-5 red particles at hit location",
+        "Particles start at 4px size and shrink to 0 over their lifetime (0.3-0.5 seconds)",
+        "Particles have random velocity spread (±30px/s in X and Y)",
         "Typecheck passes"
       ],
       "priority": 19,
       "passes": false,
-      "notes": "Spawn child entities with Sprite for health bar background and fill. Update in a new update_enemy_health_bars system."
+      "notes": "Create particles.rs module with Particle component and ParticlePlugin. Add spawn_particles(commands, pos, color, count) helper function. Call from gather_resources and player_attack systems. Particle system runs each frame: translate by velocity * dt, shrink scale, despawn when lifetime <= 0."
     },
     {
       "id": "US-020",
-      "title": "Camera zoom levels",
-      "description": "As a player, I want to zoom the camera in and out so that I can see more of the world or focus on details.",
+      "title": "Item pickup float animation",
+      "description": "As a player, I want dropped items to float toward me when I walk near them so pickup feels satisfying.",
       "acceptanceCriteria": [
-        "Scroll wheel or +/- keys cycle between 3 zoom levels: close (0.5x), normal (1.0x), far (2.0x)",
-        "Camera zoom uses Bevy's OrthographicProjection scale",
-        "Current zoom level persists during gameplay",
-        "Minimap position adjusts correctly at all zoom levels",
+        "Dropped items (from gathering, enemy drops) have a DroppedItem component with a 0.5s spawn delay before they can be picked up",
+        "When player is within 48px of a dropped item and spawn delay has elapsed, the item moves toward the player at 200px/s",
+        "When the item reaches within 8px of the player, it is consumed and added to inventory",
+        "Dropped items bob up and down slightly (±2px at 3Hz) while on the ground",
+        "Items spawn with a small random offset (±8px) from the source position",
         "Typecheck passes"
       ],
       "priority": 20,
       "passes": false,
-      "notes": "Add zoom_level field to camera system. Handle scroll input. Modify OrthographicProjection.scale. Adjust minimap offset calculation."
+      "notes": "Add DroppedItem component with item_type, count, spawn_timer. Create spawn_dropped_item helper. In gather_resources and enemy death, spawn DroppedItem entities instead of directly adding to inventory. Add pickup_dropped_items system that attracts items toward player and adds to inventory."
     },
     {
       "id": "US-021",
-      "title": "Gathering progress indicator",
-      "description": "As a player, I want visual feedback showing gathering progress instead of objects just disappearing.",
+      "title": "Day/night visual atmosphere — ambient light color shifts",
+      "description": "As a player, I want the world to visually change between day and night with lighting color shifts.",
       "acceptanceCriteria": [
-        "While gathering (holding left click on object), a progress bar shows above the object",
-        "Progress bar fills proportionally as object health decreases",
-        "Object sprite shrinks slightly as health decreases (scale to 0.7 at 0 HP)",
+        "ClearColor (background) shifts based on time of day: dawn=warm orange, day=dark blue-gray, dusk=purple, night=very dark",
+        "Add AmbientLight resource that varies color and intensity by time of day",
+        "Dawn (0.2-0.3): warm golden tint, medium brightness",
+        "Day (0.3-0.7): neutral bright light",
+        "Dusk (0.7-0.8): warm orange-red tint, dimming",
+        "Night (0.8-0.2): cool blue-purple tint, dark",
+        "Transitions are smooth (lerp between phases)",
         "Typecheck passes"
       ],
       "priority": 21,
       "passes": false,
-      "notes": "Add GatheringProgress component spawned as child entity of WorldObject being gathered. Update sprite scale in gather_resources."
+      "notes": "In daynight.rs update system, compute a color based on time_of_day float. Set ClearColor resource and optionally adjust a global AmbientTint resource. Chunk rendering could multiply tile colors by ambient tint for full effect, but just ClearColor is the minimum viable approach."
     },
     {
       "id": "US-022",
-      "title": "Pause menu with controls reference",
-      "description": "As a player, I want a pause menu that shows controls and lets me save/quit.",
+      "title": "Minimap border, player arrow, and POI markers",
+      "description": "As a player, I want the minimap to have a border, a directional player indicator, and markers for key locations.",
       "acceptanceCriteria": [
-        "Escape key toggles a pause menu overlay",
-        "Game time and systems pause while menu is open (Time<Virtual> paused)",
-        "Menu shows: Resume, Save Game, Controls Reference, Quit buttons",
-        "Controls reference lists all keybindings",
+        "Minimap has a 2px dark border around its edges",
+        "Player indicator is a small white arrow/triangle pointing in the player's facing direction instead of a plain dot",
+        "Dungeon entrances show as small purple dots on the minimap (if in explored chunks)",
+        "Bed/spawn point shows as a small green dot on the minimap",
+        "NPC traders show as small yellow dots when visible",
         "Typecheck passes"
       ],
       "priority": 22,
       "passes": false,
-      "notes": "Add PauseState resource. Escape toggles. Guard gameplay systems with run_if(not(paused)). Render menu text in HUD."
+      "notes": "In minimap.rs update_minimap, after rendering terrain, draw border pixels. Draw player as an arrow shape (3 pixels in facing direction). Query DungeonEntrance, SpawnPoint, Trader entities and plot their positions on the minimap image relative to player position."
     },
     {
       "id": "US-023",
-      "title": "Day counter and time display polish",
-      "description": "As a player, I want a cleaner time display showing the current day, time of day as a clock, and season.",
+      "title": "Enemy variety — patrol paths, alert states, and varied AI",
+      "description": "As a player, I want enemies to feel more alive with varied behavior patterns.",
       "acceptanceCriteria": [
-        "Day/night indicator shows sun/moon icon text (Day: SUN, Night: MOON, etc.)",
-        "Time displays as approximate hour (6AM, 12PM, 9PM) instead of raw percentage",
-        "Season shows day X of Y in current season",
-        "Weather indicator more visible with distinct text colors per weather type",
+        "Patrol state moves enemies in a random direction for 2-4 seconds, then picks a new direction",
+        "Enemies have a detection_range field (default 120px, bosses 200px)",
+        "When player enters detection range, enemy transitions to Alert state (pauses 0.5s) then Chase",
+        "When player leaves chase range (detection_range + 80px), enemy returns to Patrol",
+        "Add a brief Attack state when enemy is within melee range — pause 0.3s, deal damage, return to Chase",
+        "Enemy attack has a 1.0s cooldown between hits",
         "Typecheck passes"
       ],
       "priority": 23,
       "passes": false,
-      "notes": "Update update_hud to format time_of_day as 24h clock. Add season day counter. Color weather text."
+      "notes": "Extend EnemyState enum with Alert and Attack variants. Add detection_range and attack_cooldown fields to Enemy component. Refactor enemy_ai system to use the full state machine: Idle -> Patrol -> Alert -> Chase -> Attack -> Chase. Add patrol direction and timer to Enemy."
     },
     {
       "id": "US-024",
-      "title": "Performance: chunk image caching",
-      "description": "As a developer, I want chunk terrain images to be cached so that regenerating chunks on reload is faster.",
+      "title": "Improved world objects — visual variety and interaction hints",
+      "description": "As a player, I want world objects (trees, rocks, etc.) to look more varied and show interaction prompts.",
       "acceptanceCriteria": [
-        "Chunk terrain images are only regenerated when the chunk is first created, not on every manage_chunks cycle",
-        "When a chunk is unloaded and reloaded, its image is regenerated from seed (not cached to disk)",
-        "The generate_chunk call in spawn_chunk_objects is removed (chunk data reused from the spawned Chunk component)",
+        "Trees have 3 color variants per biome (slight hue/brightness variation based on position hash)",
+        "Rocks have 2 size variants (small 8px, large 12px) based on position hash",
+        "When player is within gathering range (32px) of an object, a small 'E' or tool icon text appears above it",
+        "Interaction hint text is semi-transparent and only shows for the nearest valid object",
+        "Berry bushes have a distinct pink/red color tint to differentiate from trees",
         "Typecheck passes"
       ],
       "priority": 24,
       "passes": false,
-      "notes": "spawn_chunk_objects currently calls generator.generate_chunk again redundantly. Pass the already-generated chunk data instead."
+      "notes": "In world/mod.rs spawn_chunk_objects, use position_hash to select color variants and size variants. Add InteractionHint component. Create show_interaction_hints system that finds the nearest gatherable object to the player and spawns/moves a hint text entity above it."
     },
     {
       "id": "US-025",
-      "title": "Performance: spatial hash for entity queries",
-      "description": "As a developer, I want a spatial hash grid for nearby-entity lookups so that combat and gathering don't iterate all entities.",
+      "title": "Building placement validation — prevent invalid placement",
+      "description": "As a player, I want the build preview to show red when placement is invalid (on water, overlapping buildings).",
       "acceptanceCriteria": [
-        "SpatialGrid resource divides world into 64px cells tracking entity positions",
-        "Enemy queries in player_attack use spatial grid to find nearby enemies instead of iterating all",
-        "Gathering queries in gather_resources use spatial grid for nearby objects",
-        "Grid updates every frame based on Transform changes",
+        "Build preview ghost turns red when placement would be on a non-walkable tile (water, lava)",
+        "Build preview ghost turns red when overlapping an existing building entity",
+        "Right-click does NOT place the building when preview is red",
+        "Build preview is green/white when placement is valid",
+        "Check uses the same tile lookup as player collision (chunk tile data at target position)",
         "Typecheck passes"
       ],
       "priority": 25,
       "passes": false,
-      "notes": "Add SpatialGrid resource with HashMap<(i32,i32), Vec<Entity>>. Update in a system. Query grid cell + neighbors for nearby entities."
+      "notes": "In building.rs update_build_preview, check tile walkability at the preview position. Query existing Building entities for overlap. Set preview Sprite color to red (invalid) or semi-transparent white (valid). Guard place_building with the same validity check."
+    },
+    {
+      "id": "US-026",
+      "title": "Save chest contents and farm plots",
+      "description": "As a player, I want my chests and farms to persist across save/load.",
+      "acceptanceCriteria": [
+        "SaveData includes chest_data: Vec with entity position and all 18 slot contents",
+        "On load, chest Building entities are spawned with ChestStorage populated from save data",
+        "SaveData includes farm_data: Vec with position, crop type, and growth progress",
+        "On load, FarmPlot entities are respawned with correct growth state",
+        "Typecheck passes"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": "Add SaveChestData and SaveFarmData structs with Serialize/Deserialize. In save_game, query all ChestStorage entities and FarmPlot entities. In load_game, spawn them back. This depends on US-008 (chest storage) being completed first."
+    },
+    {
+      "id": "US-027",
+      "title": "Smooth camera with dead zone and edge panning",
+      "description": "As a player, I want the camera to follow me smoothly with a small dead zone so it doesn't feel jerky.",
+      "acceptanceCriteria": [
+        "Camera has a 32px dead zone around center — camera doesn't move when player is within dead zone",
+        "When player moves outside dead zone, camera lerps toward player at 5.0 * delta_time",
+        "Camera never overshoots player position (clamped interpolation)",
+        "Camera smoothly handles the transition when entering/exiting dungeons (snap rather than lerp on teleport)",
+        "Existing zoom functionality still works",
+        "Typecheck passes"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": "In camera.rs camera_follow system, compute delta between camera and player. If delta magnitude < 32px (dead zone), don't move. Otherwise, lerp camera translation toward player. Detect teleports (delta > 500px) and snap instead of lerp."
+    },
+    {
+      "id": "US-028",
+      "title": "HUD feedback messages — floating text for game events",
+      "description": "As a player, I want floating text feedback when things happen (damage numbers, item pickup, crafting success).",
+      "acceptanceCriteria": [
+        "Add FloatingText component with text, color, timer, and velocity fields",
+        "Floating text spawns at world position, drifts upward at 30px/s, fades out over 1.5 seconds",
+        "When player deals damage, spawn red floating text showing damage number at enemy position",
+        "When player takes damage, spawn red floating text showing damage number at player position",
+        "When player picks up an item, spawn white floating text showing '+1 ItemName' at pickup position",
+        "When crafting succeeds, spawn green floating text showing 'Crafted: ItemName'",
+        "Typecheck passes"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": "Create FloatingText component. Add floating_text_system that moves text upward, decreases alpha, and despawns when timer expires. Add spawn_floating_text helper. Call from combat, gathering/pickup, and crafting systems."
+    },
+    {
+      "id": "US-029",
+      "title": "Biome transition blending and visual distinctness",
+      "description": "As a player, I want biome boundaries to feel distinct with clear visual differences between biomes.",
+      "acceptanceCriteria": [
+        "Each biome's grass/ground tiles use a distinct color palette (not just slight variations)",
+        "Forest: rich greens, Coastal: sandy yellows, Swamp: murky olive, Desert: warm tan, Tundra: icy white-blue, Volcanic: dark red-brown, Fungal: purple-teal, Crystal: pale blue-white, Mountain: gray-brown",
+        "Water tiles in different biomes have slight color variation (tropical blue in Coastal, dark in Swamp, icy in Tundra)",
+        "Biome name displays briefly (3 seconds) as floating text when entering a new biome",
+        "Typecheck passes"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": "Refactor tile color generation in world/generation.rs to use per-biome color palettes. Add last_biome tracking to player. When biome changes, spawn a centered floating text with biome name. Ensure each biome is visually immediately recognizable."
+    },
+    {
+      "id": "US-030",
+      "title": "Main menu with New Game, Load Game, and Quit options",
+      "description": "As a player, I want a main menu when the game starts instead of immediately spawning into the world.",
+      "acceptanceCriteria": [
+        "Game starts in a MainMenu state (not gameplay)",
+        "Main menu shows game title 'DRIFTLANDS' in large text, centered",
+        "Three buttons: 'New Game', 'Continue' (only if save exists), 'Quit'",
+        "New Game generates a random seed and starts gameplay",
+        "Continue loads the existing save file",
+        "Quit exits the application",
+        "Add GameState enum with MainMenu and Playing variants as a Bevy State",
+        "All gameplay systems only run in Playing state",
+        "Typecheck passes"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": "Add GameState as a Bevy States enum. Move all gameplay plugins to run in Playing state using .run_if(in_state(GameState::Playing)). Create MainMenuPlugin that renders title and buttons. On New Game, transition to Playing. On Continue, load save then transition. Use Bevy UI buttons with Interaction component."
+    },
+    {
+      "id": "US-031",
+      "title": "Tutorial hints for first-time players",
+      "description": "As a new player, I want contextual hints that teach me the controls and basic mechanics.",
+      "acceptanceCriteria": [
+        "Add TutorialState resource tracking which hints have been shown",
+        "First hint on spawn: 'WASD to move, hold LMB near trees to gather' (shows for 8 seconds)",
+        "After first gather: 'Press C to open crafting. Try making a Workbench!' (shows for 8 seconds)",
+        "After first craft: 'Press B to enter build mode. Q to cycle, RMB to place.' (shows for 8 seconds)",
+        "After first build: 'Night is coming... craft a weapon!' (shows on first nightfall)",
+        "Hints render as semi-transparent text box at top-center of screen",
+        "Hints only show once per game (not on every trigger)",
+        "TutorialState is saved with game state so hints don't repeat",
+        "Typecheck passes"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": "Add TutorialState resource with HashSet<String> of shown hints. Add check_tutorial_triggers system that watches for events (first gather, first craft, first build, first nightfall). Show hint via a TutorialHint UI node. Save shown_hints in SaveData."
+    },
+    {
+      "id": "US-032",
+      "title": "Enemy spawn balancing — scale with distance and day count",
+      "description": "As a player, I want enemies to get harder as I explore further and survive longer.",
+      "acceptanceCriteria": [
+        "Enemy spawn count cap increases from 5 to: 5 + (day_count / 5) capped at 20",
+        "Enemies spawning further than 500px from world origin get +10% HP per 500px distance",
+        "Boss HP scales with distance: +20% per 1000px from origin",
+        "Night enemy spawn rate increases slightly each day (1% base + 0.1% per day, capped at 3%)",
+        "Add distance_from_origin field to Enemy on spawn for scaling calculations",
+        "Typecheck passes"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": "In enemy_spawn system, calculate spawn cap from DayNightCycle.day_count. Scale HP using player position distance from origin. Apply multiplier when spawning Enemy component. For bosses, apply similar scaling in spawn_dungeon_boss using dungeon anchor distance."
+    },
+    {
+      "id": "US-033",
+      "title": "Crafting station visual distinction — unique colors per tier",
+      "description": "As a player, I want placed crafting stations to look visually distinct from regular buildings.",
+      "acceptanceCriteria": [
+        "Workbench building renders as brown color (distinct from wood walls)",
+        "Forge building renders as dark red-orange color",
+        "Campfire building renders as warm orange-yellow with smaller size (12x12)",
+        "AdvancedForge renders as dark metallic gray-blue",
+        "AncientWorkstation renders as glowing purple-blue",
+        "Each station has a slight glow effect (1px brighter border sprite spawned behind it)",
+        "Typecheck passes"
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": "Update building_color() function in building.rs to return distinct colors for each station type. Add a glow child sprite behind station entities with slightly larger size and a low-alpha bright color. Spawn glow in place_building when building type is a station."
+    },
+    {
+      "id": "US-034",
+      "title": "Keyboard shortcut reference overlay",
+      "description": "As a player, I want to see all keyboard shortcuts at a glance without pausing.",
+      "acceptanceCriteria": [
+        "F1 key toggles a semi-transparent controls overlay on the left side of the screen",
+        "Overlay lists all controls grouped by category: Movement, Combat, Building, Crafting, Inventory, Other",
+        "Each entry shows key and action (e.g. 'WASD - Move', 'LMB - Attack/Gather')",
+        "Overlay does not pause the game (just informational)",
+        "Overlay dismisses when F1 is pressed again or Escape is pressed",
+        "Typecheck passes"
+      ],
+      "priority": 34,
+      "passes": false,
+      "notes": "Add ControlsOverlay resource with is_visible: bool. Toggle with F1. Render as a Bevy UI panel with semi-transparent background. List all keybindings as Text nodes. Add .run_if check so it hides when crafting/trade menus are open."
+    },
+    {
+      "id": "US-035",
+      "title": "World object density and variety per biome",
+      "description": "As a player, I want each biome to feel unique with different object densities and exclusive resources.",
+      "acceptanceCriteria": [
+        "Forest has highest tree density (8-12 per chunk), mushrooms, and berry bushes",
+        "Desert has cacti, sandstone rocks, and rare oasis with water tiles",
+        "Tundra has sparse trees, ice formations, and frozen ore deposits",
+        "Volcanic has obsidian nodes, sulfur vents (yellow sprites), and no trees",
+        "Fungal has giant mushrooms (larger sprites), glowing spore objects, and bio-luminescent gel nodes",
+        "Crystal caves have crystal clusters, gemstone nodes, and echo stone objects",
+        "Coastal has driftwood, shell deposits, and seaweed patches near water",
+        "Each biome-exclusive object drops its unique resources when gathered",
+        "Typecheck passes"
+      ],
+      "priority": 35,
+      "passes": false,
+      "notes": "Refactor spawn_chunk_objects biome match to have more varied and biome-specific object types. Add new WorldObjectType variants as needed (SulfurVent, GiantMushroom, ShellDeposit, etc). Adjust spawn probabilities per biome. Add drop tables for new object types."
+    },
+    {
+      "id": "US-036",
+      "title": "Dungeon loot variety — chests and item drops",
+      "description": "As a player, I want dungeons to have loot chests in rooms and better item drops.",
+      "acceptanceCriteria": [
+        "Each non-boss dungeon room has a 60% chance to contain a loot chest entity",
+        "Loot chests are interactable (E key) and drop 2-4 random items from a dungeon loot table",
+        "Dungeon loot table includes: IronOre, CrystalShard, HealthPotion, Arrow (x5), Blueprint (rare 10%), JournalPage (rare 15%)",
+        "Loot chest despawns after being opened (one-time)",
+        "Loot chest is a colored sprite (yellow/gold, 10x10px) distinct from enemies and walls",
+        "Cave spiders have a 30% chance to drop a random item on death (CaveSlime, SpiderSilk, or Berry)",
+        "Typecheck passes"
+      ],
+      "priority": 36,
+      "passes": false,
+      "notes": "Add DungeonChest component with opened: bool. Spawn in generate_dungeon for non-boss rooms. Add chest_interaction_dungeon system. Add dungeon_loot_table() function. Add CaveSlime and SpiderSilk ItemType variants for spider drops."
+    },
+    {
+      "id": "US-037",
+      "title": "Weather gameplay effects — rain heals farms, storms damage",
+      "description": "As a player, I want weather to have gameplay effects beyond visual particles.",
+      "acceptanceCriteria": [
+        "Rain: farm plots grow 25% faster during rain (multiply growth speed)",
+        "Rain: fire-based crafting stations (Campfire, Forge) cannot be used outdoors during rain (only if no roof above)",
+        "Storm: player takes 1 damage every 15 seconds if not under a roof",
+        "Storm: enemies move 20% slower during storms",
+        "Snow: movement speed reduced by 15% for player and enemies in Tundra/Mountain during snow",
+        "Clear: no effects (baseline)",
+        "Typecheck passes"
+      ],
+      "priority": 37,
+      "passes": false,
+      "notes": "In weather.rs, add gameplay effect systems. Check WeatherSystem current weather type. For roof detection, check if there's a Roof building within 32px of the entity. Apply speed modifiers via a WeatherModifier component or direct speed multiplication in movement systems."
+    },
+    {
+      "id": "US-038",
+      "title": "Season visual effects — color palette shifts",
+      "description": "As a player, I want the world to visually change with the seasons.",
+      "acceptanceCriteria": [
+        "Spring: grass tiles are bright green, flowers spawn as small colored dots",
+        "Summer: grass tiles are deeper green, warm color tint on ClearColor",
+        "Autumn: grass tiles shift to yellow-orange, trees shift to orange-red-brown",
+        "Winter: grass tiles shift to white-gray, water edges get lighter (ice), trees are bare (brown only)",
+        "Season transition applies gradually over the first day of each season (color lerp)",
+        "Typecheck passes"
+      ],
+      "priority": 38,
+      "passes": false,
+      "notes": "Add SeasonColorModifier resource with season-dependent color multipliers for grass, tree, and water tiles. In season.rs update, compute the modifier. Pass modifier to chunk rendering (world/mod.rs) when generating chunk images. Requires re-rendering nearby chunk images when season changes."
+    },
+    {
+      "id": "US-039",
+      "title": "Food buff system — cooked food gives temporary stat boosts",
+      "description": "As a player, I want eating cooked food to give temporary buffs beyond just hunger restoration.",
+      "acceptanceCriteria": [
+        "CookedBerry: restores 25 hunger + 10% speed boost for 60 seconds",
+        "CookedMeat: restores 40 hunger + 15% damage boost for 60 seconds",
+        "CookedFish: restores 30 hunger + health regeneration (2 HP/10s) for 90 seconds",
+        "BerryPie (new recipe: CookedBerry x3 at Campfire): restores 60 hunger + all three buffs for 45 seconds",
+        "Active food buff shows in the status HUD with remaining time",
+        "Only one food buff active at a time (new food replaces old buff)",
+        "Typecheck passes"
+      ],
+      "priority": 39,
+      "passes": false,
+      "notes": "Extend the existing ActiveBuff / BuffType system to include food buffs. Add FoodBuff component or extend BuffType with Regen variant. In the eat system (wherever food consumption happens — likely inventory.rs use_item), apply the appropriate buff. Add BerryPie ItemType and recipe."
+    },
+    {
+      "id": "US-040",
+      "title": "Minimap toggle and fullscreen map view",
+      "description": "As a player, I want to toggle the minimap off and open a larger map view with M key.",
+      "acceptanceCriteria": [
+        "M key toggles a fullscreen map overlay (similar size to inventory panel)",
+        "Fullscreen map renders the same explored terrain at 3x the minimap resolution",
+        "Fullscreen map shows the same POI markers as minimap (dungeons, spawn, NPCs)",
+        "Tab to close fullscreen map (or M again)",
+        "N key toggles the corner minimap on/off for players who want more screen space",
+        "Fullscreen map has a dark semi-transparent border",
+        "Typecheck passes"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": "Add MapViewOpen resource. M toggles. When open, render a larger Image (360x360) using the same explored chunk data. Position as a centered UI node. N toggles minimap_visible flag to show/hide the corner minimap."
     }
   ]
 }
