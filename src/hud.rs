@@ -16,6 +16,7 @@ use crate::world::generation::Biome;
 use crate::world::chunk::Chunk;
 use crate::world::{CHUNK_WORLD_SIZE};
 use crate::mainmenu::MainMenuActive;
+use crate::theme::EtherealTheme;
 
 #[derive(Resource, Default)]
 pub struct PauseState {
@@ -23,20 +24,16 @@ pub struct PauseState {
 }
 
 /// Run condition: returns `true` when the game is NOT paused and the main menu is not active.
-/// Use with `.run_if(not_paused)` to gate gameplay systems.
 pub fn not_paused(pause: Res<PauseState>, menu: Res<MainMenuActive>) -> bool {
     !pause.paused && !menu.active
 }
 
-/// Tracks the biome the player is currently standing in.
 #[derive(Resource, Default)]
 pub struct CurrentBiome {
     pub biome: Option<Biome>,
-    /// Countdown timer for displaying the biome name banner.
     pub display_timer: f32,
 }
 
-/// Marker for the biome name banner text entity.
 #[derive(Component)]
 pub struct BiomeBannerText;
 
@@ -70,137 +67,178 @@ pub struct CraftingHudText;
 #[derive(Component)]
 pub struct StatusHudText;
 
-/// The right-side panel used for the trade / experiment UIs.
 #[derive(Component)]
 pub struct NpcHudText;
 
-/// Full-width bottom bar for lore / hermit / experiment feedback.
 #[derive(Component)]
 pub struct FeedbackHudText;
 
-/// Inventory grid panel (US-012) — toggled with Tab/I.
 #[derive(Component)]
 pub struct InventoryPanelText;
 
-fn spawn_hud(mut commands: Commands) {
-    // Status HUD (HP/Hunger) — top-left
-    commands.spawn((
-        StatusHudText,
-        Text::new(""),
-        TextFont {
-            font_size: 16.0,
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
+#[derive(Component)]
+pub struct HealthBarFill;
+
+#[derive(Component)]
+pub struct HungerBarFill;
+
+fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
+    // Root UI container
+    commands.spawn(Node {
+        width: Val::Percent(100.0),
+        height: Val::Percent(100.0),
+        ..default()
+    })
+    .with_children(|parent| {
+        // Status area: Top-Left
+        parent.spawn(Node {
             position_type: PositionType::Absolute,
             top: Val::Px(10.0),
             left: Val::Px(10.0),
+            flex_direction: FlexDirection::Column,
             ..default()
-        },
-    ));
+        })
+        .with_children(|status_root| {
+            // HP Bar
+            status_root.spawn((
+                Node {
+                    width: Val::Px(120.0),
+                    height: Val::Px(12.0),
+                    margin: UiRect::bottom(Val::Px(4.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(theme.background),
+                BorderColor(theme.accent_slate),
+            ))
+            .with_children(|bar| {
+                bar.spawn((
+                    HealthBarFill,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        ..default()
+                    },
+                    BackgroundColor(theme.healing),
+                ));
+            });
 
-    // Main HUD — below status
-    commands.spawn((
-        HudText,
-        Text::new("Driftlands"),
-        TextFont {
-            font_size: 16.0,
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(60.0),
-            left: Val::Px(10.0),
-            ..default()
-        },
-    ));
+            // Hunger Bar
+            status_root.spawn((
+                Node {
+                    width: Val::Px(120.0),
+                    height: Val::Px(12.0),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(theme.background),
+                BorderColor(theme.accent_slate),
+            ))
+            .with_children(|bar| {
+                bar.spawn((
+                    HungerBarFill,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        ..default()
+                    },
+                    BackgroundColor(theme.accent_gold),
+                ));
+            });
 
-    // Crafting menu — right side
-    commands.spawn((
-        CraftingHudText,
-        Text::new(""),
-        TextFont {
-            font_size: 14.0,
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(10.0),
-            right: Val::Px(10.0),
-            ..default()
-        },
-    ));
+            // Status Text
+            status_root.spawn((
+                StatusHudText,
+                Text::new(""),
+                TextFont { font_size: 14.0, ..default() },
+                TextColor(theme.accent_slate),
+            ));
+        });
 
-    // NPC / experiment panel — right side, below crafting
-    commands.spawn((
-        NpcHudText,
-        Text::new(""),
-        TextFont {
-            font_size: 14.0,
-            ..default()
-        },
-        TextColor(Color::srgb(0.9, 0.9, 0.6)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(10.0),
-            right: Val::Px(280.0),
-            ..default()
-        },
-    ));
+        // Main HUD: Left-Center
+        parent.spawn((
+            HudText,
+            Text::new(""),
+            TextFont { font_size: 16.0, ..default() },
+            TextColor(Color::WHITE),
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(100.0),
+                left: Val::Px(10.0),
+                ..default()
+            },
+        ));
 
-    // Feedback bar — bottom of screen
-    commands.spawn((
-        FeedbackHudText,
-        Text::new(""),
-        TextFont {
-            font_size: 14.0,
-            ..default()
-        },
-        TextColor(Color::srgb(1.0, 1.0, 0.7)),
-        Node {
-            position_type: PositionType::Absolute,
-            bottom: Val::Px(40.0),
-            left: Val::Px(10.0),
-            ..default()
-        },
-    ));
+        // Crafting Menu: Right
+        parent.spawn((
+            CraftingHudText,
+            Text::new(""),
+            TextFont { font_size: 14.0, ..default() },
+            TextColor(Color::WHITE),
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(10.0),
+                right: Val::Px(10.0),
+                ..default()
+            },
+        ));
 
-    // Inventory grid panel (US-012) — center of screen
-    commands.spawn((
-        InventoryPanelText,
-        Text::new(""),
-        TextFont {
-            font_size: 13.0,
-            ..default()
-        },
-        TextColor(Color::srgb(0.9, 0.95, 1.0)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(80.0),
-            left: Val::Percent(30.0),
-            ..default()
-        },
-    ));
+        // NPC / Experiment Panel: Far-Right
+        parent.spawn((
+            NpcHudText,
+            Text::new(""),
+            TextFont { font_size: 14.0, ..default() },
+            TextColor(theme.accent_gold),
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(10.0),
+                right: Val::Px(300.0),
+                ..default()
+            },
+        ));
 
-    // Biome name banner — large centered text (US-029)
-    commands.spawn((
-        BiomeBannerText,
-        Text::new(""),
-        TextFont {
-            font_size: 36.0,
-            ..default()
-        },
-        TextColor(Color::srgba(1.0, 1.0, 1.0, 0.0)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Percent(30.0),
-            left: Val::Percent(50.0),
-            ..default()
-        },
-    ));
+        // Feedback: Bottom
+        parent.spawn((
+            FeedbackHudText,
+            Text::new(""),
+            TextFont { font_size: 14.0, ..default() },
+            TextColor(theme.accent_gold),
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(40.0),
+                left: Val::Px(10.0),
+                ..default()
+            },
+        ));
+
+        // Inventory Panel: Center
+        parent.spawn((
+            InventoryPanelText,
+            Text::new(""),
+            TextFont { font_size: 13.0, ..default() },
+            TextColor(theme.accent_slate),
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(80.0),
+                left: Val::Percent(20.0),
+                ..default()
+            },
+        ));
+
+        // Biome Banner: Center-Top
+        parent.spawn((
+            BiomeBannerText,
+            Text::new(""),
+            TextFont { font_size: 32.0, ..default() },
+            TextColor(Color::srgba(1.0, 1.0, 1.0, 0.0)),
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Percent(20.0),
+                left: Val::Percent(45.0),
+                ..default()
+            },
+        ));
+    });
 }
 
 fn toggle_pause(
@@ -212,12 +250,8 @@ fn toggle_pause(
     menu: Res<MainMenuActive>,
     controls_overlay: Res<ControlsOverlay>,
 ) {
-    // Don't toggle pause while main menu is active
-    if menu.active {
-        return;
-    }
+    if menu.active { return; }
     if keyboard.just_pressed(KeyCode::Escape) {
-        // Don't toggle pause when closing a modal UI with Escape
         if chest_ui.is_open || trade_menu.is_open || controls_overlay.is_visible {
             return;
         }
@@ -226,80 +260,55 @@ fn toggle_pause(
     }
 }
 
-/// Build an ASCII bar: 20 characters wide using Unicode block chars.
-/// `fraction` should be in 0.0..=1.0.
-fn ascii_bar(fraction: f32) -> String {
-    let width = 20;
-    let filled = ((fraction.clamp(0.0, 1.0) * width as f32).round()) as usize;
-    let empty = width - filled;
-    let mut bar = String::with_capacity(width + 2);
-    bar.push('[');
-    for _ in 0..filled {
-        bar.push('\u{2588}'); // █
-    }
-    for _ in 0..empty {
-        bar.push('\u{2591}'); // ░
-    }
-    bar.push(']');
-    bar
-}
-
 fn update_status_hud(
     player_query: Query<(&Health, &Hunger, Option<&ActiveBuff>), With<Player>>,
-    mut status_query: Query<(&mut Text, &mut TextColor), With<StatusHudText>>,
+    mut status_query: Query<&mut Text, With<StatusHudText>>,
+    mut health_fill_query: Query<&mut Node, (With<HealthBarFill>, Without<HungerBarFill>)>,
+    mut hunger_fill_query: Query<&mut Node, (With<HungerBarFill>, Without<HealthBarFill>)>,
     save_msg: Res<SaveMessage>,
     armor: Res<ArmorSlots>,
     inventory: Res<Inventory>,
+    theme: Res<EtherealTheme>,
 ) {
     let Ok((health, hunger, active_buff)) = player_query.get_single() else { return };
-    let Ok((mut text, mut color)) = status_query.get_single_mut() else { return };
+    
+    // Update HP Fill
+    if let Ok(mut node) = health_fill_query.get_single_mut() {
+        let hp_frac = (health.current / health.max).clamp(0.0, 1.0);
+        node.width = Val::Percent(hp_frac * 100.0);
+    }
 
-    let hp_frac = if health.max > 0.0 { health.current / health.max } else { 0.0 };
-    let hunger_frac = if hunger.max > 0.0 { hunger.current / hunger.max } else { 0.0 };
+    // Update Hunger Fill
+    if let Ok(mut node) = hunger_fill_query.get_single_mut() {
+        let hunger_frac = (hunger.current / hunger.max).clamp(0.0, 1.0);
+        node.width = Val::Percent(hunger_frac * 100.0);
+    }
 
-    let hp_warn = if health.current < health.max * 0.25 { " !!" } else { "" };
-    let hunger_warn = if hunger.current < hunger.max * 0.3 { " !!" } else { "" };
+    let Ok(mut text) = status_query.get_single_mut() else { return };
 
     let atk = inventory.selected_item()
         .and_then(|s| s.item.weapon_damage())
         .unwrap_or(5.0);
 
     let mut lines = vec![
-        format!("HP   {} {:.0}/{:.0}{}  Armor: {}  ATK: {:.0}",
-            ascii_bar(hp_frac), health.current, health.max, hp_warn, armor.total_armor(), atk),
-        format!("FOOD {} {:.0}/{:.0}{}",
-            ascii_bar(hunger_frac), hunger.current, hunger.max, hunger_warn),
+        format!("{:.0}/{:.0} HP | {:.0}/{:.0} FOOD", health.current, health.max, hunger.current, hunger.max),
+        format!("ARMOR: {} | ATK: {:.0}", armor.total_armor(), atk),
     ];
 
-    // Show active buff in status area
     if let Some(buff) = active_buff {
         let buff_name = match buff.buff_type {
             BuffType::Speed => "Speed",
             BuffType::Strength => "Strength",
             BuffType::Regen => "Regen",
         };
-        let buff_display = if buff.buff_type == BuffType::Regen {
-            format!("[BUFF] {} +{:.1} HP/s ({:.0}s)", buff_name, buff.magnitude, buff.remaining)
-        } else {
-            format!("[BUFF] {} +{:.0}% ({:.0}s)", buff_name, (buff.magnitude - 1.0) * 100.0, buff.remaining)
-        };
-        lines.push(buff_display);
+        lines.push(format!("[{}] +{:.0}% ({:.0}s)", buff_name, (buff.magnitude - 1.0) * 100.0, buff.remaining));
     }
 
     if !save_msg.text.is_empty() {
-        lines.push(String::new());
         lines.push(save_msg.text.clone());
     }
 
     **text = lines.join("\n");
-
-    if health.current < health.max * 0.25 {
-        *color = TextColor(Color::srgb(1.0, 0.2, 0.2));
-    } else if hunger.current < hunger.max * 0.3 {
-        *color = TextColor(Color::srgb(1.0, 1.0, 0.3));
-    } else {
-        *color = TextColor(Color::WHITE);
-    }
 }
 
 fn update_hud(

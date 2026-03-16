@@ -1,3 +1,4 @@
+mod assets;
 mod camera;
 mod player;
 mod world;
@@ -24,6 +25,7 @@ mod audio;
 mod mainmenu;
 mod tutorial;
 mod controls;
+mod theme;
 
 use bevy::prelude::*;
 
@@ -41,7 +43,9 @@ fn main() {
                 })
                 .set(ImagePlugin::default_nearest()),
         )
-        .insert_resource(ClearColor(Color::srgb(0.05, 0.05, 0.1)))
+        .add_plugins(theme::ThemePlugin)
+        .insert_resource(ClearColor(Color::srgb(0.008, 0.008, 0.024))) // Deep Nocturne
+        .add_plugins(assets::AssetsPlugin)
         .add_plugins((
             world::WorldPlugin,
             player::PlayerPlugin,

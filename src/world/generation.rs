@@ -35,7 +35,7 @@ impl WorldGenerator {
 
     /// Determine biome from temperature/moisture Whittaker diagram
     pub fn biome_at(&self, world_x: f64, world_y: f64) -> Biome {
-        let biome_scale = 0.005; // Large-scale biome regions
+        let biome_scale = 0.0016; // Larger-scale biome regions (approx 3x larger than 0.005)
         let temp = self.temperature.get([world_x * biome_scale, world_y * biome_scale]);
         let moist = self.moisture.get([world_x * biome_scale * 0.8, world_y * biome_scale * 0.8]);
         let elev = self.elevation.get([world_x * 0.02, world_y * 0.02]);

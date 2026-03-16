@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use rand::Rng;
+use serde::{Serialize, Deserialize};
 use crate::hud::not_paused;
 use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
@@ -20,6 +21,29 @@ impl Plugin for NpcPlugin {
                 hermit_interaction,
             ).run_if(not_paused))
             .add_systems(Update, execute_trade);
+    }
+}
+
+// ── Intelligence Layer ────────────────────────────────────────────────────────
+
+#[derive(Component, Default, Serialize, Deserialize)]
+pub struct Knowledge {
+    /// Mapping of player actions to affinity scores (-100 to 100).
+    pub player_affinity: i32,
+    /// Memory of recent events: (event_name, timestamp)
+    pub memories: Vec<(String, f64)>,
+}
+
+impl Knowledge {
+    pub fn add_memory(&mut self, event: &str, time: f64) {
+        self.memories.push((event.to_string(), time));
+        if self.memories.len() > 10 {
+            self.memories.remove(0);
+        }
+    }
+
+    pub fn update_affinity(&mut self, delta: i32) {
+        self.player_affinity = (self.player_affinity + delta).clamp(-100, 100);
     }
 }
 
@@ -126,6 +150,7 @@ fn spawn_trader(
 
     commands.spawn((
         Trader { offers, despawn_day },
+        Knowledge::default(),
         Sprite {
             color: Color::srgb(0.1, 0.75, 0.2),
             custom_size: Some(Vec2::new(12.0, 12.0)),
@@ -201,15 +226,16 @@ fn trader_interaction(
 fn execute_trade(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut trade_menu: ResMut<TradeMenu>,
-    mut trader_query: Query<&mut Trader>,
+    mut trader_query: Query<(&mut Trader, &mut Knowledge)>,
     mut inventory: ResMut<Inventory>,
+    time: Res<Time>,
 ) {
     if !trade_menu.is_open {
         return;
     }
 
     let Some(trader_entity) = trade_menu.trader_entity else { return };
-    let Ok(mut trader) = trader_query.get_mut(trader_entity) else {
+    let Ok((mut trader, mut knowledge)) = trader_query.get_mut(trader_entity) else {
         trade_menu.is_open = false;
         trade_menu.trader_entity = None;
         return;
@@ -248,6 +274,10 @@ fn execute_trade(
                 inventory.remove_items(cost_item, cost_count);
                 inventory.add_item(item_to_buy, 1);
                 trader.offers[idx].sold = true;
+
+                // Intelligence Layer: Record trade
+                knowledge.update_affinity(10);
+                knowledge.add_memory("traded_with_player", time.elapsed_secs_f64());
             }
         }
     }
@@ -295,6 +325,7 @@ pub fn spawn_hermit(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVec2) {
 
     commands.spawn((
         Hermit::new(lines),
+        Knowledge::default(),
         Invulnerable,
         ChunkObject { chunk_pos },
         Sprite {
@@ -312,7 +343,7 @@ fn hermit_interaction(
     crafting: Res<crate::crafting::CraftingSystem>,
     trade_menu: Res<TradeMenu>,
     player_query: Query<&Transform, With<Player>>,
-    mut hermit_query: Query<(&Transform, &mut Hermit), Without<Player>>,
+    mut hermit_query: Query<(&Transform, &mut Hermit, &mut Knowledge), Without<Player>>,
     mut dialogue_display: ResMut<HermitDialogueDisplay>,
     time: Res<Time>,
 ) {
@@ -338,7 +369,7 @@ fn hermit_interaction(
 
     // Find nearest hermit within 32px
     let mut best: Option<(f32, usize)> = None;
-    for (idx, (tf, _)) in hermit_query.iter().enumerate() {
+    for (idx, (tf, _, _)) in hermit_query.iter().enumerate() {
         let dist = player_pos.distance(tf.translation.truncate());
         if dist <= 32.0 {
             if best.is_none() || dist < best.unwrap().0 {
@@ -349,7 +380,7 @@ fn hermit_interaction(
 
     let Some((_, target_idx)) = best else { return };
 
-    for (i, (_, mut hermit)) in hermit_query.iter_mut().enumerate() {
+    for (i, (_, mut hermit, mut knowledge)) in hermit_query.iter_mut().enumerate() {
         if i == target_idx {
             hermit.has_interacted = true;
             let line = hermit.dialogue[hermit.dialogue_index].clone();
@@ -357,6 +388,10 @@ fn hermit_interaction(
             dialogue_display.timer = 5.0;
             // Advance to next line (cycles)
             hermit.dialogue_index = (hermit.dialogue_index + 1) % hermit.dialogue.len();
+
+            // Intelligence Layer: Record interaction
+            knowledge.update_affinity(5);
+            knowledge.add_memory("talked_to_player", time.elapsed_secs_f64());
             break;
         }
     }

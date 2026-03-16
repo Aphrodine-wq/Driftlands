@@ -106,14 +106,14 @@ pub struct ActiveBuff {
 pub const PLAYER_SPEED: f32 = 150.0;
 const PLAYER_SIZE: f32 = 12.0;
 
-fn spawn_player(mut commands: Commands) {
+fn spawn_player(mut commands: Commands, assets: Res<crate::assets::GameAssets>) {
     commands.spawn((
         Player { speed: PLAYER_SPEED, walk_timer: 0.0 },
         PlayerFacing::Down,
         Health::new(100.0),
         Hunger::new(100.0),
         Sprite {
-            color: Color::srgb(0.2, 0.4, 0.9),
+            image: assets.player.clone(),
             custom_size: Some(Vec2::new(PLAYER_SIZE, PLAYER_SIZE)),
             ..default()
         },

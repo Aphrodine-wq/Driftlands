@@ -226,13 +226,14 @@ pub struct ChunkObject {
 fn spawn_initial_chunks(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
+    assets: Res<crate::assets::GameAssets>,
     mut world_state: ResMut<WorldState>,
     mut dungeon_registry: ResMut<DungeonRegistry>,
 ) {
     for cy in -RENDER_DISTANCE..=RENDER_DISTANCE {
         for cx in -RENDER_DISTANCE..=RENDER_DISTANCE {
             let chunk_pos = IVec2::new(cx, cy);
-            spawn_chunk(&mut commands, &mut images, &mut world_state, &mut dungeon_registry, chunk_pos);
+            spawn_chunk(&mut commands, &mut images, &assets, &mut world_state, &mut dungeon_registry, chunk_pos);
         }
     }
 }
@@ -240,6 +241,7 @@ fn spawn_initial_chunks(
 fn spawn_chunk(
     commands: &mut Commands,
     images: &mut ResMut<Assets<Image>>,
+    assets: &Res<crate::assets::GameAssets>,
     world_state: &mut ResMut<WorldState>,
     dungeon_registry: &mut ResMut<DungeonRegistry>,
     chunk_pos: IVec2,
@@ -257,7 +259,7 @@ fn spawn_chunk(
 
     // Use chunk data for object spawning BEFORE moving into ECS
     let seed = world_state.seed;
-    spawn_chunk_objects(commands, chunk_pos, &chunk, seed, dungeon_registry);
+    spawn_chunk_objects(commands, assets, chunk_pos, &chunk, seed, dungeon_registry);
 
     // Spawn terrain chunk (moves chunk into ECS)
     commands.spawn((
@@ -292,6 +294,7 @@ fn rock_size_variant(hash: u32) -> Vec2 {
 
 fn spawn_chunk_objects(
     commands: &mut Commands,
+    assets: &Res<crate::assets::GameAssets>,
     chunk_pos: IVec2,
     chunk: &Chunk,
     seed: u32,
@@ -348,60 +351,60 @@ fn spawn_chunk_objects(
                     if density_roll < 8 {
                         let obj = if variant_roll < 50 { WorldObjectType::OakTree } else { WorldObjectType::PineTree };
                         let color = tree_color_variant(variant_hash);
-                        spawn_world_object_with_overrides(commands, obj, wx, wy, chunk_pos, Some(color), None);
+                        spawn_world_object_with_overrides(commands, assets, obj, wx, wy, chunk_pos, Some(color), None);
                     } else if density_roll < 11 {
                         // Berry bushes (biome-exclusive)
-                        spawn_world_object(commands, WorldObjectType::BerryBush, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::BerryBush, wx, wy, chunk_pos);
                     } else if density_roll < 13 {
                         // Mushrooms on forest floor
-                        spawn_world_object(commands, WorldObjectType::Mushroom, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::Mushroom, wx, wy, chunk_pos);
                     } else if density_roll < 15 {
                         let size = rock_size_variant(variant_hash);
-                        spawn_world_object_with_overrides(commands, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
+                        spawn_world_object_with_overrides(commands, assets, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
                     } else if density_roll == 99 {
-                        spawn_world_object(commands, WorldObjectType::SupplyCrate, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::SupplyCrate, wx, wy, chunk_pos);
                     }
                 }
                 Biome::Coastal => {
                     // Driftwood, shell deposits, and seaweed near water
                     if density_roll < 3 {
-                        spawn_world_object(commands, WorldObjectType::Driftwood, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::Driftwood, wx, wy, chunk_pos);
                     } else if density_roll < 5 {
-                        spawn_world_object(commands, WorldObjectType::ShellDeposit, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::ShellDeposit, wx, wy, chunk_pos);
                     } else if density_roll < 7 {
-                        spawn_world_object(commands, WorldObjectType::SeaweedPatch, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::SeaweedPatch, wx, wy, chunk_pos);
                     } else if density_roll < 9 {
                         let size = rock_size_variant(variant_hash);
-                        spawn_world_object_with_overrides(commands, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
+                        spawn_world_object_with_overrides(commands, assets, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
                     } else if density_roll < 10 {
-                        spawn_world_object(commands, WorldObjectType::Bush, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::Bush, wx, wy, chunk_pos);
                     }
                 }
                 Biome::Swamp => {
                     if density_roll < 6 {
-                        spawn_world_object(commands, WorldObjectType::ReedClump, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::ReedClump, wx, wy, chunk_pos);
                     } else if density_roll < 10 {
                         let color = Color::srgb(0.7, 0.2, 0.3);
-                        spawn_world_object_with_overrides(commands, WorldObjectType::Bush, wx, wy, chunk_pos, Some(color), None);
+                        spawn_world_object_with_overrides(commands, assets, WorldObjectType::Bush, wx, wy, chunk_pos, Some(color), None);
                     } else if density_roll < 12 {
                         let color = tree_color_variant(variant_hash);
-                        spawn_world_object_with_overrides(commands, WorldObjectType::OakTree, wx, wy, chunk_pos, Some(color), None);
+                        spawn_world_object_with_overrides(commands, assets, WorldObjectType::OakTree, wx, wy, chunk_pos, Some(color), None);
                     }
                 }
                 Biome::Desert => {
                     // Cacti, sandstone rocks, and rare oasis palms
                     if density_roll < 3 {
-                        spawn_world_object(commands, WorldObjectType::Cactus, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::Cactus, wx, wy, chunk_pos);
                     } else if density_roll < 6 {
-                        spawn_world_object(commands, WorldObjectType::SandstoneRock, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::SandstoneRock, wx, wy, chunk_pos);
                     } else if density_roll < 7 {
                         let size = rock_size_variant(variant_hash);
-                        spawn_world_object_with_overrides(commands, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
+                        spawn_world_object_with_overrides(commands, assets, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
                     } else if density_roll == 98 {
                         // Rare oasis palm (with implied water tiles nearby)
-                        spawn_world_object(commands, WorldObjectType::OasisPalm, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::OasisPalm, wx, wy, chunk_pos);
                     } else if density_roll == 99 {
-                        spawn_world_object(commands, WorldObjectType::RuinWall, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::RuinWall, wx, wy, chunk_pos);
                     }
                 }
                 Biome::Tundra => {
@@ -409,77 +412,77 @@ fn spawn_chunk_objects(
                     if density_roll < 2 {
                         // Sparse pine trees
                         let color = Color::srgb(0.15, 0.3, 0.2);
-                        spawn_world_object_with_overrides(commands, WorldObjectType::PineTree, wx, wy, chunk_pos, Some(color), None);
+                        spawn_world_object_with_overrides(commands, assets, WorldObjectType::PineTree, wx, wy, chunk_pos, Some(color), None);
                     } else if density_roll < 5 {
-                        spawn_world_object(commands, WorldObjectType::IceFormation, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::IceFormation, wx, wy, chunk_pos);
                     } else if density_roll < 7 {
-                        spawn_world_object(commands, WorldObjectType::IceCrystal, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::IceCrystal, wx, wy, chunk_pos);
                     } else if density_roll < 9 {
                         let size = rock_size_variant(variant_hash);
-                        spawn_world_object_with_overrides(commands, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
+                        spawn_world_object_with_overrides(commands, assets, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
                     } else if density_roll < 10 {
-                        spawn_world_object(commands, WorldObjectType::FrozenOreDeposit, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::FrozenOreDeposit, wx, wy, chunk_pos);
                     }
                 }
                 Biome::Volcanic => {
                     // Obsidian nodes, sulfur vents (yellow), no trees
                     if density_roll < 1 {
-                        spawn_world_object(commands, WorldObjectType::AncientRuin, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::AncientRuin, wx, wy, chunk_pos);
                     } else if density_roll < 4 {
-                        spawn_world_object(commands, WorldObjectType::ObsidianNode, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::ObsidianNode, wx, wy, chunk_pos);
                     } else if density_roll < 7 {
                         // Sulfur vents with bright yellow color
-                        spawn_world_object(commands, WorldObjectType::SulfurVent, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::SulfurVent, wx, wy, chunk_pos);
                     } else if density_roll < 9 {
-                        spawn_world_object(commands, WorldObjectType::SulfurDeposit, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::SulfurDeposit, wx, wy, chunk_pos);
                     } else if density_roll < 11 {
                         let size = rock_size_variant(variant_hash);
-                        spawn_world_object_with_overrides(commands, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
+                        spawn_world_object_with_overrides(commands, assets, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
                     } else if density_roll < 13 {
-                        spawn_world_object(commands, WorldObjectType::CoalDeposit, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::CoalDeposit, wx, wy, chunk_pos);
                     }
                 }
                 Biome::Fungal => {
                     // Giant mushrooms (larger sprites), glowing spores, bio-luminescent gel
                     if density_roll < 4 {
-                        spawn_world_object(commands, WorldObjectType::GiantMushroom, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::GiantMushroom, wx, wy, chunk_pos);
                     } else if density_roll < 8 {
-                        spawn_world_object(commands, WorldObjectType::Mushroom, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::Mushroom, wx, wy, chunk_pos);
                     } else if density_roll < 11 {
-                        spawn_world_object(commands, WorldObjectType::GlowingSpore, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::GlowingSpore, wx, wy, chunk_pos);
                     } else if density_roll < 13 {
-                        spawn_world_object(commands, WorldObjectType::BioLuminescentGel, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::BioLuminescentGel, wx, wy, chunk_pos);
                     }
                 }
                 Biome::CrystalCave => {
                     // Crystal clusters, gemstone nodes, and echo stones
                     if density_roll < 4 {
-                        spawn_world_object(commands, WorldObjectType::CrystalCluster, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::CrystalCluster, wx, wy, chunk_pos);
                     } else if density_roll < 7 {
-                        spawn_world_object(commands, WorldObjectType::CrystalNode, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::CrystalNode, wx, wy, chunk_pos);
                     } else if density_roll < 9 {
-                        spawn_world_object(commands, WorldObjectType::EchoStone, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::EchoStone, wx, wy, chunk_pos);
                     } else if density_roll < 11 {
                         let size = rock_size_variant(variant_hash);
-                        spawn_world_object_with_overrides(commands, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
+                        spawn_world_object_with_overrides(commands, assets, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
                     } else if density_roll < 13 {
-                        spawn_world_object(commands, WorldObjectType::IronVein, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::IronVein, wx, wy, chunk_pos);
                     }
                 }
                 Biome::Mountain => {
                     if density_roll < 1 {
-                        spawn_world_object(commands, WorldObjectType::AncientRuin, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::AncientRuin, wx, wy, chunk_pos);
                     } else if density_roll < 5 {
                         let size = rock_size_variant(variant_hash);
-                        spawn_world_object_with_overrides(commands, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
+                        spawn_world_object_with_overrides(commands, assets, WorldObjectType::Rock, wx, wy, chunk_pos, None, Some(size));
                     } else if density_roll < 7 {
-                        spawn_world_object(commands, WorldObjectType::AlpineFlower, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::AlpineFlower, wx, wy, chunk_pos);
                     } else if density_roll < 9 {
-                        spawn_world_object(commands, WorldObjectType::IronVein, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::IronVein, wx, wy, chunk_pos);
                     } else if density_roll < 11 {
-                        spawn_world_object(commands, WorldObjectType::CoalDeposit, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::CoalDeposit, wx, wy, chunk_pos);
                     } else if density_roll == 99 {
-                        spawn_world_object(commands, WorldObjectType::RuinWall, wx, wy, chunk_pos);
+                        spawn_world_object(commands, assets, WorldObjectType::RuinWall, wx, wy, chunk_pos);
                     }
                 }
             }
@@ -489,16 +492,18 @@ fn spawn_chunk_objects(
 
 fn spawn_world_object(
     commands: &mut Commands,
+    assets: &Res<crate::assets::GameAssets>,
     obj_type: WorldObjectType,
     x: f32,
     y: f32,
     chunk_pos: IVec2,
 ) {
-    spawn_world_object_with_overrides(commands, obj_type, x, y, chunk_pos, None, None);
+    spawn_world_object_with_overrides(commands, assets, obj_type, x, y, chunk_pos, None, None);
 }
 
 fn spawn_world_object_with_overrides(
     commands: &mut Commands,
+    assets: &Res<crate::assets::GameAssets>,
     obj_type: WorldObjectType,
     x: f32,
     y: f32,
@@ -506,6 +511,13 @@ fn spawn_world_object_with_overrides(
     color_override: Option<Color>,
     size_override: Option<Vec2>,
 ) {
+    let texture = match obj_type {
+        WorldObjectType::OakTree => assets.oak_tree.clone(),
+        WorldObjectType::PineTree => assets.pine_tree.clone(),
+        WorldObjectType::Rock | WorldObjectType::SandstoneRock => assets.rock.clone(),
+        _ => Handle::default(),
+    };
+
     commands.spawn((
         WorldObject {
             object_type: obj_type,
@@ -513,7 +525,8 @@ fn spawn_world_object_with_overrides(
         },
         ChunkObject { chunk_pos },
         Sprite {
-            color: color_override.unwrap_or_else(|| obj_type.color()),
+            image: texture,
+            color: color_override.unwrap_or(Color::WHITE),
             custom_size: Some(size_override.unwrap_or_else(|| obj_type.size())),
             ..default()
         },
@@ -522,26 +535,37 @@ fn spawn_world_object_with_overrides(
 }
 
 fn create_chunk_image(chunk: &Chunk) -> Image {
+    let tile_res = 8; // 8x8 pixels per tile for a textured look
+    let res = CHUNK_SIZE * tile_res;
     let size = Extent3d {
-        width: CHUNK_SIZE as u32,
-        height: CHUNK_SIZE as u32,
+        width: res as u32,
+        height: res as u32,
         depth_or_array_layers: 1,
     };
 
-    let mut data = vec![0u8; CHUNK_SIZE * CHUNK_SIZE * 4];
+    let mut data = vec![0u8; res * res * 4];
     let biome = chunk.biome;
 
     for y in 0..CHUNK_SIZE {
         for x in 0..CHUNK_SIZE {
             let tile = chunk.get_tile(x, y);
-            let color = tile.biome_color(biome);
-            // Image y=0 is top, world y=0 is bottom, so flip
-            let img_y = CHUNK_SIZE - 1 - y;
-            let index = (img_y * CHUNK_SIZE + x) * 4;
-            data[index] = color[0];
-            data[index + 1] = color[1];
-            data[index + 2] = color[2];
-            data[index + 3] = color[3];
+            let base_color = tile.biome_color(biome);
+            
+            for ty in 0..tile_res {
+                for tx in 0..tile_res {
+                    // Image y=0 is top, world y=0 is bottom, so flip
+                    let img_y = res - 1 - (y * tile_res + ty);
+                    let img_x = x * tile_res + tx;
+                    let index = (img_y * res + img_x) * 4;
+                    
+                    // Add some noise to the base color
+                    let noise = (rand::random::<f32>() - 0.5) * 15.0;
+                    data[index] = (base_color[0] as f32 + noise).clamp(0.0, 255.0) as u8;
+                    data[index + 1] = (base_color[1] as f32 + noise).clamp(0.0, 255.0) as u8;
+                    data[index + 2] = (base_color[2] as f32 + noise).clamp(0.0, 255.0) as u8;
+                    data[index + 3] = 255;
+                }
+            }
         }
     }
 
@@ -557,6 +581,7 @@ fn create_chunk_image(chunk: &Chunk) -> Image {
 fn manage_chunks(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
+    assets: Res<crate::assets::GameAssets>,
     mut world_state: ResMut<WorldState>,
     mut dungeon_registry: ResMut<DungeonRegistry>,
     player_query: Query<&Transform, With<Player>>,
@@ -583,7 +608,7 @@ fn manage_chunks(
         for cx in (player_chunk.x - RENDER_DISTANCE)..=(player_chunk.x + RENDER_DISTANCE) {
             let chunk_pos = IVec2::new(cx, cy);
             if !world_state.loaded_chunks.contains(&chunk_pos) {
-                spawn_chunk(&mut commands, &mut images, &mut world_state, &mut dungeon_registry, chunk_pos);
+                spawn_chunk(&mut commands, &mut images, &assets, &mut world_state, &mut dungeon_registry, chunk_pos);
             }
         }
     }
