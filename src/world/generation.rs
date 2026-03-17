@@ -165,18 +165,21 @@ impl WorldGenerator {
     }
 
     /// Returns true if a tree should spawn at this world tile position
+    #[allow(dead_code)]
     pub fn should_spawn_tree(&self, world_x: i32, world_y: i32, seed: u32) -> bool {
         let hash = Self::position_hash(world_x, world_y, seed);
         (hash % 100) < 6 // ~6% tree density
     }
 
     /// Returns true if a rock should spawn at this world tile position
+    #[allow(dead_code)]
     pub fn should_spawn_rock(&self, world_x: i32, world_y: i32, seed: u32) -> bool {
         let hash = Self::position_hash(world_x, world_y, seed.wrapping_add(100));
         (hash % 100) < 3 // ~3% rock density
     }
 
     /// Returns true if a bush should spawn at this world tile position
+    #[allow(dead_code)]
     pub fn should_spawn_bush(&self, world_x: i32, world_y: i32, seed: u32) -> bool {
         let hash = Self::position_hash(world_x, world_y, seed.wrapping_add(200));
         (hash % 100) < 4 // ~4% bush density

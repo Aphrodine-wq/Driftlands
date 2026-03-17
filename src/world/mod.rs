@@ -8,8 +8,6 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use chunk::{Chunk, CHUNK_SIZE};
 use generation::{WorldGenerator, Biome};
 use std::collections::HashSet;
-use tile::TileType;
-
 use crate::player::Player;
 use crate::dungeon::{DungeonRegistry, should_spawn_entrance};
 use crate::hud::not_paused;
@@ -133,42 +131,6 @@ impl WorldObjectType {
             WorldObjectType::Driftwood => 40.0,
             WorldObjectType::ShellDeposit => 20.0,
             WorldObjectType::SeaweedPatch => 15.0,
-        }
-    }
-
-    pub fn color(&self) -> Color {
-        match self {
-            WorldObjectType::OakTree => Color::srgb(0.15, 0.45, 0.12),
-            WorldObjectType::PineTree => Color::srgb(0.1, 0.35, 0.15),
-            WorldObjectType::Rock => Color::srgb(0.5, 0.5, 0.5),
-            WorldObjectType::Bush => Color::srgb(0.2, 0.55, 0.18),
-            WorldObjectType::Cactus => Color::srgb(0.3, 0.6, 0.2),
-            WorldObjectType::IceCrystal => Color::srgb(0.7, 0.85, 0.95),
-            WorldObjectType::Mushroom => Color::srgb(0.7, 0.3, 0.3),
-            WorldObjectType::GiantMushroom => Color::srgb(0.5, 0.2, 0.6),
-            WorldObjectType::ReedClump => Color::srgb(0.4, 0.5, 0.25),
-            WorldObjectType::SulfurDeposit => Color::srgb(0.8, 0.75, 0.2),
-            WorldObjectType::CrystalNode => Color::srgb(0.6, 0.5, 0.8),
-            WorldObjectType::AlpineFlower => Color::srgb(0.8, 0.4, 0.7),
-            WorldObjectType::IronVein => Color::srgb(0.35, 0.3, 0.3),
-            WorldObjectType::CoalDeposit => Color::srgb(0.15, 0.12, 0.12),
-            WorldObjectType::AncientRuin => Color::srgb(0.6, 0.5, 0.2),
-            WorldObjectType::SupplyCrate => Color::srgb(0.5, 0.35, 0.2),
-            WorldObjectType::RuinWall => Color::srgb(0.4, 0.38, 0.35),
-            WorldObjectType::BerryBush => Color::srgb(0.6, 0.2, 0.3),
-            WorldObjectType::SandstoneRock => Color::srgb(0.75, 0.6, 0.4),
-            WorldObjectType::OasisPalm => Color::srgb(0.2, 0.5, 0.15),
-            WorldObjectType::FrozenOreDeposit => Color::srgb(0.5, 0.65, 0.8),
-            WorldObjectType::IceFormation => Color::srgb(0.8, 0.9, 0.95),
-            WorldObjectType::SulfurVent => Color::srgb(0.9, 0.85, 0.2),
-            WorldObjectType::ObsidianNode => Color::srgb(0.1, 0.08, 0.12),
-            WorldObjectType::GlowingSpore => Color::srgb(0.4, 0.9, 0.3),
-            WorldObjectType::BioLuminescentGel => Color::srgb(0.3, 0.95, 0.5),
-            WorldObjectType::CrystalCluster => Color::srgb(0.7, 0.6, 0.9),
-            WorldObjectType::EchoStone => Color::srgb(0.55, 0.6, 0.75),
-            WorldObjectType::Driftwood => Color::srgb(0.55, 0.4, 0.25),
-            WorldObjectType::ShellDeposit => Color::srgb(0.9, 0.85, 0.75),
-            WorldObjectType::SeaweedPatch => Color::srgb(0.15, 0.45, 0.25),
         }
     }
 

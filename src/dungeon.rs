@@ -3,7 +3,7 @@ use rand::Rng;
 use crate::hud::not_paused;
 use crate::player::Player;
 use crate::combat::{Enemy, EnemyType, EnemyState, Boss};
-use crate::inventory::{Inventory, ItemType};
+use crate::inventory::ItemType;
 use crate::world::generation::{WorldGenerator, Biome};
 use crate::gathering::spawn_dropped_item;
 use crate::audio::SoundEvent;
@@ -29,6 +29,7 @@ impl Plugin for DungeonPlugin {
 #[derive(Component)]
 pub struct DungeonEntrance {
     /// World-surface position so we can teleport the player back here.
+    #[allow(dead_code)]
     pub surface_pos: Vec2,
     /// Unique ID used to look up the matching DungeonInstance.
     pub id: u32,
@@ -40,6 +41,7 @@ pub struct DungeonEntrance {
 #[derive(Component)]
 pub struct DungeonExit {
     /// Surface position to return to.
+    #[allow(dead_code)]
     pub surface_pos: Vec2,
 }
 
@@ -202,7 +204,7 @@ fn check_dungeon_exit(
     let Ok(mut player_tf) = player_query.get_single_mut() else { return };
     let player_pos = player_tf.translation.truncate();
 
-    for (exit_entity, exit, exit_tf) in exit_query.iter() {
+    for (exit_entity, _exit, exit_tf) in exit_query.iter() {
         let exit_pos = exit_tf.translation.truncate();
         if player_pos.distance(exit_pos) <= EXIT_TRIGGER_RADIUS {
             // Teleport player back to surface.
@@ -245,7 +247,7 @@ fn dungeon_world_pos(dungeon_id: u32) -> Vec2 {
 /// places an exit portal adjacent to the boss.
 fn generate_dungeon(
     commands: &mut Commands,
-    dungeon_id: u32,
+    _dungeon_id: u32,
     anchor: Vec2,
     surface_pos: Vec2,
     biome: Biome,
@@ -751,6 +753,7 @@ fn dungeon_chest_interaction(
 
 /// Spawns a `DungeonEntrance` marker at the given world-space position and
 /// assigns it a fresh ID from the registry.
+#[allow(dead_code)]
 pub fn spawn_entrance(
     commands: &mut Commands,
     registry: &mut DungeonRegistry,

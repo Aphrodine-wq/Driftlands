@@ -267,6 +267,7 @@ impl ItemType {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_tool(&self) -> bool {
         self.max_durability().is_some()
     }

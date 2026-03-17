@@ -33,6 +33,7 @@ impl Season {
     }
 
     /// Returns the next season in the cycle.
+    #[allow(dead_code)]
     pub fn next(self) -> Self {
         match self {
             Season::Spring => Season::Summer,
@@ -70,6 +71,7 @@ pub struct SeasonCycle {
     /// Tracks the last day_count value so we only run advance logic on day change.
     last_day: u32,
     /// True for one frame after a season transition.
+    #[allow(dead_code)]
     pub just_changed: bool,
 }
 
@@ -85,6 +87,7 @@ impl Default for SeasonCycle {
 
 impl Season {
     /// Grass/ground color tint multiplier for this season.
+    #[allow(dead_code)]
     pub fn grass_color(&self) -> Color {
         match self {
             Season::Spring => Color::srgb(0.3, 0.75, 0.3),
@@ -95,6 +98,7 @@ impl Season {
     }
 
     /// Tree color tint for this season.
+    #[allow(dead_code)]
     pub fn tree_color(&self) -> Color {
         match self {
             Season::Spring => Color::srgb(0.2, 0.7, 0.25),
@@ -105,6 +109,7 @@ impl Season {
     }
 
     /// Water color variation per season.
+    #[allow(dead_code)]
     pub fn water_color(&self) -> Color {
         match self {
             Season::Spring => Color::srgb(0.15, 0.35, 0.7),
@@ -115,6 +120,7 @@ impl Season {
     }
 
     /// ClearColor background shift for each season.
+    #[allow(dead_code)]
     pub fn clear_color(&self) -> Color {
         match self {
             Season::Spring => Color::srgb(0.08, 0.12, 0.08),

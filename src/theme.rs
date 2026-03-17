@@ -9,6 +9,7 @@ pub struct EtherealTheme {
     /// Pulses: Amber gold (#E6BF4D)
     pub accent_gold: Color,
     /// Critical: Spectral red
+    #[allow(dead_code)]
     pub critical: Color,
     /// Healing: Spectral green
     pub healing: Color,

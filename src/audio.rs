@@ -49,6 +49,7 @@ pub enum SoundEvent {
     Craft,
     Pickup,
     MenuOpen,
+    #[allow(dead_code)]
     MenuClose,
     Death,
     BossRoar,

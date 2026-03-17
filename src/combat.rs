@@ -55,8 +55,10 @@ pub struct Enemy {
     pub max_health: f32,
     pub damage: f32,
     pub speed: f32,
+    #[allow(dead_code)]
     pub aggro_range: f32,
     pub state: EnemyState,
+    #[allow(dead_code)]
     pub patrol_target: Vec2,
     pub attack_cooldown: Timer,
     /// How far the enemy can detect the player (default 120, bosses 200).
@@ -70,6 +72,7 @@ pub struct Enemy {
     /// Timer used for the Alert pause before transitioning to Chase.
     pub alert_timer: f32,
     /// Distance from world origin at spawn time (US-032: used for HP scaling).
+    #[allow(dead_code)]
     pub distance_from_origin: f32,
 }
 
@@ -79,6 +82,7 @@ pub struct Enemy {
 /// the entity is despawned.
 #[derive(Component)]
 pub struct Boss {
+    #[allow(dead_code)]
     pub name: String,
     pub loot_table: Vec<(ItemType, u32)>,
     pub has_roared: bool,
@@ -96,6 +100,7 @@ pub enum EnemyType {
     BogLurker,
     SandScorpion,
     // --- dungeon boss (US-007) ---
+    #[allow(dead_code)]
     StoneGolem,
     // --- biome bosses (US-008) ---
     ForestGuardian,

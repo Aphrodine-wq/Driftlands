@@ -54,6 +54,7 @@ impl LoreRegistry {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_complete(&self) -> bool {
         self.collected_entries.len() as u32 >= self.total_entries
     }

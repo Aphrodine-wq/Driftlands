@@ -273,6 +273,7 @@ fn despawn_weather_particles(
 
 impl Weather {
     /// Farm growth multiplier: rain speeds up farms by 25%.
+    #[allow(dead_code)]
     pub fn farm_growth_multiplier(&self) -> f32 {
         match self {
             Weather::Rain => 1.25,
@@ -281,6 +282,7 @@ impl Weather {
     }
 
     /// Movement speed multiplier for snow/storm.
+    #[allow(dead_code)]
     pub fn movement_speed_multiplier(&self) -> f32 {
         match self {
             Weather::Snow => 0.85,
@@ -290,6 +292,7 @@ impl Weather {
     }
 
     /// Enemy speed multiplier during storms.
+    #[allow(dead_code)]
     pub fn enemy_speed_multiplier(&self) -> f32 {
         match self {
             Weather::Storm => 0.8,

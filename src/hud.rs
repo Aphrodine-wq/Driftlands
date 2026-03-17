@@ -268,10 +268,10 @@ fn update_status_hud(
     save_msg: Res<SaveMessage>,
     armor: Res<ArmorSlots>,
     inventory: Res<Inventory>,
-    theme: Res<EtherealTheme>,
+    _theme: Res<EtherealTheme>,
 ) {
     let Ok((health, hunger, active_buff)) = player_query.get_single() else { return };
-    
+
     // Update HP Fill
     if let Ok(mut node) = health_fill_query.get_single_mut() {
         let hp_frac = (health.current / health.max).clamp(0.0, 1.0);
