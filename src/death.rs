@@ -4,6 +4,9 @@ use crate::inventory::{Inventory, InventorySlot};
 use crate::world::TILE_SIZE;
 use crate::building::{Building, BuildingType};
 use crate::daynight::DayNightCycle;
+use crate::camera::ScreenShake;
+use crate::particles::SpawnParticlesEvent;
+use crate::audio::SoundEvent;
 
 pub struct DeathPlugin;
 
@@ -15,8 +18,10 @@ impl Plugin for DeathPlugin {
             .add_systems(Update, (
                 check_player_death,
                 update_death_screen,
+                update_respawn_flash,
                 recover_death_marker,
                 set_bed_spawn,
+                tick_respawn_invulnerability,
             ));
     }
 }
@@ -48,6 +53,12 @@ pub struct DeathScreen {
 #[derive(Resource, Default)]
 pub struct DeathStats {
     pub total_kills: u32,
+    /// Wave 7C: Total number of player deaths (used for difficulty scaling).
+    pub death_count: u32,
+    /// Wave 7C: What killed the player last (enemy type name or damage source).
+    pub last_damage_source: String,
+    /// Wave 7C: Position of the most recent gravestone for minimap display.
+    pub gravestone_pos: Option<Vec2>,
 }
 
 #[derive(Component)]
@@ -58,13 +69,29 @@ pub struct DeathMarker {
 #[derive(Component)]
 pub struct DeathScreenUI;
 
+/// Brief visual "wake up" after respawn: player sprite pulses back in.
+#[derive(Component)]
+pub struct RespawnFlash {
+    pub timer: f32,
+    pub original_color: Color,
+}
+
+/// Wave 7C: Respawn invulnerability — 3 seconds of damage immunity after respawn.
+#[derive(Component)]
+pub struct RespawnInvulnerability {
+    pub timer: f32,
+}
+
 fn check_player_death(
     mut commands: Commands,
     mut player_query: Query<(&mut Health, &Transform), With<Player>>,
     mut inventory: ResMut<Inventory>,
     mut death_screen: ResMut<DeathScreen>,
+    mut death_stats: ResMut<DeathStats>,
+    mut screen_shake: ResMut<ScreenShake>,
+    mut particle_events: EventWriter<SpawnParticlesEvent>,
+    mut sound_events: EventWriter<SoundEvent>,
     cycle: Res<DayNightCycle>,
-    death_stats: Res<DeathStats>,
 ) {
     // Don't trigger again while death screen is active
     if death_screen.active {
@@ -80,6 +107,10 @@ fn check_player_death(
     }
 
     let death_pos = transform.translation;
+
+    // Wave 7C: Increment death count and record gravestone position
+    death_stats.death_count += 1;
+    death_stats.gravestone_pos = Some(death_pos.truncate());
 
     // Collect all items from inventory
     let mut dropped_items = Vec::new();
@@ -101,7 +132,23 @@ fn check_player_death(
     // Freeze player health at 0 so is_dead() stays true until we respawn
     health.current = 0.0;
 
+    // Death moment polish: screen shake, particles, sound
+    screen_shake.timer = 0.3;
+    screen_shake.intensity = 5.0;
+    particle_events.send(SpawnParticlesEvent {
+        position: death_pos.truncate(),
+        color: Color::srgb(0.7, 0.1, 0.1),
+        count: 14,
+    });
+    sound_events.send(SoundEvent::Death);
+
     // Spawn death screen UI
+    let killed_by = if death_stats.last_damage_source.is_empty() {
+        "Unknown".to_string()
+    } else {
+        death_stats.last_damage_source.clone()
+    };
+
     commands.spawn((
         DeathScreenUI,
         Node {
@@ -126,6 +173,20 @@ fn check_player_death(
             TextColor(Color::srgb(0.9, 0.15, 0.15)),
             Node {
                 margin: UiRect::bottom(Val::Px(30.0)),
+                ..default()
+            },
+        ));
+
+        // Wave 7C: Killed by source
+        parent.spawn((
+            Text::new(format!("Killed by: {}", killed_by)),
+            TextFont {
+                font_size: 24.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.9, 0.6, 0.5)),
+            Node {
+                margin: UiRect::bottom(Val::Px(8.0)),
                 ..default()
             },
         ));
@@ -167,6 +228,20 @@ fn check_player_death(
             },
             TextColor(Color::srgb(0.8, 0.8, 0.8)),
             Node {
+                margin: UiRect::bottom(Val::Px(8.0)),
+                ..default()
+            },
+        ));
+
+        // Death count
+        parent.spawn((
+            Text::new(format!("Deaths: {}", death_stats.death_count)),
+            TextFont {
+                font_size: 24.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.8, 0.8, 0.8)),
+            Node {
                 margin: UiRect::bottom(Val::Px(30.0)),
                 ..default()
             },
@@ -189,7 +264,7 @@ fn update_death_screen(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut death_screen: ResMut<DeathScreen>,
-    mut player_query: Query<(&mut Health, &mut Hunger, &mut Transform), With<Player>>,
+    mut player_query: Query<(Entity, &mut Health, &mut Hunger, &mut Transform, &Sprite), With<Player>>,
     existing_markers: Query<Entity, With<DeathMarker>>,
     ui_query: Query<Entity, With<DeathScreenUI>>,
     spawn_point: Res<SpawnPoint>,
@@ -208,12 +283,13 @@ fn update_death_screen(
 
     // When timer expires, do the actual respawn
     if death_screen.timer <= 0.0 {
-        let Ok((mut health, mut hunger, mut transform)) = player_query.get_single_mut() else {
+        let Ok((player_entity, mut health, mut hunger, mut transform, sprite)) = player_query.get_single_mut() else {
             return;
         };
 
         let death_pos = death_screen.death_pos;
         let dropped_items = std::mem::take(&mut death_screen.dropped_items);
+        let original_color = sprite.color;
 
         // Remove old death marker (only one at a time)
         for entity in existing_markers.iter() {
@@ -239,6 +315,17 @@ fn update_death_screen(
         hunger.current = hunger.max;
         hunger.starvation_timer = 0.0;
 
+        // Wake-up effect: brief respawn flash
+        commands.entity(player_entity).insert(RespawnFlash {
+            timer: 0.5,
+            original_color,
+        });
+
+        // Wave 7C: Grant 3 seconds of respawn invulnerability
+        commands.entity(player_entity).insert(RespawnInvulnerability {
+            timer: 3.0,
+        });
+
         // Despawn death screen UI
         for entity in ui_query.iter() {
             commands.entity(entity).despawn_recursive();
@@ -248,11 +335,46 @@ fn update_death_screen(
     }
 }
 
+fn update_respawn_flash(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut RespawnFlash, &mut Sprite), With<Player>>,
+) {
+    for (entity, mut flash, mut sprite) in query.iter_mut() {
+        flash.timer -= time.delta_secs();
+        if flash.timer <= 0.0 {
+            sprite.color = flash.original_color;
+            commands.entity(entity).remove::<RespawnFlash>();
+            continue;
+        }
+        // Fade in: start bright, ease to original
+        let t = 1.0 - (flash.timer / 0.5);
+        let alpha = 0.4 + 0.6 * t;
+        let srgba = flash.original_color.to_srgba();
+        sprite.color = Color::srgba(srgba.red, srgba.green, srgba.blue, alpha);
+    }
+}
+
+/// Wave 7C: Tick respawn invulnerability timer and remove when expired.
+fn tick_respawn_invulnerability(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut RespawnInvulnerability), With<Player>>,
+) {
+    for (entity, mut invuln) in query.iter_mut() {
+        invuln.timer -= time.delta_secs();
+        if invuln.timer <= 0.0 {
+            commands.entity(entity).remove::<RespawnInvulnerability>();
+        }
+    }
+}
+
 fn recover_death_marker(
     mut commands: Commands,
     player_query: Query<&Transform, With<Player>>,
     marker_query: Query<(Entity, &Transform, &DeathMarker), Without<Player>>,
     mut inventory: ResMut<Inventory>,
+    mut death_stats: ResMut<DeathStats>,
 ) {
     let Ok(player_tf) = player_query.get_single() else { return };
     let player_pos = player_tf.translation.truncate();
@@ -265,6 +387,8 @@ fn recover_death_marker(
                 inventory.add_item(item.item, item.count);
             }
             commands.entity(entity).despawn();
+            // Wave 7C: Clear gravestone from minimap after recovery
+            death_stats.gravestone_pos = None;
         }
     }
 }

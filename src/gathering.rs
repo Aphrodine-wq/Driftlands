@@ -10,7 +10,7 @@ use crate::combat::Enemy;
 use crate::particles::SpawnParticlesEvent;
 use crate::world::generation::WorldGenerator;
 use crate::audio::SoundEvent;
-use crate::hud::spawn_floating_text;
+use crate::hud::FloatingTextRequest;
 
 pub struct GatheringPlugin;
 
@@ -182,8 +182,18 @@ fn gather_resources(
         }
 
         if object.health <= 0.0 {
-            // Object destroyed — clear target so bars aren't drawn for it
             gathering_state.target = None;
+
+            let destroy_sound = match object.object_type {
+                WorldObjectType::OakTree | WorldObjectType::PineTree => SoundEvent::TreeFall,
+                WorldObjectType::Rock | WorldObjectType::IronVein | WorldObjectType::CoalDeposit
+                | WorldObjectType::SandstoneRock | WorldObjectType::FrozenOreDeposit
+                | WorldObjectType::SulfurDeposit | WorldObjectType::ObsidianNode
+                | WorldObjectType::CrystalNode | WorldObjectType::RuinWall
+                | WorldObjectType::AncientRuin | WorldObjectType::AncientMachinery | WorldObjectType::Geyser => SoundEvent::OreMine,
+                _ => SoundEvent::Gather,
+            };
+            sound_events.send(destroy_sound);
 
             // Spawn particle effects at destroyed object position
             let obj_pos = obj_transform.translation.truncate();
@@ -192,7 +202,7 @@ fn gather_resources(
                     (Color::srgb(0.5, 0.35, 0.2), 4)
                 }
                 WorldObjectType::Rock | WorldObjectType::IronVein | WorldObjectType::CoalDeposit
-                | WorldObjectType::RuinWall => {
+                | WorldObjectType::RuinWall | WorldObjectType::AncientMachinery | WorldObjectType::Geyser => {
                     (Color::srgb(0.6, 0.6, 0.6), 4)
                 }
                 _ => (Color::srgb(0.2, 0.7, 0.2), 3),
@@ -257,6 +267,13 @@ fn gather_resources(
                         spawn_dropped_item(&mut commands, obj_pos, ItemType::RareHerb, 1, &mut rng);
                     }
                 }
+                WorldObjectType::Wildflower => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::PlantFiber, 1, &mut rng);
+                }
+                WorldObjectType::FallenLog => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Wood, 1, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stick, 2, &mut rng);
+                }
                 WorldObjectType::IronVein => {
                     spawn_dropped_item(&mut commands, obj_pos, ItemType::IronOre, 2, &mut rng);
                     spawn_dropped_item(&mut commands, obj_pos, ItemType::Stone, 1, &mut rng);
@@ -268,6 +285,12 @@ fn gather_resources(
                 WorldObjectType::AncientRuin => {
                     spawn_dropped_item(&mut commands, obj_pos, ItemType::AncientCore, 1, &mut rng);
                     spawn_dropped_item(&mut commands, obj_pos, ItemType::Gemstone, 1, &mut rng);
+                    if rare_hash % 100 < 25 {
+                        spawn_dropped_item(&mut commands, obj_pos, ItemType::JournalPage, 1, &mut rng);
+                    }
+                    if rare_hash % 100 < 15 {
+                        spawn_dropped_item(&mut commands, obj_pos, ItemType::Blueprint, 1, &mut rng);
+                    }
                 }
                 WorldObjectType::SupplyCrate => {
                     let supply_roll = WorldGenerator::position_hash(tile_x, tile_y, world_state.seed.wrapping_add(200));
@@ -334,6 +357,17 @@ fn gather_resources(
                 WorldObjectType::SeaweedPatch => {
                     spawn_dropped_item(&mut commands, obj_pos, ItemType::Seaweed, 2, &mut rng);
                     spawn_dropped_item(&mut commands, obj_pos, ItemType::PlantFiber, 1, &mut rng);
+                }
+                WorldObjectType::AncientMachinery => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::IronOre, 3, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stone, 2, &mut rng);
+                    if rare_hash % 100 < 20 {
+                        spawn_dropped_item(&mut commands, obj_pos, ItemType::JournalPage, 1, &mut rng);
+                    }
+                }
+                WorldObjectType::Geyser => {
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Sulfur, 2, &mut rng);
+                    spawn_dropped_item(&mut commands, obj_pos, ItemType::Stone, 1, &mut rng);
                 }
             }
             // Consume tool durability
@@ -420,6 +454,8 @@ fn pickup_dropped_items(
     mut item_query: Query<(Entity, &mut DroppedItem, &mut Transform), Without<Player>>,
     mut inventory: ResMut<Inventory>,
     mut sound_events: EventWriter<SoundEvent>,
+    mut particle_events: EventWriter<SpawnParticlesEvent>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
 ) {
     let Ok(player_tf) = player_query.get_single() else { return };
     let player_pos = player_tf.translation.truncate();
@@ -463,18 +499,34 @@ fn pickup_dropped_items(
         if dist <= 8.0 {
             inventory.add_item(dropped.item, dropped.count);
             sound_events.send(SoundEvent::Pickup);
+            particle_events.send(SpawnParticlesEvent {
+                position: Vec2::new(tf.translation.x, dropped.base_y),
+                color: Color::srgba(0.9, 0.85, 0.7, 0.9),
+                count: 3,
+            });
             // US-028: Floating text for item pickup
             let pickup_text = if dropped.count > 1 {
                 format!("+{} {}", dropped.count, dropped.item.display_name())
             } else {
                 format!("+1 {}", dropped.item.display_name())
             };
-            spawn_floating_text(
-                &mut commands,
-                &pickup_text,
-                Vec2::new(tf.translation.x, dropped.base_y),
-                Color::WHITE,
+            let is_rare = matches!(
+                dropped.item,
+                ItemType::AncientCore
+                    | ItemType::Gemstone
+                    | ItemType::RareHerb
+                    | ItemType::BioGel
             );
+            let pickup_color = if is_rare {
+                Color::srgb(0.9, 0.8, 0.4)
+            } else {
+                Color::WHITE
+            };
+            floating_text_events.send(FloatingTextRequest {
+                text: pickup_text,
+                position: Vec2::new(tf.translation.x, dropped.base_y),
+                color: pickup_color,
+            });
             commands.entity(entity).despawn();
         }
     }

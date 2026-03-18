@@ -21,6 +21,8 @@ pub struct WorldGenerator {
     moisture: Perlin,
     detail: Perlin,
     temperature: Perlin,
+    /// Micro-scale noise for patches (DarkGrass vs Grass, dirt, clearings) within a biome.
+    micro: Perlin,
 }
 
 impl WorldGenerator {
@@ -30,12 +32,13 @@ impl WorldGenerator {
             moisture: Perlin::new(seed.wrapping_add(1)),
             detail: Perlin::new(seed.wrapping_add(2)),
             temperature: Perlin::new(seed.wrapping_add(3)),
+            micro: Perlin::new(seed.wrapping_add(4)),
         }
     }
 
     /// Determine biome from temperature/moisture Whittaker diagram
     pub fn biome_at(&self, world_x: f64, world_y: f64) -> Biome {
-        let biome_scale = 0.0016; // Larger-scale biome regions (approx 3x larger than 0.005)
+        let biome_scale = 0.00012; // Massive biome regions — takes real exploration to cross one
         let temp = self.temperature.get([world_x * biome_scale, world_y * biome_scale]);
         let moist = self.moisture.get([world_x * biome_scale * 0.8, world_y * biome_scale * 0.8]);
         let elev = self.elevation.get([world_x * 0.02, world_y * 0.02]);
@@ -86,8 +89,9 @@ impl WorldGenerator {
                 let elevation = self.elevation.get([world_x * scale, world_y * scale]);
                 let moisture = self.moisture.get([world_x * scale * 0.8, world_y * scale * 0.8]);
                 let detail = self.detail.get([world_x * detail_scale, world_y * detail_scale]);
+                let micro = self.micro.get([world_x * 0.15, world_y * 0.15]);
 
-                let tile = self.determine_tile(elevation, moisture, detail, biome);
+                let tile = self.determine_tile(elevation, moisture, detail, micro, biome);
                 chunk.set_tile(x, y, tile);
             }
         }
@@ -95,7 +99,7 @@ impl WorldGenerator {
         chunk
     }
 
-    fn determine_tile(&self, elevation: f64, moisture: f64, detail: f64, biome: Biome) -> TileType {
+    fn determine_tile(&self, elevation: f64, moisture: f64, detail: f64, micro: f64, biome: Biome) -> TileType {
         // Universal water
         if elevation < -0.3 {
             return TileType::DeepWater;
@@ -108,27 +112,31 @@ impl WorldGenerator {
             Biome::Forest => {
                 if elevation < -0.05 { return TileType::Sand; }
                 if elevation > 0.6 { return TileType::Stone; }
-                if moisture < -0.3 && detail > 0.2 { return TileType::Dirt; }
+                // Micro: small dirt patches and clearings
+                if micro < -0.35 && detail > 0.0 { return TileType::Dirt; }
+                if moisture < -0.25 && detail > 0.15 { return TileType::Dirt; }
+                // Richer DarkGrass vs Grass patches
+                if moisture > 0.15 && (micro > 0.2 || detail > 0.25) { return TileType::DarkGrass; }
                 if moisture > 0.2 { return TileType::DarkGrass; }
                 TileType::Grass
             }
             Biome::Coastal => {
                 if elevation < 0.0 { return TileType::Sand; }
-                if detail > 0.3 { return TileType::Dirt; }
+                if detail > 0.25 || (detail > 0.15 && micro > 0.3) { return TileType::Dirt; }
                 TileType::Sand
             }
             Biome::Swamp => {
                 if elevation < -0.05 { return TileType::Water; }
-                if detail > 0.2 { return TileType::Mud; }
+                if detail > 0.15 || (micro > 0.25 && detail > 0.0) { return TileType::Mud; }
                 TileType::DarkGrass
             }
             Biome::Desert => {
                 if elevation > 0.5 { return TileType::Stone; }
-                if detail > 0.4 { return TileType::Dirt; }
+                if detail > 0.35 || (micro < -0.2 && detail > 0.25) { return TileType::Dirt; }
                 TileType::Sand
             }
             Biome::Tundra => {
-                if detail > 0.3 { return TileType::Ice; }
+                if detail > 0.25 || (micro > 0.2 && detail > 0.15) { return TileType::Ice; }
                 TileType::Snow
             }
             Biome::Volcanic => {
@@ -137,7 +145,7 @@ impl WorldGenerator {
                 TileType::Stone
             }
             Biome::Fungal => {
-                if detail > 0.3 { return TileType::MushroomGround; }
+                if detail > 0.25 || (micro > 0.2 && detail > 0.15) { return TileType::MushroomGround; }
                 TileType::DarkGrass
             }
             Biome::CrystalCave => {
@@ -183,5 +191,12 @@ impl WorldGenerator {
     pub fn should_spawn_bush(&self, world_x: i32, world_y: i32, seed: u32) -> bool {
         let hash = Self::position_hash(world_x, world_y, seed.wrapping_add(200));
         (hash % 100) < 4 // ~4% bush density
+    }
+
+    /// Forest density / grove noise in 0.0..1.0. High = wooded, low = meadow. Use for tree clustering.
+    pub fn grove_density(&self, world_x: f64, world_y: f64) -> f64 {
+        let scale = 0.08;
+        let v = self.detail.get([world_x * scale, world_y * scale]);
+        (v * 0.5 + 0.5).clamp(0.0, 1.0)
     }
 }

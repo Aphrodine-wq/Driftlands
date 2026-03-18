@@ -19,16 +19,45 @@ impl Default for MainMenuActive {
 #[derive(Component)]
 pub struct MainMenuUI;
 
+/// Tracks which menu button is currently selected.
+#[derive(Resource)]
+struct MenuSelection {
+    index: usize,
+    count: usize,
+}
+
+impl Default for MenuSelection {
+    fn default() -> Self {
+        Self { index: 0, count: 3 }
+    }
+}
+
+/// Marker for selectable menu buttons.
+#[derive(Component)]
+struct MenuButton {
+    index: usize,
+}
+
+const MENU_BG: Color = Color::srgb(0.012, 0.012, 0.035);
+const MENU_ACCENT: Color = Color::srgb(0.9, 0.75, 0.3);
+const MENU_TEXT: Color = Color::srgb(0.75, 0.75, 0.8);
+const MENU_DIM: Color = Color::srgb(0.35, 0.35, 0.45);
+const BTN_BG: Color = Color::srgba(0.08, 0.08, 0.14, 0.9);
+const BTN_BORDER: Color = Color::srgba(0.3, 0.28, 0.2, 0.5);
+const BTN_SELECTED_BG: Color = Color::srgba(0.12, 0.10, 0.06, 0.95);
+const BTN_SELECTED_BORDER: Color = Color::srgba(0.9, 0.75, 0.3, 0.8);
+
 impl Plugin for MainMenuPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(MainMenuActive::default())
+            .insert_resource(MenuSelection::default())
             .add_systems(Startup, spawn_main_menu)
-            .add_systems(Update, handle_main_menu_input);
+            .add_systems(Update, (handle_main_menu_input, update_menu_visuals));
     }
 }
 
 fn spawn_main_menu(mut commands: Commands) {
-    // Root node — full-screen centered column
+    // Full-screen root
     commands
         .spawn((
             MainMenuUI,
@@ -41,123 +70,179 @@ fn spawn_main_menu(mut commands: Commands) {
                 position_type: PositionType::Absolute,
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.02, 0.02, 0.06, 0.95)),
-            // High z-index so it covers the game world
+            BackgroundColor(MENU_BG),
             ZIndex(100),
         ))
-        .with_children(|parent| {
-            // Title
-            parent.spawn((
-                Text::new("DRIFTLANDS"),
-                TextFont {
-                    font_size: 64.0,
-                    ..default()
-                },
-                TextColor(Color::srgb(0.9, 0.75, 0.3)),
+        .with_children(|root| {
+            // Decorative top line
+            root.spawn((
                 Node {
-                    margin: UiRect::bottom(Val::Px(10.0)),
+                    width: Val::Px(360.0),
+                    height: Val::Px(1.0),
+                    margin: UiRect::bottom(Val::Px(24.0)),
                     ..default()
                 },
+                BackgroundColor(Color::srgba(0.9, 0.75, 0.3, 0.3)),
+            ));
+
+            // Title
+            root.spawn((
+                Text::new("DRIFTLANDS"),
+                TextFont { font_size: 68.0, ..default() },
+                TextColor(MENU_ACCENT),
+                Node { margin: UiRect::bottom(Val::Px(6.0)), ..default() },
             ));
 
             // Subtitle
-            parent.spawn((
+            root.spawn((
                 Text::new("A world of discovery awaits"),
-                TextFont {
-                    font_size: 18.0,
-                    ..default()
-                },
-                TextColor(Color::srgb(0.6, 0.6, 0.7)),
-                Node {
-                    margin: UiRect::bottom(Val::Px(50.0)),
-                    ..default()
-                },
+                TextFont { font_size: 15.0, ..default() },
+                TextColor(MENU_DIM),
+                Node { margin: UiRect::bottom(Val::Px(16.0)), ..default() },
             ));
 
-            // Menu options
-            parent.spawn((
-                Text::new("[N]  New Game"),
-                TextFont {
-                    font_size: 24.0,
-                    ..default()
-                },
-                TextColor(Color::srgb(0.9, 0.9, 0.9)),
+            // Decorative bottom line
+            root.spawn((
                 Node {
-                    margin: UiRect::bottom(Val::Px(12.0)),
+                    width: Val::Px(360.0),
+                    height: Val::Px(1.0),
+                    margin: UiRect::bottom(Val::Px(32.0)),
                     ..default()
                 },
+                BackgroundColor(Color::srgba(0.9, 0.75, 0.3, 0.3)),
             ));
 
-            parent.spawn((
-                Text::new("[L]  Load Game"),
-                TextFont {
-                    font_size: 24.0,
-                    ..default()
-                },
-                TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                Node {
-                    margin: UiRect::bottom(Val::Px(12.0)),
-                    ..default()
-                },
+            // Button container
+            root.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                row_gap: Val::Px(10.0),
+                margin: UiRect::bottom(Val::Px(36.0)),
+                ..default()
+            })
+            .with_children(|buttons| {
+                spawn_menu_button(buttons, "New Game", 0);
+                spawn_menu_button(buttons, "Continue", 1);
+                spawn_menu_button(buttons, "Quit", 2);
+            });
+
+            // Controls hint
+            root.spawn((
+                Text::new("Arrow Keys / W S to navigate  |  Enter to select"),
+                TextFont { font_size: 12.0, ..default() },
+                TextColor(MENU_DIM),
+                Node { margin: UiRect::bottom(Val::Px(20.0)), ..default() },
             ));
 
-            parent.spawn((
-                Text::new("[Q]  Quit"),
-                TextFont {
-                    font_size: 24.0,
-                    ..default()
-                },
-                TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                Node {
-                    margin: UiRect::bottom(Val::Px(40.0)),
-                    ..default()
-                },
-            ));
-
-            // Footer
-            parent.spawn((
-                Text::new("v0.5 Early Access"),
-                TextFont {
-                    font_size: 14.0,
-                    ..default()
-                },
-                TextColor(Color::srgb(0.4, 0.4, 0.5)),
-            ));
+            // Version & credits
+            root.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                ..default()
+            })
+            .with_children(|footer| {
+                footer.spawn((
+                    Text::new("v0.6 Early Access"),
+                    TextFont { font_size: 13.0, ..default() },
+                    TextColor(MENU_DIM),
+                    Node { margin: UiRect::bottom(Val::Px(4.0)), ..default() },
+                ));
+                footer.spawn((
+                    Text::new("Built with Bevy + Rust"),
+                    TextFont { font_size: 11.0, ..default() },
+                    TextColor(Color::srgba(0.3, 0.3, 0.4, 0.6)),
+                ));
+            });
         });
+}
+
+fn spawn_menu_button(parent: &mut ChildBuilder, label: &str, index: usize) {
+    parent.spawn((
+        MenuButton { index },
+        Node {
+            width: Val::Px(260.0),
+            height: Val::Px(46.0),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            border: UiRect::all(Val::Px(2.0)),
+            ..default()
+        },
+        BackgroundColor(BTN_BG),
+        BorderColor(BTN_BORDER),
+    ))
+    .with_children(|btn| {
+        btn.spawn((
+            Text::new(label),
+            TextFont { font_size: 21.0, ..default() },
+            TextColor(MENU_TEXT),
+        ));
+    });
+}
+
+fn update_menu_visuals(
+    selection: Res<MenuSelection>,
+    menu: Res<MainMenuActive>,
+    mut button_query: Query<(&MenuButton, &mut BackgroundColor, &mut BorderColor)>,
+) {
+    if !menu.active { return; }
+
+    for (btn, mut bg, mut border) in button_query.iter_mut() {
+        if btn.index == selection.index {
+            *bg = BackgroundColor(BTN_SELECTED_BG);
+            *border = BorderColor(BTN_SELECTED_BORDER);
+        } else {
+            *bg = BackgroundColor(BTN_BG);
+            *border = BorderColor(BTN_BORDER);
+        }
+    }
 }
 
 fn handle_main_menu_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut menu: ResMut<MainMenuActive>,
+    mut selection: ResMut<MenuSelection>,
     mut menu_ui_query: Query<&mut Visibility, With<MainMenuUI>>,
     mut exit_writer: EventWriter<AppExit>,
     mut load_requested: ResMut<LoadRequested>,
 ) {
     if !menu.active {
-        // Ensure UI is hidden when menu is inactive
         for mut vis in menu_ui_query.iter_mut() {
             *vis = Visibility::Hidden;
         }
         return;
     }
 
-    // Ensure UI is visible
     for mut vis in menu_ui_query.iter_mut() {
         *vis = Visibility::Visible;
     }
 
-    if keyboard.just_pressed(KeyCode::KeyN) {
-        // New Game — dismiss the menu; world is already generated at startup
-        menu.active = false;
+    // Navigation
+    if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+        if selection.index > 0 {
+            selection.index -= 1;
+        } else {
+            selection.index = selection.count - 1;
+        }
+    }
+    if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+        selection.index = (selection.index + 1) % selection.count;
     }
 
-    if keyboard.just_pressed(KeyCode::KeyL) {
-        // Load Game — dismiss menu and request a load from the saveload system
-        menu.active = false;
-        load_requested.requested = true;
+    // Selection via Enter or direct key
+    let activated = keyboard.just_pressed(KeyCode::Enter)
+        || keyboard.just_pressed(KeyCode::Space);
+
+    if activated {
+        match selection.index {
+            0 => menu.active = false,                                    // New Game
+            1 => { menu.active = false; load_requested.requested = true; } // Continue
+            2 => { exit_writer.send(AppExit::Success); }                  // Quit
+            _ => {}
+        }
     }
 
-    if keyboard.just_pressed(KeyCode::KeyQ) {
-        exit_writer.send(AppExit::Success);
-    }
+    // Direct keyboard shortcuts still work
+    if keyboard.just_pressed(KeyCode::KeyN) { menu.active = false; }
+    if keyboard.just_pressed(KeyCode::KeyL) { menu.active = false; load_requested.requested = true; }
+    if keyboard.just_pressed(KeyCode::KeyQ) { exit_writer.send(AppExit::Success); }
 }

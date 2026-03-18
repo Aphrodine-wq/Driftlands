@@ -4,9 +4,11 @@ use serde::{Serialize, Deserialize};
 use crate::hud::not_paused;
 use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
-use crate::daynight::DayNightCycle;
+use crate::daynight::{DayNightCycle, DayPhase};
+use crate::audio::SoundEvent;
 use crate::building::BuildingState;
 use crate::world::ChunkObject;
+use crate::world::generation::WorldGenerator;
 
 pub struct NpcPlugin;
 
@@ -14,13 +16,114 @@ impl Plugin for NpcPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(TradeMenu::default())
             .insert_resource(HermitDialogueDisplay::default())
+            .insert_resource(NpcDialogueDisplay::default())
             .add_systems(Update, (
                 spawn_trader,
                 despawn_trader,
                 trader_interaction,
                 hermit_interaction,
+                npc_schedule_behavior,
+                npc_interaction,
             ).run_if(not_paused))
             .add_systems(Update, execute_trade);
+    }
+}
+
+// ── NPC Type Enum ────────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum NpcType {
+    WanderingTrader,
+    Hermit,
+    Blacksmith,
+    QuestGiver,
+    Farmer,
+}
+
+// ── Schedule / Wander Component ──────────────────────────────────────────────
+
+/// NPCs with this component wander near their spawn point during the day
+/// and stand still at night.
+#[derive(Component)]
+pub struct NpcSchedule {
+    pub npc_type: NpcType,
+    pub home_pos: Vec2,
+    /// Timer for wander direction changes.
+    pub wander_timer: f32,
+    /// Current wander velocity.
+    pub wander_dir: Vec2,
+}
+
+/// Resource for NPC dialogue display (non-hermit NPCs).
+#[derive(Resource, Default)]
+pub struct NpcDialogueDisplay {
+    pub text: String,
+    pub timer: f32,
+}
+
+// ── Blacksmith ───────────────────────────────────────────────────────────────
+
+#[derive(Component)]
+pub struct Blacksmith {
+    pub dialogue: Vec<String>,
+    pub dialogue_index: usize,
+}
+
+impl Blacksmith {
+    pub fn new() -> Self {
+        Self {
+            dialogue: vec![
+                "I can repair your equipment... for a price.".to_string(),
+                "Bring me iron and I'll restore your gear.".to_string(),
+                "The mountain ores make the finest blades.".to_string(),
+                "I've been forging in these mountains for decades.".to_string(),
+            ],
+            dialogue_index: 0,
+        }
+    }
+}
+
+// ── Quest Giver ──────────────────────────────────────────────────────────────
+
+#[derive(Component)]
+pub struct QuestGiver {
+    pub dialogue: Vec<String>,
+    pub dialogue_index: usize,
+}
+
+impl QuestGiver {
+    pub fn new() -> Self {
+        Self {
+            dialogue: vec![
+                "I have work for a capable drifter...".to_string(),
+                "The creatures grow bolder each night.".to_string(),
+                "There are resources to gather if you're willing.".to_string(),
+                "Prove your worth and I'll share what I know.".to_string(),
+            ],
+            dialogue_index: 0,
+        }
+    }
+}
+
+// ── Farmer ───────────────────────────────────────────────────────────────────
+
+#[derive(Component)]
+pub struct Farmer {
+    pub dialogue: Vec<String>,
+    pub dialogue_index: usize,
+}
+
+impl Farmer {
+    pub fn new() -> Self {
+        Self {
+            dialogue: vec![
+                "Fresh seeds for sale! Rare varieties too.".to_string(),
+                "I'll buy your crops at a fair price.".to_string(),
+                "The soil here is rich after the rains.".to_string(),
+                "Farming keeps the Driftlands fed.".to_string(),
+            ],
+            dialogue_index: 0,
+        }
     }
 }
 
@@ -86,13 +189,25 @@ struct TraderSpawnState {
 }
 
 /// All possible offers a wandering trader may bring.
-const OFFER_POOL: [(ItemType, ItemType, u32); 6] = [
-    (ItemType::WheatSeed,  ItemType::Stone,    3),
-    (ItemType::CarrotSeed, ItemType::Stone,    5),
-    (ItemType::Blueprint,  ItemType::IronIngot, 10),
-    (ItemType::IronOre,    ItemType::Stone,    5),
-    (ItemType::RareHerb,   ItemType::IceShard, 8),
-    (ItemType::HealthPotion, ItemType::MushroomCap, 3),
+const OFFER_POOL: [(ItemType, ItemType, u32); 16] = [
+    (ItemType::WheatSeed,     ItemType::Stone,       3),
+    (ItemType::CarrotSeed,    ItemType::Stone,       5),
+    (ItemType::Blueprint,     ItemType::IronIngot,   10),
+    (ItemType::IronOre,       ItemType::Stone,       5),
+    (ItemType::RareHerb,      ItemType::IceShard,    8),
+    (ItemType::HealthPotion,  ItemType::MushroomCap, 3),
+    // Expansion: new crop seeds
+    (ItemType::CornSeed,      ItemType::Stone,       3),
+    (ItemType::PotatoSeed,    ItemType::Stone,       3),
+    (ItemType::PepperSeed,    ItemType::Stone,       4),
+    (ItemType::OnionSeed,     ItemType::Stone,       3),
+    (ItemType::RiceSeed,      ItemType::Reed,        2),
+    (ItemType::MelonSeed,     ItemType::Stone,       5),
+    (ItemType::FlaxSeed,      ItemType::PlantFiber,  4),
+    (ItemType::SugarcaneSeed, ItemType::Stone,       4),
+    // Expansion: fishing & pet supplies
+    (ItemType::FishingRod,    ItemType::IronIngot,   3),
+    (ItemType::PetCollar,     ItemType::IronIngot,   5),
 ];
 
 fn generate_offers(rng: &mut impl Rng) -> Vec<TradeOffer> {
@@ -227,6 +342,7 @@ fn execute_trade(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut trade_menu: ResMut<TradeMenu>,
     mut trader_query: Query<(&mut Trader, &mut Knowledge)>,
+    mut sound_events: EventWriter<SoundEvent>,
     mut inventory: ResMut<Inventory>,
     time: Res<Time>,
 ) {
@@ -274,6 +390,7 @@ fn execute_trade(
                 inventory.remove_items(cost_item, cost_count);
                 inventory.add_item(item_to_buy, 1);
                 trader.offers[idx].sold = true;
+                sound_events.send(SoundEvent::Trade);
 
                 // Intelligence Layer: Record trade
                 knowledge.update_affinity(10);
@@ -395,4 +512,197 @@ fn hermit_interaction(
             break;
         }
     }
+}
+
+// ── NPC Schedule Behavior ────────────────────────────────────────────────────
+
+/// NPCs wander near their spawn point during the day and stand still at night.
+fn npc_schedule_behavior(
+    time: Res<Time>,
+    cycle: Res<DayNightCycle>,
+    mut npc_query: Query<(&mut Transform, &mut NpcSchedule)>,
+) {
+    let is_night = matches!(cycle.phase(), DayPhase::Night);
+    let dt = time.delta_secs();
+
+    for (mut transform, mut schedule) in npc_query.iter_mut() {
+        if is_night {
+            // At night, NPCs stand still — no movement
+            schedule.wander_dir = Vec2::ZERO;
+            continue;
+        }
+
+        // During the day, wander near home
+        schedule.wander_timer -= dt;
+        if schedule.wander_timer <= 0.0 {
+            // Pick a new random direction (deterministic from position)
+            let pos = transform.translation.truncate();
+            let hash = WorldGenerator::position_hash(
+                (pos.x * 100.0) as i32,
+                (pos.y * 100.0 + schedule.wander_timer * 1000.0) as i32,
+                42,
+            );
+            let angle = (hash % 628) as f32 / 100.0; // ~0..TAU
+            schedule.wander_dir = Vec2::new(angle.cos(), angle.sin()) * 8.0; // 8 px/s
+            schedule.wander_timer = 2.0 + (hash % 300) as f32 / 100.0; // 2-5 seconds
+        }
+
+        // Move
+        let new_pos = transform.translation.truncate() + schedule.wander_dir * dt;
+
+        // Leash: stay within 24px of home
+        let to_home = schedule.home_pos - new_pos;
+        if to_home.length() > 24.0 {
+            // Reverse direction toward home
+            schedule.wander_dir = to_home.normalize() * 8.0;
+        }
+
+        let final_pos = transform.translation.truncate() + schedule.wander_dir * dt;
+        transform.translation.x = final_pos.x;
+        transform.translation.y = final_pos.y;
+    }
+}
+
+// ── NPC Interaction (Blacksmith / QuestGiver / Farmer) ───────────────────────
+
+fn npc_interaction(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    building_state: Res<BuildingState>,
+    crafting: Res<crate::crafting::CraftingSystem>,
+    trade_menu: Res<TradeMenu>,
+    player_query: Query<&Transform, With<Player>>,
+    mut blacksmith_query: Query<(&Transform, &mut Blacksmith, &mut Knowledge), Without<Player>>,
+    mut quest_giver_query: Query<(&Transform, &mut QuestGiver, &mut Knowledge), (Without<Player>, Without<Blacksmith>)>,
+    mut farmer_query: Query<(&Transform, &mut Farmer, &mut Knowledge), (Without<Player>, Without<Blacksmith>, Without<QuestGiver>)>,
+    mut npc_display: ResMut<NpcDialogueDisplay>,
+    time: Res<Time>,
+) {
+    // Tick down dialogue timer
+    if npc_display.timer > 0.0 {
+        npc_display.timer -= time.delta_secs();
+        if npc_display.timer <= 0.0 {
+            npc_display.text.clear();
+        }
+    }
+
+    if building_state.active || crafting.is_open || trade_menu.is_open {
+        return;
+    }
+
+    if !keyboard.just_pressed(KeyCode::KeyE) {
+        return;
+    }
+
+    let Ok(player_tf) = player_query.get_single() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    // Check blacksmiths
+    for (tf, mut bs, mut knowledge) in blacksmith_query.iter_mut() {
+        let dist = player_pos.distance(tf.translation.truncate());
+        if dist <= 32.0 {
+            let line = bs.dialogue[bs.dialogue_index].clone();
+            npc_display.text = format!("Blacksmith: \"{}\"", line);
+            npc_display.timer = 5.0;
+            bs.dialogue_index = (bs.dialogue_index + 1) % bs.dialogue.len();
+            knowledge.update_affinity(5);
+            knowledge.add_memory("talked_to_player", time.elapsed_secs_f64());
+            return;
+        }
+    }
+
+    // Check quest givers
+    for (tf, mut qg, mut knowledge) in quest_giver_query.iter_mut() {
+        let dist = player_pos.distance(tf.translation.truncate());
+        if dist <= 32.0 {
+            let line = qg.dialogue[qg.dialogue_index].clone();
+            npc_display.text = format!("Quest Giver: \"{}\"", line);
+            npc_display.timer = 5.0;
+            qg.dialogue_index = (qg.dialogue_index + 1) % qg.dialogue.len();
+            knowledge.update_affinity(5);
+            knowledge.add_memory("talked_to_player", time.elapsed_secs_f64());
+            return;
+        }
+    }
+
+    // Check farmers
+    for (tf, mut farmer, mut knowledge) in farmer_query.iter_mut() {
+        let dist = player_pos.distance(tf.translation.truncate());
+        if dist <= 32.0 {
+            let line = farmer.dialogue[farmer.dialogue_index].clone();
+            npc_display.text = format!("Farmer: \"{}\"", line);
+            npc_display.timer = 5.0;
+            farmer.dialogue_index = (farmer.dialogue_index + 1) % farmer.dialogue.len();
+            knowledge.update_affinity(5);
+            knowledge.add_memory("talked_to_player", time.elapsed_secs_f64());
+            return;
+        }
+    }
+}
+
+// ── Public NPC Spawn Helpers ─────────────────────────────────────────────────
+
+/// Spawn a Blacksmith NPC at a world position (used by structures module).
+pub fn spawn_blacksmith(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVec2) {
+    commands.spawn((
+        Blacksmith::new(),
+        Knowledge::default(),
+        Invulnerable,
+        NpcSchedule {
+            npc_type: NpcType::Blacksmith,
+            home_pos: Vec2::new(x, y),
+            wander_timer: 0.0,
+            wander_dir: Vec2::ZERO,
+        },
+        ChunkObject { chunk_pos },
+        Sprite {
+            color: Color::srgb(0.55, 0.35, 0.25),
+            custom_size: Some(Vec2::new(11.0, 14.0)),
+            ..default()
+        },
+        Transform::from_xyz(x, y, 6.0),
+    ));
+}
+
+/// Spawn a Quest Giver NPC at a world position (used by structures module).
+pub fn spawn_quest_giver(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVec2) {
+    commands.spawn((
+        QuestGiver::new(),
+        Knowledge::default(),
+        Invulnerable,
+        NpcSchedule {
+            npc_type: NpcType::QuestGiver,
+            home_pos: Vec2::new(x, y),
+            wander_timer: 0.0,
+            wander_dir: Vec2::ZERO,
+        },
+        ChunkObject { chunk_pos },
+        Sprite {
+            color: Color::srgb(0.65, 0.55, 0.15),
+            custom_size: Some(Vec2::new(10.0, 14.0)),
+            ..default()
+        },
+        Transform::from_xyz(x, y, 6.0),
+    ));
+}
+
+/// Spawn a Farmer NPC at a world position (used by structures module).
+pub fn spawn_farmer(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVec2) {
+    commands.spawn((
+        Farmer::new(),
+        Knowledge::default(),
+        Invulnerable,
+        NpcSchedule {
+            npc_type: NpcType::Farmer,
+            home_pos: Vec2::new(x, y),
+            wander_timer: 0.0,
+            wander_dir: Vec2::ZERO,
+        },
+        ChunkObject { chunk_pos },
+        Sprite {
+            color: Color::srgb(0.35, 0.60, 0.20),
+            custom_size: Some(Vec2::new(10.0, 14.0)),
+            ..default()
+        },
+        Transform::from_xyz(x, y, 6.0),
+    ));
 }

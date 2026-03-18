@@ -1,6 +1,10 @@
 use bevy::prelude::*;
 use crate::camera::GameCamera;
-use crate::hud::not_paused;
+use crate::hud::{not_paused, CurrentBiome};
+use crate::player::{Player, Health};
+use crate::weather::{Weather, WeatherSystem};
+use crate::world::generation::Biome;
+use crate::season::Season;
 
 pub struct DayNightPlugin;
 
@@ -35,12 +39,25 @@ impl Default for DayNightCycle {
 
 impl DayNightCycle {
     pub fn phase(&self) -> DayPhase {
-        match self.time_of_day {
-            t if t < 0.2 => DayPhase::Night,
-            t if t < 0.3 => DayPhase::Sunrise,
-            t if t < 0.7 => DayPhase::Day,
-            t if t < 0.8 => DayPhase::Sunset,
-            _ => DayPhase::Night,
+        self.phase_with_season(Season::Summer)
+    }
+
+    /// Winter has longer nights (PRD 5.6): night 0–0.25 and 0.75–1.0; day 0.35–0.65.
+    pub fn phase_with_season(&self, season: Season) -> DayPhase {
+        let (night_end, day_start, day_end, sunset_start) = if season == Season::Winter {
+            (0.25, 0.35, 0.65, 0.75)
+        } else {
+            (0.2, 0.3, 0.7, 0.8)
+        };
+        let t = self.time_of_day;
+        if t < night_end || t >= sunset_start {
+            DayPhase::Night
+        } else if t < day_start {
+            DayPhase::Sunrise
+        } else if t < day_end {
+            DayPhase::Day
+        } else {
+            DayPhase::Sunset
         }
     }
 
@@ -65,7 +82,11 @@ pub enum DayPhase {
 #[derive(Component)]
 pub struct DayNightOverlay;
 
-fn spawn_overlay(mut commands: Commands) {
+#[derive(Component)]
+pub struct VignetteOverlay;
+
+fn spawn_overlay(mut commands: Commands, assets: Res<crate::assets::GameAssets>) {
+    // Day/night darkness overlay
     commands.spawn((
         DayNightOverlay,
         Sprite {
@@ -74,6 +95,17 @@ fn spawn_overlay(mut commands: Commands) {
             ..default()
         },
         Transform::from_xyz(0.0, 0.0, 50.0),
+    ));
+
+    // Vignette overlay — always present, subtle edge darkening
+    commands.spawn((
+        VignetteOverlay,
+        Sprite {
+            image: assets.vignette.clone(),
+            custom_size: Some(Vec2::new(2048.0, 2048.0)),
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, 49.0),
     ));
 }
 
@@ -93,30 +125,89 @@ fn update_day_night(
 
 fn apply_ambient_light(
     cycle: Res<DayNightCycle>,
-    mut overlay_query: Query<(&mut Sprite, &mut Transform), (With<DayNightOverlay>, Without<GameCamera>)>,
-    camera_query: Query<&Transform, With<GameCamera>>,
+    season: Res<crate::season::SeasonCycle>,
+    weather: Res<WeatherSystem>,
+    current_biome: Res<CurrentBiome>,
+    player_query: Query<&Health, With<Player>>,
+    mut overlay_query: Query<(&mut Sprite, &mut Transform), (With<DayNightOverlay>, Without<GameCamera>, Without<VignetteOverlay>)>,
+    mut vignette_query: Query<(&mut Sprite, &mut Transform), (With<VignetteOverlay>, Without<GameCamera>, Without<DayNightOverlay>)>,
+    camera_query: Query<&Transform, (With<GameCamera>, Without<DayNightOverlay>, Without<VignetteOverlay>)>,
 ) {
     let Ok((mut sprite, mut overlay_tf)) = overlay_query.get_single_mut() else { return };
     let Ok(cam_tf) = camera_query.get_single() else { return };
 
-    // Follow camera so overlay always covers the screen
+    // Follow camera so overlays always cover the screen
     overlay_tf.translation.x = cam_tf.translation.x;
     overlay_tf.translation.y = cam_tf.translation.y;
 
-    let darkness = match cycle.phase() {
-        DayPhase::Night => 0.55,
+    // Vignette follows camera too
+    if let Ok((mut vig_sprite, mut vig_tf)) = vignette_query.get_single_mut() {
+        vig_tf.translation.x = cam_tf.translation.x;
+        vig_tf.translation.y = cam_tf.translation.y;
+
+        // --- Screen-space mood: vignette intensity & tint by time, weather, biome, and health ---
+        let health_frac = player_query.get_single().ok()
+            .map(|h| (h.current / h.max).clamp(0.0, 1.0))
+            .unwrap_or(1.0);
+
+        // Reduced now that per-pixel lighting carries mood; vignette is subtle frame only
+        let base_alpha = match cycle.phase_with_season(season.current) {
+            DayPhase::Day => 0.10,
+            DayPhase::Sunrise | DayPhase::Sunset => 0.14,
+            DayPhase::Night => 0.18,
+        };
+
+        let weather_boost = match weather.current {
+            Weather::Clear => 0.0,
+            Weather::Rain | Weather::Snow => 0.03,
+            Weather::Storm => 0.07,
+            Weather::Fog => 0.05,
+            Weather::Blizzard => 0.08,
+        };
+
+        // Lower health -> stronger vignette + red tint
+        let low_health = (1.0 - health_frac).clamp(0.0, 1.0);
+        let health_boost = 0.10 * low_health;
+
+        let alpha = (base_alpha + weather_boost + health_boost).clamp(0.05, 0.40);
+
+        // Subtle biome tint
+        let (mut r, mut g, mut b, _) = match current_biome.biome.unwrap_or(Biome::Forest) {
+            Biome::Forest => (0.05_f32, 0.08_f32, 0.03_f32, 1.0_f32),
+            Biome::Coastal => (0.03_f32, 0.08_f32, 0.10_f32, 1.0_f32),
+            Biome::Swamp => (0.04_f32, 0.06_f32, 0.03_f32, 1.0_f32),
+            Biome::Desert => (0.08_f32, 0.06_f32, 0.02_f32, 1.0_f32),
+            Biome::Tundra => (0.05_f32, 0.07_f32, 0.10_f32, 1.0_f32),
+            Biome::Volcanic => (0.08_f32, 0.03_f32, 0.02_f32, 1.0_f32),
+            Biome::Fungal => (0.05_f32, 0.03_f32, 0.07_f32, 1.0_f32),
+            Biome::CrystalCave => (0.04_f32, 0.06_f32, 0.09_f32, 1.0_f32),
+            Biome::Mountain => (0.05_f32, 0.06_f32, 0.07_f32, 1.0_f32),
+        };
+
+        // Health-based red accent: only really visible at low HP
+        let red_accent = 0.08 * low_health;
+        r = (r + red_accent).clamp(0.0, 0.3);
+        g = g.clamp(0.0, 0.3);
+        b = b.clamp(0.0, 0.3);
+
+        vig_sprite.color = Color::srgba(r, g, b, alpha);
+    }
+
+    // Lighter overlay so per-pixel chunk lighting is the main day/night driver
+    let darkness = match cycle.phase_with_season(season.current) {
+        DayPhase::Night => 0.32,
         DayPhase::Sunrise => {
             let f = (cycle.time_of_day - 0.2) / 0.1;
-            0.55 * (1.0 - f)
+            0.32 * (1.0 - f)
         }
         DayPhase::Day => 0.0,
         DayPhase::Sunset => {
             let f = (cycle.time_of_day - 0.7) / 0.1;
-            0.55 * f
+            0.32 * f
         }
     };
 
-    sprite.color = Color::srgba(0.02, 0.02, 0.12, darkness);
+    sprite.color = Color::srgba(0.02, 0.02, 0.10, darkness);
 }
 
 /// Smoothly shifts ClearColor between day/night atmosphere colors.

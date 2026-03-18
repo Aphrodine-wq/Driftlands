@@ -10,6 +10,8 @@ impl Plugin for TutorialPlugin {
             .add_systems(Startup, spawn_tutorial_hint_ui)
             .add_systems(Update, (
                 check_tutorial_triggers,
+                check_combat_tutorial_triggers,
+                check_exploration_tutorial_triggers,
                 update_tutorial_hint_display,
             ).chain().run_if(not_paused));
     }
@@ -32,6 +34,10 @@ pub struct TutorialState {
     pub seen_craft: bool,
     /// Tracks whether we have seen at least one build.
     pub seen_build: bool,
+    /// Tracks whether the player has attacked an enemy (for first_combat hint).
+    pub seen_combat: bool,
+    /// Tracks the last known season for detecting season changes.
+    pub last_season: Option<crate::season::Season>,
 }
 
 impl Default for TutorialState {
@@ -44,6 +50,8 @@ impl Default for TutorialState {
             seen_pickup: false,
             seen_craft: false,
             seen_build: false,
+            seen_combat: false,
+            last_season: None,
         }
     }
 }
@@ -87,7 +95,7 @@ fn try_show_hint(state: &mut TutorialState, hint_id: &str, hint_text: &str, dura
     true
 }
 
-/// Watches for tutorial trigger conditions each frame.
+/// Watches for tutorial trigger conditions each frame (original triggers).
 fn check_tutorial_triggers(
     mut tutorial: ResMut<TutorialState>,
     inventory: Res<crate::inventory::Inventory>,
@@ -169,6 +177,175 @@ fn check_tutorial_triggers(
                 8.0,
             );
         }
+    }
+}
+
+/// Wave 7A: Combat, death, pet, boss, quest, and fishing tutorial triggers.
+fn check_combat_tutorial_triggers(
+    mut tutorial: ResMut<TutorialState>,
+    death_stats: Res<crate::death::DeathStats>,
+    death_screen: Res<crate::death::DeathScreen>,
+    quest_log: Res<crate::quests::QuestLog>,
+    enemy_query: Query<(&crate::combat::Enemy, &Transform), Without<crate::player::Player>>,
+    boss_query: Query<&crate::combat::Boss>,
+    player_query: Query<&Transform, With<crate::player::Player>>,
+    inventory: Res<crate::inventory::Inventory>,
+) {
+    // 1. first_combat — triggered when player first attacks an enemy (kills tracked > 0)
+    if !tutorial.seen_combat && death_stats.total_kills > 0 {
+        tutorial.seen_combat = true;
+        try_show_hint(
+            &mut tutorial,
+            "first_combat",
+            "Left-click to attack. Watch your HP!",
+            8.0,
+        );
+    }
+
+    // 2. first_death — triggered on first death (death_count > 0)
+    if death_stats.death_count > 0 && !death_screen.active {
+        try_show_hint(
+            &mut tutorial,
+            "first_death",
+            "You died! Items dropped on death. Find your gravestone.",
+            8.0,
+        );
+    }
+
+    // 5. first_pet_encounter — triggered when a tameable enemy is low HP
+    if let Ok(player_tf) = player_query.get_single() {
+        let player_pos = player_tf.translation.truncate();
+        let tameable_types = [
+            crate::combat::EnemyType::FeralWolf,
+            crate::combat::EnemyType::CaveSpider,
+            crate::combat::EnemyType::NightBat,
+            crate::combat::EnemyType::BogLurker,
+        ];
+        for (enemy, enemy_tf) in enemy_query.iter() {
+            let dist = player_pos.distance(enemy_tf.translation.truncate());
+            if dist < 100.0
+                && tameable_types.contains(&enemy.enemy_type)
+                && enemy.health > 0.0
+                && enemy.health <= enemy.max_health * 0.25
+            {
+                try_show_hint(
+                    &mut tutorial,
+                    "first_pet_encounter",
+                    "This creature looks tameable! Use a Pet Collar.",
+                    8.0,
+                );
+                break;
+            }
+        }
+    }
+
+    // 7. first_boss — triggered when any boss entity exists in the world
+    if !boss_query.is_empty() {
+        try_show_hint(
+            &mut tutorial,
+            "first_boss",
+            "A powerful boss has appeared! Prepare for a tough fight.",
+            8.0,
+        );
+    }
+
+    // 6. first_quest_complete — triggered when any quest is completed
+    {
+        let has_completed = quest_log.quests.iter().any(|q| q.completed);
+        if has_completed {
+            try_show_hint(
+                &mut tutorial,
+                "first_quest_complete",
+                "Quest complete! Open the Quest Log [J] to claim rewards.",
+                8.0,
+            );
+        }
+    }
+
+    // 4. first_fishing_spot — triggered when near water with a rod
+    {
+        let has_rod = inventory.slots.iter().any(|s| {
+            s.as_ref()
+                .map(|slot| {
+                    slot.item == crate::inventory::ItemType::FishingRod
+                        || slot.item == crate::inventory::ItemType::SteelFishingRod
+                })
+                .unwrap_or(false)
+        });
+        if has_rod {
+            // Check fishing state — if we're idle and the phase system would allow casting,
+            // it means we're near water
+            let fishing = inventory.selected_item().map(|s| {
+                s.item == crate::inventory::ItemType::FishingRod
+                    || s.item == crate::inventory::ItemType::SteelFishingRod
+            }).unwrap_or(false);
+            if fishing {
+                try_show_hint(
+                    &mut tutorial,
+                    "first_fishing_spot",
+                    "Right-click with a fishing rod near water to fish.",
+                    8.0,
+                );
+            }
+        }
+    }
+
+    // 9. first_enchanting — triggered when player has an enchanting table
+    {
+        let has_enchanting_table = inventory.count_items(crate::inventory::ItemType::EnchantingTable) > 0;
+        if has_enchanting_table {
+            try_show_hint(
+                &mut tutorial,
+                "first_enchanting",
+                "Enchanting tables let you create powerful weapons.",
+                8.0,
+            );
+        }
+    }
+}
+
+/// Wave 7A: Exploration-related tutorial triggers (biome, dungeon, season).
+fn check_exploration_tutorial_triggers(
+    mut tutorial: ResMut<TutorialState>,
+    _current_biome: Res<crate::hud::CurrentBiome>,
+    explored_biomes: Res<crate::hud::ExploredBiomes>,
+    dungeon_registry: Res<crate::dungeon::DungeonRegistry>,
+    season: Res<crate::season::SeasonCycle>,
+) {
+    // 8. first_biome_change — triggered on first biome transition (more than 1 biome explored)
+    if explored_biomes.set.len() > 1 {
+        try_show_hint(
+            &mut tutorial,
+            "first_biome_change",
+            "New biome discovered! Each biome has unique resources.",
+            8.0,
+        );
+    }
+
+    // 3. first_dungeon — triggered when entering a dungeon
+    if dungeon_registry.current_dungeon.is_some() {
+        try_show_hint(
+            &mut tutorial,
+            "first_dungeon",
+            "Dungeons are dangerous! Prepare with weapons and food.",
+            8.0,
+        );
+    }
+
+    // 10. first_season_change — triggered when season changes
+    {
+        let current = season.current;
+        if let Some(last) = tutorial.last_season {
+            if last != current {
+                try_show_hint(
+                    &mut tutorial,
+                    "first_season_change",
+                    "Seasons affect weather, crops, and enemy behavior.",
+                    8.0,
+                );
+            }
+        }
+        tutorial.last_season = Some(current);
     }
 }
 

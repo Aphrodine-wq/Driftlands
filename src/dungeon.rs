@@ -263,6 +263,7 @@ fn generate_dungeon(
 
     let step_x = (room_width_tiles + gap_tiles) as f32 * DTILE;
 
+    let (floor_color, _wall_color) = dungeon_colors(biome);
     let mut room_centers: Vec<Vec2> = Vec::new();
 
     for room_idx in 0..num_rooms {
@@ -271,14 +272,14 @@ fn generate_dungeon(
             anchor.y,
         );
 
-        // Spawn floor tiles for this room.
+        // Spawn floor tiles for this room (biome-tinted).
         for ty in 0..room_height_tiles {
             for tx in 0..room_width_tiles {
                 let tile_pos = Vec2::new(
                     room_origin.x + tx as f32 * DTILE + DTILE / 2.0,
                     room_origin.y + ty as f32 * DTILE + DTILE / 2.0,
                 );
-                spawn_floor_tile(commands, tile_pos);
+                spawn_floor_tile_colored(commands, tile_pos, floor_color);
             }
         }
 
@@ -287,7 +288,8 @@ fn generate_dungeon(
         let has_right_doorway = room_idx < num_rooms - 1;
 
         // Spawn wall tiles around the perimeter (with doorway gaps).
-        spawn_room_walls(commands, room_origin, room_width_tiles, room_height_tiles, (has_left_doorway, has_right_doorway));
+        let (_, wall_color) = dungeon_colors(biome);
+        spawn_room_walls(commands, room_origin, room_width_tiles, room_height_tiles, (has_left_doorway, has_right_doorway), wall_color);
 
         // Spawn a corridor connecting this room to the previous one.
         if room_idx > 0 {
@@ -306,10 +308,11 @@ fn generate_dungeon(
         room_centers.push(center);
     }
 
-    // Spawn CaveSpiders (3–8) spread across all rooms except the last one.
-    let num_spiders: usize = rng.gen_range(3..=8);
+    // Spawn biome-appropriate dungeon enemies (3–8) in all rooms except the last.
+    let dungeon_enemy_type = dungeon_enemy_for_biome(biome);
+    let num_enemies: usize = rng.gen_range(3..=8);
     let non_boss_rooms = if num_rooms > 1 { num_rooms - 1 } else { 1 };
-    for i in 0..num_spiders {
+    for i in 0..num_enemies {
         let room_idx = i % non_boss_rooms;
         let center = room_centers[room_idx];
         let offset = Vec2::new(
@@ -317,7 +320,7 @@ fn generate_dungeon(
             rng.gen_range(-16.0..16.0),
         );
         let spawn_pos = center + offset;
-        spawn_cave_spider(commands, spawn_pos);
+        spawn_dungeon_enemy(commands, spawn_pos, dungeon_enemy_type);
     }
 
     // US-036: Spawn loot chests in non-boss rooms (60% chance per room).
@@ -357,11 +360,52 @@ fn generate_dungeon(
     ));
 }
 
+/// Returns biome-specific floor and wall colors for dungeon generation.
+fn dungeon_colors(biome: Biome) -> (Color, Color) {
+    match biome {
+        Biome::Tundra => (
+            Color::srgb(0.3, 0.32, 0.38),   // icy floor
+            Color::srgb(0.2, 0.22, 0.3),     // blue-tinted walls
+        ),
+        Biome::Volcanic => (
+            Color::srgb(0.32, 0.2, 0.15),    // scorched floor
+            Color::srgb(0.3, 0.12, 0.08),    // red-tinted walls
+        ),
+        Biome::Fungal => (
+            Color::srgb(0.22, 0.28, 0.2),    // mossy floor
+            Color::srgb(0.15, 0.22, 0.12),   // green-tinted walls
+        ),
+        Biome::Swamp => (
+            Color::srgb(0.2, 0.25, 0.18),    // murky floor
+            Color::srgb(0.12, 0.18, 0.1),    // dark green walls
+        ),
+        _ => (
+            Color::srgb(0.28, 0.25, 0.22),   // default stone floor
+            Color::srgb(0.18, 0.16, 0.14),   // default walls
+        ),
+    }
+}
+
+/// Returns the enemy type to spawn in dungeon rooms for a given biome.
+fn dungeon_enemy_for_biome(biome: Biome) -> EnemyType {
+    match biome {
+        Biome::Tundra => EnemyType::IceWraith,
+        Biome::Volcanic => EnemyType::LavaElemental,
+        Biome::Fungal => EnemyType::FungalZombie,
+        Biome::Swamp => EnemyType::BogLurker,
+        _ => EnemyType::CaveSpider,
+    }
+}
+
 fn spawn_floor_tile(commands: &mut Commands, pos: Vec2) {
+    spawn_floor_tile_colored(commands, pos, Color::srgb(0.28, 0.25, 0.22));
+}
+
+fn spawn_floor_tile_colored(commands: &mut Commands, pos: Vec2, color: Color) {
     commands.spawn((
         DungeonTile,
         Sprite {
-            color: Color::srgb(0.28, 0.25, 0.22),
+            color,
             custom_size: Some(Vec2::new(DTILE, DTILE)),
             ..default()
         },
@@ -375,9 +419,9 @@ fn spawn_room_walls(
     width: usize,
     height: usize,
     doorways: (bool, bool),
+    wall_color: Color,
 ) {
     // Spawn one tile outside the perimeter on all four sides as "wall" tiles.
-    let wall_color = Color::srgb(0.18, 0.16, 0.14);
     let wall_size = Vec2::new(DTILE, DTILE);
 
     // Compute the 2-tile doorway opening indices (vertically centered).
@@ -466,8 +510,7 @@ fn spawn_corridor(
     }
 }
 
-fn spawn_cave_spider(commands: &mut Commands, pos: Vec2) {
-    let enemy_type = EnemyType::CaveSpider;
+fn spawn_dungeon_enemy(commands: &mut Commands, pos: Vec2, enemy_type: EnemyType) {
     let (health, damage, speed, aggro_range, color, size) = enemy_type.stats();
 
     let mut rng = rand::thread_rng();
@@ -494,6 +537,7 @@ fn spawn_cave_spider(commands: &mut Commands, pos: Vec2) {
             patrol_timer: rng.gen_range(2.0..4.0),
             alert_timer: 0.0,
             distance_from_origin: pos.length(),
+            ability_cooldown_timer: 0.0,
         },
         Sprite {
             color,
@@ -611,11 +655,13 @@ fn spawn_dungeon_boss(commands: &mut Commands, pos: Vec2, biome: Biome) {
             patrol_timer: rng.gen_range(2.0..4.0),
             alert_timer: 0.0,
             distance_from_origin,
+            ability_cooldown_timer: 0.0,
         },
         Boss {
             name: boss_name,
             loot_table,
             has_roared: false,
+            phase_2: false,
         },
         Sprite {
             color,
@@ -786,8 +832,8 @@ pub fn spawn_entrance_with_biome(
         // entrance so the world's chunk-unload system can clean it up.
         crate::world::ChunkObject { chunk_pos },
         Sprite {
-            color: Color::srgb(0.5, 0.15, 0.6),
-            custom_size: Some(Vec2::new(14.0, 14.0)),
+            color: Color::srgb(0.6, 0.2, 0.7),
+            custom_size: Some(Vec2::new(18.0, 18.0)),
             ..default()
         },
         Transform::from_xyz(world_x, world_y, 2.5),

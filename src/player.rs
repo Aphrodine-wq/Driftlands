@@ -23,6 +23,10 @@ impl Plugin for PlayerPlugin {
     }
 }
 
+/// Which floor the player is on (0 = ground, 1 = first floor). Used for building placement and visibility.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct CurrentFloor(pub u8);
+
 #[derive(Component)]
 pub struct Player {
     pub speed: f32,
@@ -104,11 +108,12 @@ pub struct ActiveBuff {
 }
 
 pub const PLAYER_SPEED: f32 = 150.0;
-const PLAYER_SIZE: f32 = 12.0;
+const PLAYER_SIZE: f32 = 14.0;
 
 fn spawn_player(mut commands: Commands, assets: Res<crate::assets::GameAssets>) {
     commands.spawn((
         Player { speed: PLAYER_SPEED, walk_timer: 0.0 },
+        CurrentFloor(0),
         PlayerFacing::Down,
         Health::new(100.0),
         Hunger::new(100.0),
@@ -194,13 +199,17 @@ fn player_movement(
             transform.translation.y = target_y;
         }
 
-        // Walk bob: oscillate y by ±1.0 pixels using sine wave
+        // Walk bob: squash/stretch sprite for movement feel (no position drift)
         player.walk_timer += time.delta_secs();
-        let bob_offset = (player.walk_timer * 8.0 * std::f32::consts::PI).sin();
-        transform.translation.y += bob_offset;
+        let bob = (player.walk_timer * 10.0 * std::f32::consts::PI).sin();
+        sprite.custom_size = Some(Vec2::new(
+            PLAYER_SIZE + bob * 0.8,
+            PLAYER_SIZE - bob * 0.8,
+        ));
     } else {
-        // Reset walk timer when not moving
+        // Reset walk timer and restore sprite when not moving
         player.walk_timer = 0.0;
+        sprite.custom_size = Some(Vec2::new(PLAYER_SIZE, PLAYER_SIZE));
     }
 }
 
@@ -312,9 +321,36 @@ fn eat_food(
         ItemType::Berry => Some(15.0),
         ItemType::Wheat => Some(10.0),
         ItemType::Carrot => Some(12.0),
+        ItemType::Tomato => Some(8.0),
+        ItemType::Pumpkin => Some(14.0),
+        ItemType::Corn => Some(10.0),
+        ItemType::Potato => Some(12.0),
+        ItemType::Melon => Some(8.0),
+        ItemType::Rice => Some(8.0),
+        ItemType::Pepper => Some(6.0),
+        ItemType::Onion => Some(6.0),
         ItemType::CookedBerry => Some(25.0),
         ItemType::BakedWheat => Some(30.0),
         ItemType::CookedCarrot => Some(28.0),
+        ItemType::CookedTomato => Some(22.0),
+        ItemType::BakedPumpkin => Some(35.0),
+        ItemType::RoastedCorn => Some(28.0),
+        ItemType::BakedPotato => Some(32.0),
+        ItemType::MelonSlice => Some(20.0),
+        ItemType::CookedRice => Some(26.0),
+        ItemType::RoastedPepper => Some(22.0),
+        ItemType::CookedOnion => Some(18.0),
+        // Fish
+        ItemType::RawTrout => Some(10.0),
+        ItemType::RawSalmon => Some(12.0),
+        ItemType::RawCatfish => Some(8.0),
+        ItemType::RawEel => Some(6.0),
+        ItemType::RawCrab => Some(8.0),
+        ItemType::CookedTrout => Some(28.0),
+        ItemType::CookedSalmon => Some(32.0),
+        ItemType::CookedCatfish => Some(24.0),
+        ItemType::CookedEel => Some(22.0),
+        ItemType::CrabMeat => Some(26.0),
         _ => None,
     };
 
@@ -342,6 +378,55 @@ fn eat_food(
                         buff_type: BuffType::Regen,
                         remaining: 90.0,
                         magnitude: 0.2, // 0.2 HP per second = 2 HP per 10s
+                    });
+                }
+                ItemType::CookedTomato | ItemType::BakedPumpkin => {
+                    commands.entity(player_entity).insert(ActiveBuff {
+                        buff_type: BuffType::Speed,
+                        remaining: 45.0,
+                        magnitude: 1.1,
+                    });
+                }
+                ItemType::RoastedCorn | ItemType::BakedPotato => {
+                    commands.entity(player_entity).insert(ActiveBuff {
+                        buff_type: BuffType::Strength,
+                        remaining: 60.0,
+                        magnitude: 1.1,
+                    });
+                }
+                ItemType::CookedRice | ItemType::CookedOnion => {
+                    commands.entity(player_entity).insert(ActiveBuff {
+                        buff_type: BuffType::Regen,
+                        remaining: 60.0,
+                        magnitude: 0.3,
+                    });
+                }
+                ItemType::RoastedPepper => {
+                    commands.entity(player_entity).insert(ActiveBuff {
+                        buff_type: BuffType::Speed,
+                        remaining: 30.0,
+                        magnitude: 1.15,
+                    });
+                }
+                ItemType::MelonSlice => {
+                    commands.entity(player_entity).insert(ActiveBuff {
+                        buff_type: BuffType::Regen,
+                        remaining: 45.0,
+                        magnitude: 0.2,
+                    });
+                }
+                ItemType::CookedSalmon | ItemType::CookedTrout => {
+                    commands.entity(player_entity).insert(ActiveBuff {
+                        buff_type: BuffType::Strength,
+                        remaining: 45.0,
+                        magnitude: 1.1,
+                    });
+                }
+                ItemType::CrabMeat => {
+                    commands.entity(player_entity).insert(ActiveBuff {
+                        buff_type: BuffType::Speed,
+                        remaining: 30.0,
+                        magnitude: 1.1,
                     });
                 }
                 _ => {}

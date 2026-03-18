@@ -1,10 +1,11 @@
 use bevy::prelude::*;
-use crate::player::Player;
+use crate::player::{Player, CurrentFloor};
 use crate::inventory::{Inventory, InventorySlot, ItemType};
 use crate::world::{TILE_SIZE, CHUNK_WORLD_SIZE};
 use crate::world::chunk::{Chunk, CHUNK_SIZE};
 use crate::crafting::CraftingTier;
 use crate::audio::SoundEvent;
+use crate::particles::SpawnParticlesEvent;
 
 pub struct BuildingPlugin;
 
@@ -19,6 +20,8 @@ impl Plugin for BuildingPlugin {
                 update_build_preview,
                 door_interaction,
                 roof_transparency,
+                stair_ladder_use,
+                building_visibility_by_floor,
                 destroy_building,
                 chest_interaction,
                 chest_transfer,
@@ -55,6 +58,14 @@ pub struct Door {
 
 #[derive(Component)]
 pub struct Roof;
+
+/// Which floor (0 = ground, 1 = first floor) this building is on. Used for visibility and placement.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct FloorLayer(pub u8);
+
+/// Marker for stairs and ladders; used for E-key interaction to change player floor.
+#[derive(Component)]
+pub struct StairsOrLadder;
 
 #[derive(Component)]
 pub struct CraftingStation {
@@ -102,6 +113,28 @@ pub enum BuildingType {
     Campfire,
     AdvancedForge,
     AncientWorkstation,
+    WoodStairs,
+    StoneStairs,
+    Ladder,
+    WoodHalfWall,
+    WoodWallWindow,
+    BrickWall,
+    ReinforcedStoneWall,
+    EnchantingTable,
+    FishSmoker,
+    PetHouse,
+    DisplayCase,
+    // Wave 6 — New Furniture
+    Lantern,
+    Bookshelf,
+    WeaponRack,
+    CookingPot,
+    RainCollector,
+    TrophyMount,
+    // Wave 6 — Automation
+    AutoSmelter,
+    CropSprinkler,
+    AlarmBell,
 }
 
 impl BuildingType {
@@ -124,7 +157,27 @@ impl BuildingType {
             BuildingType::MetalDoor => BuildingType::AdvancedForge,
             BuildingType::AdvancedForge => BuildingType::AncientWorkstation,
             BuildingType::AncientWorkstation => BuildingType::Bed,
-            BuildingType::Bed => BuildingType::WoodFloor,
+            BuildingType::Bed => BuildingType::WoodStairs,
+            BuildingType::WoodStairs => BuildingType::StoneStairs,
+            BuildingType::StoneStairs => BuildingType::Ladder,
+            BuildingType::Ladder => BuildingType::WoodHalfWall,
+            BuildingType::WoodHalfWall => BuildingType::WoodWallWindow,
+            BuildingType::WoodWallWindow => BuildingType::BrickWall,
+            BuildingType::BrickWall => BuildingType::ReinforcedStoneWall,
+            BuildingType::ReinforcedStoneWall => BuildingType::EnchantingTable,
+            BuildingType::EnchantingTable => BuildingType::FishSmoker,
+            BuildingType::FishSmoker => BuildingType::PetHouse,
+            BuildingType::PetHouse => BuildingType::DisplayCase,
+            BuildingType::DisplayCase => BuildingType::Lantern,
+            BuildingType::Lantern => BuildingType::Bookshelf,
+            BuildingType::Bookshelf => BuildingType::WeaponRack,
+            BuildingType::WeaponRack => BuildingType::CookingPot,
+            BuildingType::CookingPot => BuildingType::RainCollector,
+            BuildingType::RainCollector => BuildingType::TrophyMount,
+            BuildingType::TrophyMount => BuildingType::AutoSmelter,
+            BuildingType::AutoSmelter => BuildingType::CropSprinkler,
+            BuildingType::CropSprinkler => BuildingType::AlarmBell,
+            BuildingType::AlarmBell => BuildingType::WoodFloor,
         }
     }
 
@@ -148,6 +201,26 @@ impl BuildingType {
             BuildingType::Campfire => "Campfire",
             BuildingType::AdvancedForge => "Advanced Forge",
             BuildingType::AncientWorkstation => "Ancient Workstation",
+            BuildingType::WoodStairs => "Wood Stairs",
+            BuildingType::StoneStairs => "Stone Stairs",
+            BuildingType::Ladder => "Ladder",
+            BuildingType::WoodHalfWall => "Wood Half Wall",
+            BuildingType::WoodWallWindow => "Wood Wall (Window)",
+            BuildingType::BrickWall => "Brick Wall",
+            BuildingType::ReinforcedStoneWall => "Reinforced Stone Wall",
+            BuildingType::EnchantingTable => "Enchanting Table",
+            BuildingType::FishSmoker => "Fish Smoker",
+            BuildingType::PetHouse => "Pet House",
+            BuildingType::DisplayCase => "Display Case",
+            BuildingType::Lantern => "Lantern",
+            BuildingType::Bookshelf => "Bookshelf",
+            BuildingType::WeaponRack => "Weapon Rack",
+            BuildingType::CookingPot => "Cooking Pot",
+            BuildingType::RainCollector => "Rain Collector",
+            BuildingType::TrophyMount => "Trophy Mount",
+            BuildingType::AutoSmelter => "Auto-Smelter",
+            BuildingType::CropSprinkler => "Crop Sprinkler",
+            BuildingType::AlarmBell => "Alarm Bell",
         }
     }
 
@@ -171,6 +244,26 @@ impl BuildingType {
             BuildingType::Campfire => ItemType::Campfire,
             BuildingType::AdvancedForge => ItemType::AdvancedForge,
             BuildingType::AncientWorkstation => ItemType::AncientWorkstation,
+            BuildingType::WoodStairs => ItemType::WoodStairs,
+            BuildingType::StoneStairs => ItemType::StoneStairs,
+            BuildingType::Ladder => ItemType::Ladder,
+            BuildingType::WoodHalfWall => ItemType::WoodHalfWall,
+            BuildingType::WoodWallWindow => ItemType::WoodWallWindow,
+            BuildingType::BrickWall => ItemType::BrickWall,
+            BuildingType::ReinforcedStoneWall => ItemType::ReinforcedStoneWall,
+            BuildingType::EnchantingTable => ItemType::EnchantingTable,
+            BuildingType::FishSmoker => ItemType::FishSmoker,
+            BuildingType::PetHouse => ItemType::PetHouse,
+            BuildingType::DisplayCase => ItemType::DisplayCase,
+            BuildingType::Lantern => ItemType::Lantern,
+            BuildingType::Bookshelf => ItemType::Bookshelf,
+            BuildingType::WeaponRack => ItemType::WeaponRack,
+            BuildingType::CookingPot => ItemType::CookingPot,
+            BuildingType::RainCollector => ItemType::RainCollector,
+            BuildingType::TrophyMount => ItemType::TrophyMount,
+            BuildingType::AutoSmelter => ItemType::AutoSmelterItem,
+            BuildingType::CropSprinkler => ItemType::CropSprinklerItem,
+            BuildingType::AlarmBell => ItemType::AlarmBellItem,
         }
     }
 
@@ -194,6 +287,26 @@ impl BuildingType {
             BuildingType::Campfire => Color::srgb(0.9, 0.6, 0.15),
             BuildingType::AdvancedForge => Color::srgb(0.3, 0.35, 0.45),
             BuildingType::AncientWorkstation => Color::srgb(0.45, 0.25, 0.75),
+            BuildingType::WoodStairs => Color::srgb(0.5, 0.32, 0.18),
+            BuildingType::StoneStairs => Color::srgb(0.52, 0.52, 0.5),
+            BuildingType::Ladder => Color::srgb(0.45, 0.35, 0.2),
+            BuildingType::WoodHalfWall => Color::srgb(0.48, 0.32, 0.18),
+            BuildingType::WoodWallWindow => Color::srgb(0.5, 0.33, 0.18),
+            BuildingType::BrickWall => Color::srgb(0.65, 0.35, 0.28),
+            BuildingType::ReinforcedStoneWall => Color::srgb(0.45, 0.45, 0.48),
+            BuildingType::EnchantingTable => Color::srgb(0.55, 0.3, 0.8),
+            BuildingType::FishSmoker => Color::srgb(0.7, 0.5, 0.25),
+            BuildingType::PetHouse => Color::srgb(0.55, 0.4, 0.2),
+            BuildingType::DisplayCase => Color::srgb(0.6, 0.65, 0.7),
+            BuildingType::Lantern => Color::srgb(0.95, 0.85, 0.4),
+            BuildingType::Bookshelf => Color::srgb(0.5, 0.3, 0.15),
+            BuildingType::WeaponRack => Color::srgb(0.55, 0.45, 0.35),
+            BuildingType::CookingPot => Color::srgb(0.35, 0.35, 0.35),
+            BuildingType::RainCollector => Color::srgb(0.4, 0.55, 0.7),
+            BuildingType::TrophyMount => Color::srgb(0.6, 0.45, 0.25),
+            BuildingType::AutoSmelter => Color::srgb(0.7, 0.35, 0.1),
+            BuildingType::CropSprinkler => Color::srgb(0.3, 0.6, 0.75),
+            BuildingType::AlarmBell => Color::srgb(0.8, 0.7, 0.2),
         }
     }
 
@@ -216,6 +329,22 @@ impl BuildingType {
             BuildingType::Workbench | BuildingType::Forge |
             BuildingType::AdvancedForge |
             BuildingType::AncientWorkstation => Vec2::new(TILE_SIZE, TILE_SIZE),
+            BuildingType::WoodStairs | BuildingType::StoneStairs => Vec2::new(TILE_SIZE, TILE_SIZE),
+            BuildingType::Ladder => Vec2::new(8.0, TILE_SIZE),
+            BuildingType::WoodHalfWall => Vec2::new(TILE_SIZE, 12.0),
+            BuildingType::WoodWallWindow => Vec2::new(TILE_SIZE, 24.0),
+            BuildingType::BrickWall | BuildingType::ReinforcedStoneWall => Vec2::new(TILE_SIZE, 24.0),
+            BuildingType::EnchantingTable | BuildingType::FishSmoker |
+            BuildingType::PetHouse | BuildingType::DisplayCase => Vec2::new(TILE_SIZE, TILE_SIZE),
+            BuildingType::Lantern => Vec2::new(8.0, 8.0),
+            BuildingType::Bookshelf => Vec2::new(TILE_SIZE, TILE_SIZE),
+            BuildingType::WeaponRack => Vec2::new(TILE_SIZE, TILE_SIZE),
+            BuildingType::CookingPot => Vec2::new(TILE_SIZE, TILE_SIZE),
+            BuildingType::RainCollector => Vec2::new(TILE_SIZE, TILE_SIZE),
+            BuildingType::TrophyMount => Vec2::new(TILE_SIZE * 0.75, TILE_SIZE * 0.75),
+            BuildingType::AutoSmelter => Vec2::new(TILE_SIZE, TILE_SIZE),
+            BuildingType::CropSprinkler => Vec2::new(TILE_SIZE * 0.75, TILE_SIZE * 0.75),
+            BuildingType::AlarmBell => Vec2::new(TILE_SIZE * 0.75, TILE_SIZE * 0.75),
         }
     }
 
@@ -234,7 +363,20 @@ impl BuildingType {
             BuildingType::Workbench | BuildingType::Forge |
             BuildingType::Campfire | BuildingType::AdvancedForge |
             BuildingType::AncientWorkstation => 2.0,
+            BuildingType::WoodStairs | BuildingType::StoneStairs | BuildingType::Ladder => 2.0,
+            BuildingType::WoodHalfWall | BuildingType::WoodWallWindow => 2.5,
+            BuildingType::BrickWall | BuildingType::ReinforcedStoneWall => 3.0,
+            BuildingType::EnchantingTable | BuildingType::FishSmoker |
+            BuildingType::PetHouse | BuildingType::DisplayCase => 2.0,
+            BuildingType::Lantern | BuildingType::Bookshelf | BuildingType::WeaponRack |
+            BuildingType::CookingPot | BuildingType::RainCollector | BuildingType::TrophyMount |
+            BuildingType::AutoSmelter | BuildingType::CropSprinkler | BuildingType::AlarmBell => 2.0,
         }
+    }
+
+    /// Returns true for stairs and ladders (vertical traversal).
+    pub fn is_stairs_or_ladder(&self) -> bool {
+        matches!(self, BuildingType::WoodStairs | BuildingType::StoneStairs | BuildingType::Ladder)
     }
 
     /// Returns materials returned when destroyed (50% of recipe, min 1)
@@ -258,6 +400,26 @@ impl BuildingType {
             BuildingType::Campfire => vec![(ItemType::Stone, 2), (ItemType::Stick, 1), (ItemType::Wood, 1)],
             BuildingType::AdvancedForge => vec![(ItemType::SteelAlloy, 5), (ItemType::CrystalShard, 2), (ItemType::ObsidianShard, 1)],
             BuildingType::AncientWorkstation => vec![(ItemType::AncientCore, 2), (ItemType::Gemstone, 2), (ItemType::SteelAlloy, 5)],
+            BuildingType::WoodStairs => vec![(ItemType::WoodPlank, 2), (ItemType::Stick, 2)],
+            BuildingType::StoneStairs => vec![(ItemType::StoneBlock, 2)],
+            BuildingType::Ladder => vec![(ItemType::Stick, 3), (ItemType::Rope, 1)],
+            BuildingType::WoodHalfWall => vec![(ItemType::WoodPlank, 2), (ItemType::Stick, 1)],
+            BuildingType::WoodWallWindow => vec![(ItemType::WoodPlank, 4), (ItemType::Stick, 2)],
+            BuildingType::BrickWall => vec![(ItemType::Brick, 4)],
+            BuildingType::ReinforcedStoneWall => vec![(ItemType::ReinforcedStoneBlock, 3), (ItemType::IronIngot, 1)],
+            BuildingType::EnchantingTable => vec![(ItemType::IronIngot, 4), (ItemType::CrystalShard, 2), (ItemType::Gemstone, 1)],
+            BuildingType::FishSmoker => vec![(ItemType::StoneBlock, 3), (ItemType::IronIngot, 1)],
+            BuildingType::PetHouse => vec![(ItemType::WoodPlank, 5), (ItemType::Rope, 1)],
+            BuildingType::DisplayCase => vec![(ItemType::WoodPlank, 4), (ItemType::CrystalShard, 1)],
+            BuildingType::Lantern => vec![(ItemType::IronIngot, 1), (ItemType::Torch, 1)],
+            BuildingType::Bookshelf => vec![(ItemType::WoodPlank, 4)],
+            BuildingType::WeaponRack => vec![(ItemType::IronIngot, 2), (ItemType::WoodPlank, 1)],
+            BuildingType::CookingPot => vec![(ItemType::IronIngot, 2), (ItemType::Stone, 1)],
+            BuildingType::RainCollector => vec![(ItemType::IronIngot, 2), (ItemType::WoodPlank, 1)],
+            BuildingType::TrophyMount => vec![(ItemType::WoodPlank, 1), (ItemType::IronIngot, 1)],
+            BuildingType::AutoSmelter => vec![(ItemType::IronIngot, 4), (ItemType::Stone, 2)],
+            BuildingType::CropSprinkler => vec![(ItemType::IronIngot, 2), (ItemType::WoodPlank, 1)],
+            BuildingType::AlarmBell => vec![(ItemType::IronIngot, 1), (ItemType::Gemstone, 1)],
         }
     }
 
@@ -269,9 +431,47 @@ impl BuildingType {
             BuildingType::Campfire => Some(CraftingTier::Campfire),
             BuildingType::AdvancedForge => Some(CraftingTier::AdvancedForge),
             BuildingType::AncientWorkstation => Some(CraftingTier::Ancient),
+            BuildingType::WoodStairs | BuildingType::StoneStairs | BuildingType::Ladder => None,
+            BuildingType::EnchantingTable => Some(CraftingTier::Ancient),
+            BuildingType::FishSmoker => Some(CraftingTier::Campfire),
+            BuildingType::WoodHalfWall | BuildingType::WoodWallWindow | BuildingType::BrickWall | BuildingType::ReinforcedStoneWall => None,
+            BuildingType::PetHouse | BuildingType::DisplayCase => None,
+            BuildingType::CookingPot => Some(CraftingTier::Campfire),
+            BuildingType::Lantern | BuildingType::Bookshelf | BuildingType::WeaponRack |
+            BuildingType::RainCollector | BuildingType::TrophyMount |
+            BuildingType::AutoSmelter | BuildingType::CropSprinkler | BuildingType::AlarmBell => None,
             _ => None,
         }
     }
+}
+
+/// Returns the appropriate sprite for a building type, using procedural textures where available.
+pub fn building_sprite(bt: BuildingType, assets: &crate::assets::GameAssets) -> Sprite {
+    let (texture, use_tint) = match bt {
+        BuildingType::WoodWall | BuildingType::WoodFence => (Some(assets.wood_wall.clone()), false),
+        BuildingType::WoodFloor => (Some(assets.wood_floor.clone()), false),
+        BuildingType::WoodDoor => (Some(assets.wood_door.clone()), false),
+        BuildingType::StoneWall | BuildingType::MetalWall => (Some(assets.stone_wall.clone()), true),
+        BuildingType::StoneDoor | BuildingType::MetalDoor => (Some(assets.wood_door.clone()), true),
+        BuildingType::Campfire => (Some(assets.campfire.clone()), false),
+        BuildingType::Workbench => (Some(assets.workbench.clone()), false),
+        BuildingType::Forge | BuildingType::AdvancedForge => (Some(assets.forge.clone()), true),
+        BuildingType::Chest => (Some(assets.chest_building.clone()), false),
+        BuildingType::Bed => (Some(assets.bed.clone()), false),
+        _ => (None, false),
+    };
+
+    let mut sprite = Sprite {
+        color: if use_tint { bt.color() } else { Color::WHITE },
+        custom_size: Some(bt.size()),
+        ..default()
+    };
+    if let Some(tex) = texture {
+        sprite.image = tex;
+    } else {
+        sprite.color = bt.color();
+    }
+    sprite
 }
 
 fn toggle_build_mode(
@@ -370,23 +570,26 @@ fn place_building(
     mut commands: Commands,
     building_state: Res<BuildingState>,
     mut inventory: ResMut<Inventory>,
-    player_query: Query<&Transform, With<Player>>,
+    player_query: Query<(&Transform, &CurrentFloor), With<Player>>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut sound_events: EventWriter<SoundEvent>,
+    mut particle_events: EventWriter<SpawnParticlesEvent>,
+    assets: Res<crate::assets::GameAssets>,
 ) {
     if !building_state.active || !mouse.just_pressed(MouseButton::Right) {
         return;
     }
 
-    // Don't place if the preview position is invalid
-    if !building_state.placement_valid {
-        return;
-    }
-
-    let Ok(player_tf) = player_query.get_single() else { return };
+    let Ok((player_tf, current_floor)) = player_query.get_single() else { return };
     let bt = building_state.selected_type;
 
+    // Invalid placement feedback: wrong spot or missing materials
+    if !building_state.placement_valid {
+        sound_events.send(SoundEvent::PlaceInvalid);
+        return;
+    }
     if !inventory.has_items(bt.required_item(), 1) {
+        sound_events.send(SoundEvent::PlaceInvalid);
         return;
     }
 
@@ -396,16 +599,23 @@ fn place_building(
     inventory.remove_items(bt.required_item(), 1);
     sound_events.send(SoundEvent::Build);
 
+    // Place success: dust/shimmer particles
+    particle_events.send(SpawnParticlesEvent {
+        position: Vec2::new(snapped_x, snapped_y),
+        color: Color::srgba(0.75, 0.7, 0.6, 0.9),
+        count: 6,
+    });
+
     let mut entity_commands = commands.spawn((
         Building { building_type: bt },
-        Sprite {
-            color: bt.color(),
-            custom_size: Some(bt.size()),
-            ..default()
-        },
+        FloorLayer(current_floor.0),
+        building_sprite(bt, &assets),
         Transform::from_xyz(snapped_x, snapped_y, bt.z_depth()),
     ));
 
+    if bt.is_stairs_or_ladder() {
+        entity_commands.insert(StairsOrLadder);
+    }
     if matches!(bt, BuildingType::WoodDoor | BuildingType::StoneDoor | BuildingType::MetalDoor) {
         entity_commands.insert(Door { is_open: false });
     }
@@ -437,6 +647,16 @@ fn place_building(
     }
     if matches!(bt, BuildingType::Chest) {
         entity_commands.insert(ChestStorage::new());
+    }
+    // Wave 6 — Automation components
+    if matches!(bt, BuildingType::AutoSmelter) {
+        entity_commands.insert(crate::automation::AutoSmelter { timer: 0.0 });
+    }
+    if matches!(bt, BuildingType::CropSprinkler) {
+        entity_commands.insert(crate::automation::CropSprinkler);
+    }
+    if matches!(bt, BuildingType::AlarmBell) {
+        entity_commands.insert(crate::automation::AlarmBell { cooldown: 0.0 });
     }
 }
 
@@ -519,6 +739,43 @@ fn roof_transparency(
     }
 }
 
+fn stair_ladder_use(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut player_query: Query<(Entity, &Transform, &mut CurrentFloor), With<Player>>,
+    stair_query: Query<(&Transform, &StairsOrLadder), Without<Player>>,
+) {
+    if !keyboard.just_pressed(KeyCode::KeyE) {
+        return;
+    }
+
+    let Ok((_player_entity, player_tf, mut current_floor)) = player_query.get_single_mut() else {
+        return;
+    };
+    let player_pos = player_tf.translation.truncate();
+
+    for (tf, _) in stair_query.iter() {
+        let dist = player_pos.distance(tf.translation.truncate());
+        if dist <= 24.0 {
+            current_floor.0 = if current_floor.0 == 0 { 1 } else { 0 };
+            return;
+        }
+    }
+}
+
+fn building_visibility_by_floor(
+    player_query: Query<&CurrentFloor, With<Player>>,
+    mut building_query: Query<(&FloorLayer, Option<&StairsOrLadder>, &mut Sprite), (With<Building>, Without<Player>)>,
+) {
+    let Ok(player_floor) = player_query.get_single() else {
+        return;
+    };
+
+    for (floor, stairs, mut sprite) in building_query.iter_mut() {
+        let visible = stairs.is_some() || floor.0 == player_floor.0;
+        sprite.color.set_alpha(if visible { 1.0 } else { 0.0 });
+    }
+}
+
 fn destroy_building(
     mut commands: Commands,
     building_state: Res<BuildingState>,
@@ -527,6 +784,7 @@ fn destroy_building(
     building_query: Query<(Entity, &Transform, &Building), Without<Player>>,
     mut inventory: ResMut<Inventory>,
     mut chest_ui: ResMut<ChestUI>,
+    mut sound_events: EventWriter<crate::audio::SoundEvent>,
 ) {
     if !building_state.active || !mouse.just_pressed(MouseButton::Left) {
         return;
@@ -553,10 +811,10 @@ fn destroy_building(
             chest_ui.target_entity = None;
             chest_ui.selected_slot = 0;
         }
-        // Return 50% materials
         for (item, count) in bt.salvage() {
             inventory.add_item(item, count);
         }
+        sound_events.send(crate::audio::SoundEvent::BuildBreak);
         commands.entity(entity).despawn_recursive();
     }
 }

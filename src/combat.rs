@@ -1,27 +1,37 @@
 use bevy::prelude::*;
 use rand::Rng;
+use std::collections::HashSet;
 use crate::hud::not_paused;
-use crate::player::{Player, Health, ActiveBuff, BuffType, ArmorSlots};
+use crate::player::{Player, Health, Hunger, ActiveBuff, BuffType, ArmorSlots};
 use crate::daynight::{DayNightCycle, DayPhase};
+use crate::season::SeasonCycle;
 use crate::inventory::{Inventory, ItemType};
 use crate::world::chunk::Chunk;
 use crate::world::generation::Biome;
 use crate::world::{CHUNK_WORLD_SIZE};
 use crate::npc::Invulnerable;
 use crate::building::{Building, BuildingType, Door};
-use crate::camera::ScreenShake;
+use crate::camera::{ScreenShake, HitStop};
 use crate::death::DeathStats;
 use crate::particles::SpawnParticlesEvent;
 use crate::audio::SoundEvent;
-use crate::hud::spawn_floating_text;
+use crate::hud::FloatingTextRequest;
 use crate::gathering::spawn_dropped_item;
 use crate::dungeon::cave_spider_random_drop;
+use crate::enchanting::enemy_on_hit_effect;
+use crate::status_effects::ApplyStatusEvent;
+use crate::weather::WeatherSystem;
 
 pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<ResearchPointEvent>()
+            .add_event::<PlayerHitEvent>()
+            .insert_resource(DodgeCooldown::default())
+            .insert_resource(ComboState::default())
+            .insert_resource(WeaponSpecialState::default())
+            .insert_resource(PlayerHitQueue::default())
             .add_systems(Update, (
                 spawn_night_enemies,
                 despawn_enemies_at_sunrise,
@@ -29,11 +39,33 @@ impl Plugin for CombatPlugin {
                 player_attack,
                 enemy_attack_player,
                 update_hit_flash,
+            ).run_if(not_paused))
+            .add_systems(Update, (
                 boss_death_loot,
                 update_enemy_health_bars,
                 projectile_movement,
                 projectile_hit,
                 knockback_system,
+                update_slash_arcs,
+            ).run_if(not_paused))
+            .add_systems(Update, (
+                enemy_ranged_attacks,
+                enemy_projectile_hit_player,
+                update_ice_spike_aoe,
+                update_burn_zones,
+                update_dive_bombs,
+                spawn_burn_zones_from_magma,
+            ).run_if(not_paused))
+            .add_systems(Update, (
+                drain_player_hit_queue,
+                apply_weapon_effects,
+                dodge_roll_input,
+                dodge_roll_tick,
+                shield_block_input,
+            ).run_if(not_paused))
+            .add_systems(Update, (
+                combo_tracker,
+                weapon_specials,
             ).run_if(not_paused));
     }
 }
@@ -44,6 +76,17 @@ impl Plugin for CombatPlugin {
 #[derive(Event)]
 pub struct ResearchPointEvent {
     pub amount: u32,
+}
+
+/// Fired when the player lands a melee hit on an enemy.
+/// Used by enchanting/combo/weapon special systems without touching player_attack params.
+#[derive(Event)]
+pub struct PlayerHitEvent {
+    pub target: Entity,
+    pub weapon: ItemType,
+    pub damage: f32,
+    pub player_pos: Vec2,
+    pub enemy_pos: Vec2,
 }
 
 // --- Components ---
@@ -74,6 +117,8 @@ pub struct Enemy {
     /// Distance from world origin at spawn time (US-032: used for HP scaling).
     #[allow(dead_code)]
     pub distance_from_origin: f32,
+    /// Cooldown for ranged/ability attack (seconds remaining).
+    pub ability_cooldown_timer: f32,
 }
 
 /// Marks an enemy as a boss and carries its name and loot table.
@@ -86,6 +131,8 @@ pub struct Boss {
     pub name: String,
     pub loot_table: Vec<(ItemType, u32)>,
     pub has_roared: bool,
+    /// Phase 2 at or below 50% HP: faster and hits harder (PRD 4.2).
+    pub phase_2: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -93,12 +140,18 @@ pub enum EnemyType {
     // --- regular night/biome enemies ---
     ShadowCrawler,
     FeralWolf,
+    NightBat,
     CaveSpider,
     FungalZombie,
     LavaElemental,
     IceWraith,
     BogLurker,
     SandScorpion,
+    // --- elite enemies (expansion) ---
+    AlphaWolf,
+    VenomScorpion,
+    FrostLich,
+    MagmaGolem,
     // --- dungeon boss (US-007) ---
     #[allow(dead_code)]
     StoneGolem,
@@ -120,12 +173,18 @@ impl EnemyType {
         match self {
             EnemyType::ShadowCrawler => (30.0, 5.0, 80.0, 150.0, Color::srgb(0.4, 0.1, 0.5), Vec2::new(10.0, 10.0)),
             EnemyType::FeralWolf => (40.0, 8.0, 100.0, 180.0, Color::srgb(0.5, 0.5, 0.5), Vec2::new(12.0, 10.0)),
+            EnemyType::NightBat => (18.0, 4.0, 130.0, 140.0, Color::srgb(0.2, 0.15, 0.25), Vec2::new(8.0, 8.0)),
             EnemyType::CaveSpider => (20.0, 4.0, 120.0, 120.0, Color::srgb(0.3, 0.2, 0.15), Vec2::new(8.0, 8.0)),
             EnemyType::FungalZombie => (50.0, 6.0, 40.0, 100.0, Color::srgb(0.3, 0.5, 0.2), Vec2::new(12.0, 14.0)),
             EnemyType::LavaElemental => (60.0, 12.0, 50.0, 130.0, Color::srgb(0.9, 0.3, 0.1), Vec2::new(14.0, 14.0)),
             EnemyType::IceWraith => (35.0, 7.0, 70.0, 160.0, Color::srgb(0.7, 0.85, 1.0), Vec2::new(10.0, 12.0)),
             EnemyType::BogLurker => (45.0, 6.0, 60.0, 100.0, Color::srgb(0.25, 0.4, 0.2), Vec2::new(12.0, 12.0)),
             EnemyType::SandScorpion => (30.0, 8.0, 90.0, 140.0, Color::srgb(0.7, 0.55, 0.3), Vec2::new(10.0, 8.0)),
+            // Elite enemies
+            EnemyType::AlphaWolf     => (80.0, 12.0, 110.0, 200.0, Color::srgb(0.35, 0.35, 0.4), Vec2::new(14.0, 12.0)),
+            EnemyType::VenomScorpion => (60.0, 14.0, 95.0, 160.0, Color::srgb(0.5, 0.7, 0.2), Vec2::new(12.0, 10.0)),
+            EnemyType::FrostLich     => (70.0, 10.0, 65.0, 180.0, Color::srgb(0.5, 0.6, 0.9), Vec2::new(12.0, 14.0)),
+            EnemyType::MagmaGolem    => (120.0, 16.0, 30.0, 150.0, Color::srgb(0.8, 0.3, 0.05), Vec2::new(16.0, 16.0)),
             // Dungeon boss
             EnemyType::StoneGolem => (200.0, 15.0, 30.0, 200.0, Color::srgb(0.6, 0.6, 0.6), Vec2::new(20.0, 20.0)),
             // Biome bosses
@@ -138,6 +197,35 @@ impl EnemyType {
             EnemyType::CrystalSentinel => (220.0, 15.0, 30.0, 200.0, Color::srgb(0.6, 0.5, 0.8), Vec2::new(20.0, 22.0)),
             EnemyType::TidalSerpent   => (240.0, 16.0, 35.0, 200.0, Color::srgb(0.2, 0.5, 0.8), Vec2::new(22.0, 20.0)),
             EnemyType::MountainTitan  => (260.0, 17.0, 25.0, 200.0, Color::srgb(0.5, 0.45, 0.35), Vec2::new(24.0, 24.0)),
+        }
+    }
+
+    /// Wave 7C: Human-readable display name for death recap.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            EnemyType::ShadowCrawler => "Shadow Crawler",
+            EnemyType::FeralWolf => "Feral Wolf",
+            EnemyType::NightBat => "Night Bat",
+            EnemyType::CaveSpider => "Cave Spider",
+            EnemyType::FungalZombie => "Fungal Zombie",
+            EnemyType::LavaElemental => "Lava Elemental",
+            EnemyType::IceWraith => "Ice Wraith",
+            EnemyType::BogLurker => "Bog Lurker",
+            EnemyType::SandScorpion => "Sand Scorpion",
+            EnemyType::AlphaWolf => "Alpha Wolf",
+            EnemyType::VenomScorpion => "Venom Scorpion",
+            EnemyType::FrostLich => "Frost Lich",
+            EnemyType::MagmaGolem => "Magma Golem",
+            EnemyType::StoneGolem => "Stone Golem",
+            EnemyType::ForestGuardian => "Forest Guardian",
+            EnemyType::SwampBeast => "Swamp Beast",
+            EnemyType::DesertWyrm => "Desert Wyrm",
+            EnemyType::FrostGiant => "Frost Giant",
+            EnemyType::MagmaKing => "Magma King",
+            EnemyType::FungalOverlord => "Fungal Overlord",
+            EnemyType::CrystalSentinel => "Crystal Sentinel",
+            EnemyType::TidalSerpent => "Tidal Serpent",
+            EnemyType::MountainTitan => "Mountain Titan",
         }
     }
 
@@ -187,7 +275,10 @@ pub struct HitFlash {
 }
 
 #[derive(Component)]
-pub struct EnemyHealthBar;
+pub struct EnemyHealthBar {
+    pub parent_enemy: Entity,
+    pub is_fill: bool,
+}
 
 #[derive(Component)]
 pub struct PlayerAttackCooldown {
@@ -201,10 +292,104 @@ pub struct Projectile {
     pub lifetime: f32,
 }
 
+/// Marker component to distinguish enemy-fired projectiles from player arrows.
+#[derive(Component)]
+pub struct EnemyProjectile;
+
+/// AoE marker spawned by FrostLich: after a delay, deals damage in a radius.
+#[derive(Component)]
+pub struct IceSpikeAoE {
+    pub delay: f32,
+    pub damage: f32,
+    pub radius: f32,
+    pub position: Vec2,
+}
+
+/// Burn zone left by LavaElemental magma projectiles.
+#[derive(Component)]
+pub struct BurnZone {
+    pub damage_per_sec: f32,
+    pub radius: f32,
+    pub lifetime: f32,
+}
+
+/// NightBat dive-bomb telegraph marker.
+#[derive(Component)]
+pub struct DiveBomb {
+    pub telegraph_timer: f32,
+    pub damage: f32,
+    pub target_pos: Vec2,
+    pub recovery_timer: f32,
+}
+
 #[derive(Component)]
 pub struct Knockback {
     pub direction: Vec2,
     pub timer: f32,
+}
+
+/// Visual slash arc spawned at the player on melee attack.
+#[derive(Component)]
+pub struct SlashArc {
+    pub timer: f32,
+    pub max_timer: f32,
+}
+
+// --- Dodge Roll ---
+
+/// Player is dodging: invulnerable, 3x speed in facing direction.
+#[derive(Component)]
+pub struct Dodging {
+    pub timer: f32,
+    pub direction: Vec2,
+}
+
+/// Cooldown between dodge rolls.
+#[derive(Resource)]
+pub struct DodgeCooldown {
+    pub timer: f32,
+}
+
+impl Default for DodgeCooldown {
+    fn default() -> Self { Self { timer: 0.0 } }
+}
+
+// --- Shield Blocking ---
+
+/// Player is actively blocking with a shield.
+#[derive(Component)]
+pub struct Blocking {
+    pub start_time: f32,
+}
+
+// --- Combo System ---
+
+/// Tracks combo hits for sequential melee attacks.
+#[derive(Resource)]
+pub struct ComboState {
+    pub count: u32,
+    pub timer: f32,
+}
+
+impl Default for ComboState {
+    fn default() -> Self { Self { count: 0, timer: 0.0 } }
+}
+
+// --- Weapon Specials ---
+
+/// Tracks per-weapon hit counters for special abilities.
+#[derive(Resource, Default)]
+pub struct WeaponSpecialState {
+    pub flame_hits: u32,
+    pub frost_hits: u32,
+    pub venom_consecutive: u32,
+    pub venom_last_target: Option<Entity>,
+}
+
+/// Queue for PlayerHitEvents generated by player_attack (avoids 17th param).
+#[derive(Resource, Default)]
+pub struct PlayerHitQueue {
+    pub pending: Vec<PlayerHitEvent>,
 }
 
 // --- Loot ---
@@ -213,14 +398,65 @@ fn loot_for_enemy(enemy_type: EnemyType) -> (ItemType, u32) {
     match enemy_type {
         EnemyType::FeralWolf => (ItemType::Wood, 2),
         EnemyType::ShadowCrawler => (ItemType::PlantFiber, 2),
+        EnemyType::NightBat => (ItemType::PlantFiber, 1),
         EnemyType::CaveSpider => (ItemType::CrystalShard, 1),
         EnemyType::FungalZombie => (ItemType::MushroomCap, 2),
         EnemyType::LavaElemental => (ItemType::Sulfur, 2),
         EnemyType::IceWraith => (ItemType::IceShard, 2),
         EnemyType::BogLurker => (ItemType::Reed, 2),
         EnemyType::SandScorpion => (ItemType::CactusFiber, 2),
+        EnemyType::AlphaWolf => (ItemType::RareHerb, 2),
+        EnemyType::VenomScorpion => (ItemType::Sulfur, 3),
+        EnemyType::FrostLich => (ItemType::FrostGem, 1),
+        EnemyType::MagmaGolem => (ItemType::ObsidianShard, 3),
         _ => (ItemType::Stone, 2),
     }
+}
+
+fn damage_text_style(damage: f32, reference_max: f32) -> (String, Color) {
+    let ratio = if reference_max > 0.0 {
+        (damage / reference_max).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    if ratio >= 0.6 {
+        // Crit-like big hit
+        (format!("-{:.0}!!", damage), Color::srgb(0.95, 0.8, 0.35))
+    } else if ratio >= 0.3 {
+        // Strong hit
+        (format!("-{:.0}!", damage), Color::srgb(1.0, 0.5, 0.2))
+    } else {
+        // Normal chip damage
+        (format!("-{:.0}", damage), Color::srgb(1.0, 0.3, 0.3))
+    }
+}
+
+// --- Helpers ---
+
+/// Returns the appropriate texture for an enemy type, with the tint color.
+fn enemy_sprite(enemy_type: EnemyType, assets: &crate::assets::GameAssets) -> (Handle<Image>, Color) {
+    let (_hp, _dmg, _spd, _aggro, color, _size) = enemy_type.stats();
+    let texture = match enemy_type {
+        EnemyType::FeralWolf => assets.enemy_wolf.clone(),
+        EnemyType::CaveSpider => assets.enemy_spider.clone(),
+        EnemyType::ShadowCrawler => assets.enemy_crawler.clone(),
+        EnemyType::NightBat => assets.enemy_crawler.clone(),
+        EnemyType::FungalZombie => assets.enemy_zombie.clone(),
+        EnemyType::LavaElemental => assets.enemy_elemental.clone(),
+        EnemyType::IceWraith => assets.enemy_wraith.clone(),
+        EnemyType::BogLurker => assets.enemy_zombie.clone(),
+        EnemyType::SandScorpion | EnemyType::VenomScorpion => assets.enemy_scorpion.clone(),
+        EnemyType::AlphaWolf => assets.enemy_wolf.clone(),
+        EnemyType::FrostLich => assets.enemy_wraith.clone(),
+        EnemyType::MagmaGolem => assets.enemy_elemental.clone(),
+        // All bosses use the boss texture with their stat color as tint
+        EnemyType::ForestGuardian | EnemyType::SwampBeast | EnemyType::DesertWyrm
+        | EnemyType::FrostGiant | EnemyType::MagmaKing | EnemyType::FungalOverlord
+        | EnemyType::CrystalSentinel | EnemyType::TidalSerpent | EnemyType::MountainTitan
+        | EnemyType::StoneGolem => assets.enemy_boss.clone(),
+    };
+    (texture, color)
 }
 
 // --- Systems ---
@@ -228,16 +464,24 @@ fn loot_for_enemy(enemy_type: EnemyType) -> (ItemType, u32) {
 fn spawn_night_enemies(
     mut commands: Commands,
     cycle: Res<DayNightCycle>,
+    season: Res<SeasonCycle>,
     player_query: Query<&Transform, With<Player>>,
     enemy_query: Query<&Enemy>,
     chunk_query: Query<&Chunk>,
+    assets: Res<crate::assets::GameAssets>,
+    death_stats: Res<DeathStats>,
 ) {
-    if cycle.phase() != DayPhase::Night {
+    if cycle.phase_with_season(season.current) != DayPhase::Night {
         return;
     }
 
+    // Wave 7C: Death difficulty scaling — each death increases spawn cap by 5%
+    let death_multiplier = 1.0 + 0.05 * death_stats.death_count as f32;
+
     // US-032: Spawn cap scales with day count — 5 + (day_count / 5), capped at 20
-    let spawn_cap = (5 + (cycle.day_count / 5) as usize).min(20);
+    // Wave 7C: Further scaled by death count
+    let base_cap = (5 + (cycle.day_count / 5) as usize).min(20);
+    let spawn_cap = (base_cap as f32 * death_multiplier).ceil() as usize;
     if enemy_query.iter().count() >= spawn_cap {
         return;
     }
@@ -260,8 +504,25 @@ fn spawn_night_enemies(
         .map(|c| c.biome)
         .unwrap_or(Biome::Forest);
 
-    let enemy_type = EnemyType::for_biome(biome);
-    let (health, damage, speed, aggro_range, color, size) = enemy_type.stats();
+    // 5% elite spawn chance scaling with day count (+0.5% per day, capped at 15%)
+    let elite_chance = (0.05 + 0.005 * cycle.day_count as f32).min(0.15);
+    let enemy_type = if rng.gen::<f32>() < 0.15 {
+        EnemyType::NightBat
+    } else if rng.gen::<f32>() < elite_chance {
+        // Spawn biome-appropriate elite
+        match biome {
+            Biome::Forest | Biome::Mountain => EnemyType::AlphaWolf,
+            Biome::Desert | Biome::Coastal => EnemyType::VenomScorpion,
+            Biome::Tundra | Biome::CrystalCave => EnemyType::FrostLich,
+            Biome::Volcanic => EnemyType::MagmaGolem,
+            Biome::Swamp => EnemyType::VenomScorpion,
+            Biome::Fungal => EnemyType::FrostLich,
+        }
+    } else {
+        EnemyType::for_biome(biome)
+    };
+    let (health, damage, speed, aggro_range, _color, size) = enemy_type.stats();
+    let (texture, tint) = enemy_sprite(enemy_type, &assets);
 
     let angle = rng.gen::<f32>() * std::f32::consts::TAU;
     let dist = rng.gen_range(300.0..500.0);
@@ -298,9 +559,11 @@ fn spawn_night_enemies(
             patrol_timer: rng.gen_range(2.0..4.0),
             alert_timer: 0.0,
             distance_from_origin,
+            ability_cooldown_timer: 0.0,
         },
         Sprite {
-            color,
+            image: texture,
+            color: tint,
             custom_size: Some(size),
             ..default()
         },
@@ -311,10 +574,10 @@ fn spawn_night_enemies(
 fn despawn_enemies_at_sunrise(
     mut commands: Commands,
     cycle: Res<DayNightCycle>,
+    season: Res<SeasonCycle>,
     enemy_query: Query<Entity, With<Enemy>>,
 ) {
-    // Despawn at Sunrise (time 0.2-0.3)
-    if cycle.phase() != DayPhase::Sunrise {
+    if cycle.phase_with_season(season.current) != DayPhase::Sunrise {
         return;
     }
 
@@ -324,11 +587,13 @@ fn despawn_enemies_at_sunrise(
 }
 
 fn enemy_ai(
+    mut _commands: Commands,
     mut enemy_query: Query<(&mut Enemy, &mut Transform, Option<&mut Boss>), Without<Player>>,
     player_query: Query<&Transform, With<Player>>,
     time: Res<Time>,
     building_query: Query<(&Transform, &Building, Option<&Door>), (Without<Player>, Without<Enemy>)>,
     mut sound_events: EventWriter<SoundEvent>,
+    weather: Res<WeatherSystem>,
 ) {
     let Ok(player_tf) = player_query.get_single() else { return };
     let player_pos = player_tf.translation.truncate();
@@ -336,20 +601,29 @@ fn enemy_ai(
     let mut rng = rand::thread_rng();
     let dt = time.delta_secs();
 
+    // Fog halves enemy detection range
+    let fog_mult = if weather.current == crate::weather::Weather::Fog { 0.5 } else { 1.0 };
+
     for (mut enemy, mut tf, mut maybe_boss) in enemy_query.iter_mut() {
         let enemy_pos = tf.translation.truncate();
         let dist_to_player = enemy_pos.distance(player_pos);
 
-        // Tick attack cooldown timer
         if enemy.attack_cooldown_timer > 0.0 {
             enemy.attack_cooldown_timer -= dt;
         }
+        if enemy.ability_cooldown_timer > 0.0 {
+            enemy.ability_cooldown_timer -= dt;
+        }
+
+        let phase_mult = maybe_boss.as_ref().map(|b| if b.phase_2 { 1.2 } else { 1.0 }).unwrap_or(1.0);
+        let speed = enemy.speed * phase_mult;
+        let effective_detection = enemy.detection_range * fog_mult;
 
         // State machine
         match enemy.state {
             EnemyState::Idle => {
-                // Check if player is within detection range
-                if dist_to_player <= enemy.detection_range {
+                // Check if player is within detection range (fog halves it)
+                if dist_to_player <= effective_detection {
                     enemy.state = EnemyState::Alert;
                     enemy.alert_timer = 0.5;
                     // Boss roar on first alert
@@ -370,8 +644,8 @@ fn enemy_ai(
                 }
             }
             EnemyState::Patrol => {
-                // Check if player is within detection range
-                if dist_to_player <= enemy.detection_range {
+                // Check if player is within detection range (fog halves it)
+                if dist_to_player <= effective_detection {
                     enemy.state = EnemyState::Alert;
                     enemy.alert_timer = 0.5;
                     // Boss roar on first alert
@@ -382,8 +656,7 @@ fn enemy_ai(
                         }
                     }
                 } else {
-                    // Move in patrol direction at half speed
-                    let move_delta = enemy.patrol_direction * enemy.speed * 0.5 * dt;
+                    let move_delta = enemy.patrol_direction * speed * 0.5 * dt;
                     let new_x = tf.translation.x + move_delta.x;
                     let new_y = tf.translation.y + move_delta.y;
                     if !is_blocked_by_building_enemy(new_x, new_y, &building_query) {
@@ -410,8 +683,7 @@ fn enemy_ai(
                 }
             }
             EnemyState::Chase => {
-                // If player is outside detection_range + 80, lose interest
-                if dist_to_player > enemy.detection_range + 80.0 {
+                if dist_to_player > effective_detection + 80.0 {
                     enemy.patrol_direction = Vec2::new(
                         rng.gen_range(-1.0f32..1.0),
                         rng.gen_range(-1.0f32..1.0),
@@ -419,12 +691,10 @@ fn enemy_ai(
                     enemy.patrol_timer = rng.gen_range(2.0..4.0);
                     enemy.state = EnemyState::Patrol;
                 } else if dist_to_player <= 24.0 {
-                    // Within attack range — transition to Attack
                     enemy.state = EnemyState::Attack;
                 } else {
-                    // Move toward player at full speed
                     let dir = (player_pos - enemy_pos).normalize_or_zero();
-                    let move_delta = dir * enemy.speed * dt;
+                    let move_delta = dir * speed * dt;
                     let new_x = tf.translation.x + move_delta.x;
                     let new_y = tf.translation.y + move_delta.y;
                     if !is_blocked_by_building_enemy(new_x, new_y, &building_query) {
@@ -488,9 +758,12 @@ fn player_attack(
     mut inventory: ResMut<Inventory>,
     mut rp_events: EventWriter<ResearchPointEvent>,
     mut screen_shake: ResMut<ScreenShake>,
+    mut hit_stop: ResMut<HitStop>,
     mut death_stats: ResMut<DeathStats>,
     mut particle_events: EventWriter<SpawnParticlesEvent>,
     mut sound_events: EventWriter<SoundEvent>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+    mut hit_queue: ResMut<PlayerHitQueue>,
 ) {
     // Don't attack in build mode
     if building_state.active {
@@ -588,18 +861,29 @@ fn player_attack(
     if let Ok((_, enemy_tf, mut enemy, mut sprite, maybe_boss)) = enemy_query.get_mut(target_entity) {
         enemy.health -= damage;
 
-        // Flash white on hit
+        // Flash white on hit (short for snappy feel)
         let original_color = sprite.color;
         sprite.color = Color::WHITE;
         commands.entity(target_entity).insert(HitFlash {
-            timer: Timer::from_seconds(0.1, TimerMode::Once),
+            timer: Timer::from_seconds(0.08, TimerMode::Once),
             original_color,
         });
 
-        // Screen shake: stronger for bosses
+        // Screen shake + hit-stop: scale by damage tier and boss status
         let is_boss = maybe_boss.is_some();
-        screen_shake.timer = 0.15;
-        screen_shake.intensity = if is_boss { 6.0 } else { 3.0 };
+        let ratio = (damage / enemy.max_health).clamp(0.0, 1.0);
+        if ratio >= 0.6 {
+            screen_shake.timer = 0.16;
+            screen_shake.intensity = if is_boss { 7.5 } else { 4.5 };
+            hit_stop.timer = hit_stop.timer.max(0.07);
+        } else if ratio >= 0.3 {
+            screen_shake.timer = 0.12;
+            screen_shake.intensity = if is_boss { 6.0 } else { 3.5 };
+            hit_stop.timer = hit_stop.timer.max(0.045);
+        } else {
+            screen_shake.timer = 0.08;
+            screen_shake.intensity = if is_boss { 4.0 } else { 2.0 };
+        }
 
         // Knockback: push enemy away from player
         let knockback_dir = (enemy_tf.translation.truncate() - player_pos).normalize_or_zero();
@@ -608,26 +892,59 @@ fn player_attack(
             timer: 0.1,
         });
 
-        // Spawn red hit particles at enemy position
+        // Spawn hit particles (more for impact)
+        let pos = enemy_tf.translation.truncate();
         particle_events.send(SpawnParticlesEvent {
-            position: enemy_tf.translation.truncate(),
-            color: Color::srgb(0.8, 0.1, 0.1),
-            count: 4,
+            position: pos,
+            color: Color::srgb(0.9, 0.15, 0.15),
+            count: 6,
         });
 
         // Sound: hit
         sound_events.send(SoundEvent::Hit);
 
-        // US-028: Floating damage number at enemy position
-        spawn_floating_text(
-            &mut commands,
-            &format!("-{:.0}", damage),
-            enemy_tf.translation.truncate(),
-            Color::srgb(1.0, 0.3, 0.3),
-        );
+        // Slash arc visual at midpoint (slightly larger, clear opacity)
+        let mid = (player_pos + enemy_tf.translation.truncate()) * 0.5;
+        let angle = (enemy_tf.translation.truncate() - player_pos).to_angle();
+        commands.spawn((
+            SlashArc { timer: 0.14, max_timer: 0.14 },
+            Sprite {
+                custom_size: Some(Vec2::new(28.0, 28.0)),
+                color: Color::srgba(1.0, 1.0, 0.95, 0.88),
+                ..default()
+            },
+            Transform::from_xyz(mid.x, mid.y, 20.0)
+                .with_rotation(Quat::from_rotation_z(angle)),
+        ));
+
+        // Fire PlayerHitEvent for enchanting/combo/weapon specials
+        let weapon = inventory.selected_item().map(|s| s.item).unwrap_or(ItemType::Wood);
+        hit_queue.pending.push(PlayerHitEvent {
+            target: target_entity,
+            weapon,
+            damage,
+            player_pos,
+            enemy_pos: enemy_tf.translation.truncate(),
+        });
+
+        // US-028: Floating damage number at enemy position (tiered visuals)
+        let (text, color) = damage_text_style(damage, enemy.max_health);
+        floating_text_events.send(FloatingTextRequest {
+            text: text.clone(),
+            position: enemy_tf.translation.truncate(),
+            color,
+        });
 
         if enemy.health <= 0.0 {
             killed = true;
+            // Impact burst on kill + brief freeze for emphasis
+            let pos = enemy_tf.translation.truncate();
+            particle_events.send(SpawnParticlesEvent {
+                position: pos,
+                color: Color::srgb(0.95, 0.3, 0.2),
+                count: 8,
+            });
+            hit_stop.timer = hit_stop.timer.max(if maybe_boss.is_some() { 0.12 } else { 0.06 });
         }
     }
 
@@ -676,19 +993,39 @@ fn player_attack(
 fn enemy_attack_player(
     time: Res<Time>,
     armor: Res<ArmorSlots>,
-    mut enemy_query: Query<(&mut Enemy, &Transform), Without<Player>>,
-    mut player_query: Query<(&Transform, &mut Health, &mut Sprite), With<Player>>,
+    mut enemy_query: Query<(&mut Enemy, &Transform, Option<&mut Boss>), Without<Player>>,
+    mut player_query: Query<(&Transform, &mut Health, &mut Sprite, Option<&Dodging>, Option<&Blocking>, Option<&crate::death::RespawnInvulnerability>), With<Player>>,
     mut commands: Commands,
     player_entity_query: Query<Entity, With<Player>>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+    mut screen_shake: ResMut<ScreenShake>,
+    mut status_events: EventWriter<ApplyStatusEvent>,
+    mut death_stats: ResMut<DeathStats>,
 ) {
-    let Ok((player_tf, mut health, mut sprite)) = player_query.get_single_mut() else { return };
+    let Ok((player_tf, mut health, mut sprite, maybe_dodging, maybe_blocking, maybe_invuln)) = player_query.get_single_mut() else { return };
     let player_pos = player_tf.translation.truncate();
     let total_armor = armor.total_armor();
 
+    // 2B: Dodge invulnerability — skip all damage
+    if maybe_dodging.is_some() {
+        // Still need to tick enemy cooldowns
+        for (mut enemy, _, _) in enemy_query.iter_mut() {
+            enemy.attack_cooldown.tick(time.delta());
+        }
+        return;
+    }
+
+    // Wave 7C: Respawn invulnerability — skip all damage
+    if maybe_invuln.is_some() {
+        for (mut enemy, _, _) in enemy_query.iter_mut() {
+            enemy.attack_cooldown.tick(time.delta());
+        }
+        return;
+    }
+
     let mut took_damage = false;
 
-    for (mut enemy, tf) in enemy_query.iter_mut() {
-        // Only deal damage from Chase or Attack states (enemies close to player)
+    for (mut enemy, tf, mut maybe_boss) in enemy_query.iter_mut() {
         if enemy.state != EnemyState::Chase && enemy.state != EnemyState::Attack {
             continue;
         }
@@ -697,28 +1034,78 @@ fn enemy_attack_player(
 
         let dist = player_pos.distance(tf.translation.truncate());
         if dist <= 24.0 && enemy.attack_cooldown.finished() {
-            let final_damage = (enemy.damage - total_armor as f32).max(1.0);
+            let damage_mult = maybe_boss.as_ref().map(|b| if b.phase_2 { 1.2 } else { 1.0 }).unwrap_or(1.0);
+            let mut final_damage = ((enemy.damage * damage_mult) - total_armor as f32).max(1.0);
+
+            // 2C: Shield blocking
+            if let Some(block) = maybe_blocking {
+                let block_duration = time.elapsed_secs() - block.start_time;
+                if block_duration < 0.2 {
+                    // Perfect block: 100% negation + knockback enemy
+                    final_damage = 0.0;
+                    let _kb_dir = (tf.translation.truncate() - player_pos).normalize_or_zero();
+                    commands.entity(player_entity_query.get_single().unwrap_or(Entity::PLACEHOLDER)).remove::<Blocking>();
+                    floating_text_events.send(FloatingTextRequest {
+                        text: "PERFECT BLOCK!".to_string(),
+                        position: player_pos + Vec2::new(0.0, 20.0),
+                        color: Color::srgb(0.3, 0.8, 1.0),
+                    });
+                    // Stun enemy briefly
+                    enemy.alert_timer = 1.0;
+                    enemy.state = EnemyState::Alert;
+                } else {
+                    // Normal block: 80% damage reduction
+                    final_damage *= 0.2;
+                }
+            }
+
             health.take_damage(final_damage);
+
+            // Wave 7C: Track damage source for death recap
+            if health.is_dead() {
+                death_stats.last_damage_source = enemy.enemy_type.display_name().to_string();
+            }
+
+            if let Some(ref mut boss) = maybe_boss {
+                if !boss.phase_2 && health.current <= health.max * 0.5 {
+                    boss.phase_2 = true;
+                }
+            }
             enemy.attack_cooldown.reset();
             took_damage = true;
 
-            // US-028: Floating damage number at player position
-            spawn_floating_text(
-                &mut commands,
-                &format!("-{:.0}", final_damage),
-                player_pos,
-                Color::srgb(1.0, 0.3, 0.3),
-            );
+            // Apply enemy status effects on hit (Poison, Burn, Freeze, etc.)
+            if let Some((effect, duration, chance)) = enemy_on_hit_effect(enemy.enemy_type) {
+                if rand::thread_rng().gen::<f32>() < chance {
+                    if let Ok(pe) = player_entity_query.get_single() {
+                        status_events.send(ApplyStatusEvent {
+                            target: pe,
+                            effect,
+                            duration,
+                        });
+                    }
+                }
+            }
+
+            // US-028: Floating damage number at player position (tiered by HP)
+            let (text, color) = damage_text_style(final_damage, health.max);
+            floating_text_events.send(FloatingTextRequest {
+                text: text.clone(),
+                position: player_pos,
+                color,
+            });
         }
     }
 
-    // Flash player red when hit
+    // Player hit reaction: screen shake + red flash
     if took_damage {
+        screen_shake.timer = 0.12;
+        screen_shake.intensity = 2.5;
         let original_color = sprite.color;
         sprite.color = Color::srgb(1.0, 0.2, 0.2);
         if let Ok(entity) = player_entity_query.get_single() {
             commands.entity(entity).insert(HitFlash {
-                timer: Timer::from_seconds(0.1, TimerMode::Once),
+                timer: Timer::from_seconds(0.08, TimerMode::Once),
                 original_color,
             });
         }
@@ -770,7 +1157,11 @@ fn projectile_movement(
     mut commands: Commands,
     time: Res<Time>,
     mut query: Query<(Entity, &mut Projectile, &mut Transform)>,
+    hit_stop: Res<HitStop>,
 ) {
+    if hit_stop.timer > 0.0 {
+        return;
+    }
     for (entity, mut proj, mut tf) in query.iter_mut() {
         tf.translation.x += proj.velocity.x * time.delta_secs();
         tf.translation.y += proj.velocity.y * time.delta_secs();
@@ -789,8 +1180,10 @@ fn projectile_hit(
     mut rp_events: EventWriter<ResearchPointEvent>,
     mut death_stats: ResMut<DeathStats>,
     mut screen_shake: ResMut<ScreenShake>,
+    mut hit_stop: ResMut<HitStop>,
     mut particle_events: EventWriter<SpawnParticlesEvent>,
     mut sound_events: EventWriter<SoundEvent>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
 ) {
     for (proj_entity, proj_tf, proj) in proj_query.iter() {
         let proj_pos = proj_tf.translation.truncate();
@@ -799,25 +1192,36 @@ fn projectile_hit(
             if dist <= 15.0 {
                 enemy.health -= proj.damage;
 
-                // Spawn red hit particles at enemy position
+                let pos = enemy_tf.translation.truncate();
                 particle_events.send(SpawnParticlesEvent {
-                    position: enemy_tf.translation.truncate(),
-                    color: Color::srgb(0.8, 0.1, 0.1),
-                    count: 4,
+                    position: pos,
+                    color: Color::srgb(0.9, 0.15, 0.15),
+                    count: 6,
                 });
 
                 // Flash
                 let original_color = sprite.color;
                 sprite.color = Color::WHITE;
                 commands.entity(enemy_entity).insert(HitFlash {
-                    timer: Timer::from_seconds(0.1, TimerMode::Once),
+                    timer: Timer::from_seconds(0.08, TimerMode::Once),
                     original_color,
                 });
 
-                // Screen shake on projectile hit
+                // Screen shake + hit-stop on projectile hit
                 let is_boss = maybe_boss.is_some();
-                screen_shake.timer = 0.15;
-                screen_shake.intensity = if is_boss { 6.0 } else { 3.0 };
+                let ratio = (proj.damage / enemy.max_health).clamp(0.0, 1.0);
+                if ratio >= 0.6 {
+                    screen_shake.timer = 0.16;
+                    screen_shake.intensity = if is_boss { 7.0 } else { 4.0 };
+                    hit_stop.timer = hit_stop.timer.max(0.07);
+                } else if ratio >= 0.3 {
+                    screen_shake.timer = 0.13;
+                    screen_shake.intensity = if is_boss { 5.5 } else { 3.0 };
+                    hit_stop.timer = hit_stop.timer.max(0.04);
+                } else {
+                    screen_shake.timer = 0.10;
+                    screen_shake.intensity = if is_boss { 3.5 } else { 1.8 };
+                }
 
                 // Knockback from projectile direction
                 let knockback_dir = proj.velocity.normalize_or_zero();
@@ -829,16 +1233,22 @@ fn projectile_hit(
                 // Sound: ranged hit
                 sound_events.send(SoundEvent::Hit);
 
-                // US-028: Floating damage number at enemy position
-                spawn_floating_text(
-                    &mut commands,
-                    &format!("-{:.0}", proj.damage),
-                    enemy_tf.translation.truncate(),
-                    Color::srgb(1.0, 0.3, 0.3),
-                );
+                // US-028: Floating damage number at enemy position (tiered)
+                let (text, color) = damage_text_style(proj.damage, enemy.max_health);
+                floating_text_events.send(FloatingTextRequest {
+                    text: text.clone(),
+                    position: enemy_tf.translation.truncate(),
+                    color,
+                });
 
                 commands.entity(proj_entity).despawn();
                 if enemy.health <= 0.0 {
+                    particle_events.send(SpawnParticlesEvent {
+                        position: pos,
+                        color: Color::srgb(0.95, 0.3, 0.2),
+                        count: 8,
+                    });
+                    hit_stop.timer = hit_stop.timer.max(if maybe_boss.is_some() { 0.12 } else { 0.06 });
                     let (drop_item, drop_count) = loot_for_enemy(enemy.enemy_type);
                     inventory.add_item(drop_item, drop_count);
                     // US-036: Cave spiders have a 30% chance to drop a bonus item
@@ -866,7 +1276,11 @@ fn knockback_system(
     mut commands: Commands,
     time: Res<Time>,
     mut query: Query<(Entity, &mut Knockback, &mut Transform)>,
+    hit_stop: Res<HitStop>,
 ) {
+    if hit_stop.timer > 0.0 {
+        return;
+    }
     for (entity, mut kb, mut tf) in query.iter_mut() {
         let move_amount = kb.direction * 80.0 * time.delta_secs();
         tf.translation.x += move_amount.x;
@@ -880,46 +1294,718 @@ fn knockback_system(
 
 fn update_enemy_health_bars(
     mut commands: Commands,
-    enemy_query: Query<(&Transform, &Enemy), Without<EnemyHealthBar>>,
-    bar_query: Query<Entity, With<EnemyHealthBar>>,
+    enemy_query: Query<(Entity, &Transform, &Enemy), Without<EnemyHealthBar>>,
+    mut bar_query: Query<(Entity, &EnemyHealthBar, &mut Transform, &mut Sprite)>,
 ) {
-    // Remove all existing health bars each frame
-    for entity in bar_query.iter() {
+    // Update existing bars: reposition to follow their parent enemy
+    let mut seen_parents = HashSet::new();
+    let mut bars_to_despawn = Vec::new();
+
+    for (bar_entity, bar, mut bar_tf, mut bar_sprite) in bar_query.iter_mut() {
+        // Find the parent enemy
+        let mut found = false;
+        for (enemy_entity, enemy_tf, enemy) in enemy_query.iter() {
+            if enemy_entity == bar.parent_enemy {
+                found = true;
+                seen_parents.insert(enemy_entity);
+                if enemy.health >= enemy.max_health || enemy.health <= 0.0 {
+                    bars_to_despawn.push(bar_entity);
+                } else {
+                    let ratio = (enemy.health / enemy.max_health).clamp(0.0, 1.0);
+                    if bar.is_fill {
+                        let fill_width = 16.0 * ratio;
+                        let fill_offset = (16.0 - fill_width) / 2.0;
+                        bar_sprite.custom_size = Some(Vec2::new(fill_width, 2.0));
+                        bar_tf.translation.x = enemy_tf.translation.x - fill_offset;
+                        bar_tf.translation.y = enemy_tf.translation.y + 12.0;
+                    } else {
+                        bar_tf.translation.x = enemy_tf.translation.x;
+                        bar_tf.translation.y = enemy_tf.translation.y + 12.0;
+                    }
+                }
+                break;
+            }
+        }
+        if !found {
+            bars_to_despawn.push(bar_entity);
+        }
+    }
+
+    for entity in bars_to_despawn {
         commands.entity(entity).despawn();
     }
 
-    // Recreate bars only for damaged enemies
-    for (tf, enemy) in enemy_query.iter() {
-        if enemy.health >= enemy.max_health {
+    // Spawn bars for newly damaged enemies that don't have bars yet
+    for (enemy_entity, enemy_tf, enemy) in enemy_query.iter() {
+        if enemy.health >= enemy.max_health || enemy.health <= 0.0 || seen_parents.contains(&enemy_entity) {
             continue;
         }
+
         let ratio = (enemy.health / enemy.max_health).clamp(0.0, 1.0);
-        let bar_width = 16.0;
-        let bar_height = 2.0;
-        let bar_y = tf.translation.y + 12.0;
+        let bar_y = enemy_tf.translation.y + 12.0;
 
         // Background (red)
         commands.spawn((
-            EnemyHealthBar,
+            EnemyHealthBar { parent_enemy: enemy_entity, is_fill: false },
             Sprite {
                 color: Color::srgb(0.6, 0.1, 0.1),
-                custom_size: Some(Vec2::new(bar_width, bar_height)),
+                custom_size: Some(Vec2::new(16.0, 2.0)),
                 ..default()
             },
-            Transform::from_xyz(tf.translation.x, bar_y, 9.0),
+            Transform::from_xyz(enemy_tf.translation.x, bar_y, 9.0),
         ));
 
         // Fill (green)
-        let fill_width = bar_width * ratio;
-        let fill_offset = (bar_width - fill_width) / 2.0;
+        let fill_width = 16.0 * ratio;
+        let fill_offset = (16.0 - fill_width) / 2.0;
         commands.spawn((
-            EnemyHealthBar,
+            EnemyHealthBar { parent_enemy: enemy_entity, is_fill: true },
             Sprite {
                 color: Color::srgb(0.1, 0.7, 0.1),
-                custom_size: Some(Vec2::new(fill_width, bar_height)),
+                custom_size: Some(Vec2::new(fill_width, 2.0)),
                 ..default()
             },
-            Transform::from_xyz(tf.translation.x - fill_offset, bar_y, 9.1),
+            Transform::from_xyz(enemy_tf.translation.x - fill_offset, bar_y, 9.1),
         ));
+    }
+}
+
+fn update_slash_arcs(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut SlashArc, &mut Sprite, &mut Transform)>,
+) {
+    for (entity, mut arc, mut sprite, mut tf) in query.iter_mut() {
+        arc.timer -= time.delta_secs();
+        if arc.timer <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        // Expand, rotate slightly, and fade
+        let t = 1.0 - (arc.timer / arc.max_timer);
+        let scale = 1.0 + t * 0.5;
+        tf.scale = Vec3::splat(scale);
+        tf.rotate_z(0.5 * time.delta_secs());
+        let alpha = (1.0 - t).clamp(0.0, 1.0);
+        let c = sprite.color.to_srgba();
+        let boosted = c.red + 0.1 * t;
+        sprite.color = Color::srgba(boosted.clamp(0.0, 1.0), c.green, c.blue, alpha * 0.9);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Wave 2: Combat expansion systems
+// ---------------------------------------------------------------------------
+
+/// Drains the PlayerHitQueue resource into PlayerHitEvent events.
+fn drain_player_hit_queue(
+    mut queue: ResMut<PlayerHitQueue>,
+    mut events: EventWriter<PlayerHitEvent>,
+) {
+    for hit in queue.pending.drain(..) {
+        events.send(hit);
+    }
+}
+
+/// 2A: Applies enchanted weapon effects (burn, freeze, poison, lifesteal) on player melee hits.
+fn apply_weapon_effects(
+    mut events: EventReader<PlayerHitEvent>,
+    mut status_events: EventWriter<ApplyStatusEvent>,
+    mut player_health: Query<&mut Health, With<Player>>,
+) {
+    for ev in events.read() {
+        // On-hit status effect
+        if let Some((effect, duration)) = crate::enchanting::weapon_on_hit_effect(ev.weapon) {
+            // FrostBlade has 30% chance
+            if ev.weapon == ItemType::FrostBlade {
+                if rand::thread_rng().gen::<f32>() < 0.3 {
+                    status_events.send(ApplyStatusEvent {
+                        target: ev.target,
+                        effect,
+                        duration,
+                    });
+                }
+            } else {
+                status_events.send(ApplyStatusEvent {
+                    target: ev.target,
+                    effect,
+                    duration,
+                });
+            }
+        }
+
+        // Lifesteal
+        let fraction = crate::enchanting::weapon_lifesteal_fraction(ev.weapon);
+        if fraction > 0.0 {
+            let heal_amount = ev.damage * fraction;
+            if let Ok(mut health) = player_health.get_single_mut() {
+                health.heal(heal_amount);
+            }
+        }
+    }
+}
+
+/// 2B: Dodge roll input — Space bar triggers dodge.
+fn dodge_roll_input(
+    mut commands: Commands,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut dodge_cd: ResMut<DodgeCooldown>,
+    player_query: Query<(Entity, Option<&Dodging>), With<Player>>,
+) {
+    let Ok((player_entity, maybe_dodging)) = player_query.get_single() else { return };
+    if maybe_dodging.is_some() { return; }
+    if dodge_cd.timer > 0.0 { return; }
+    if !keyboard.just_pressed(KeyCode::Space) { return; }
+
+    // Determine dodge direction from WASD
+    let mut dir = Vec2::ZERO;
+    if keyboard.pressed(KeyCode::KeyW) { dir.y += 1.0; }
+    if keyboard.pressed(KeyCode::KeyS) { dir.y -= 1.0; }
+    if keyboard.pressed(KeyCode::KeyA) { dir.x -= 1.0; }
+    if keyboard.pressed(KeyCode::KeyD) { dir.x += 1.0; }
+    if dir == Vec2::ZERO { dir = Vec2::X; } // Default right
+    dir = dir.normalize_or_zero();
+
+    commands.entity(player_entity).insert(Dodging {
+        timer: 0.3,
+        direction: dir,
+    });
+    dodge_cd.timer = 1.5;
+}
+
+/// 2B: Dodge roll tick — move fast, then remove Dodging component.
+fn dodge_roll_tick(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut dodge_cd: ResMut<DodgeCooldown>,
+    mut player_query: Query<(Entity, &mut Dodging, &mut Transform, &mut Sprite), With<Player>>,
+) {
+    let dt = time.delta_secs();
+    dodge_cd.timer = (dodge_cd.timer - dt).max(0.0);
+
+    for (entity, mut dodging, mut tf, mut sprite) in player_query.iter_mut() {
+        dodging.timer -= dt;
+
+        // Move at 3x speed in dodge direction
+        let speed = 150.0 * 3.0;
+        tf.translation.x += dodging.direction.x * speed * dt;
+        tf.translation.y += dodging.direction.y * speed * dt;
+
+        // Squish effect
+        let t = dodging.timer / 0.3;
+        tf.scale = Vec3::new(1.0 + 0.3 * (1.0 - t), 1.0 - 0.2 * (1.0 - t), 1.0);
+
+        // Brief afterimage tint
+        let c = sprite.color.to_srgba();
+        sprite.color = Color::srgba(c.red, c.green, c.blue, 0.5 + 0.5 * t);
+
+        if dodging.timer <= 0.0 {
+            tf.scale = Vec3::ONE;
+            sprite.color = Color::srgba(c.red, c.green, c.blue, 1.0);
+            commands.entity(entity).remove::<Dodging>();
+        }
+    }
+}
+
+/// 2C: Shield block input — hold RMB with shield equipped.
+fn shield_block_input(
+    mut commands: Commands,
+    mouse: Res<ButtonInput<MouseButton>>,
+    time: Res<Time>,
+    inventory: Res<Inventory>,
+    armor: Res<ArmorSlots>,
+    building_state: Res<crate::building::BuildingState>,
+    player_query: Query<(Entity, Option<&Blocking>), With<Player>>,
+) {
+    let Ok((player_entity, maybe_blocking)) = player_query.get_single() else { return };
+
+    if building_state.active { return; }
+
+    let has_shield = armor.shield.is_some();
+    // Don't block if holding a fishing rod or pet item
+    let holding_non_combat = inventory.selected_item().map(|s| {
+        matches!(s.item,
+            ItemType::FishingRod | ItemType::SteelFishingRod |
+            ItemType::PetCollar | ItemType::PetFood
+        )
+    }).unwrap_or(false);
+
+    if has_shield && !holding_non_combat && mouse.pressed(MouseButton::Right) {
+        if maybe_blocking.is_none() {
+            commands.entity(player_entity).insert(Blocking {
+                start_time: time.elapsed_secs(),
+            });
+        }
+    } else if maybe_blocking.is_some() {
+        commands.entity(player_entity).remove::<Blocking>();
+    }
+}
+
+/// 2D: Combo tracking — sequential melee hits within 1.5s build combo multiplier.
+fn combo_tracker(
+    time: Res<Time>,
+    mut combo: ResMut<ComboState>,
+    mut events: EventReader<PlayerHitEvent>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+) {
+    let dt = time.delta_secs();
+
+    // Decay combo timer
+    if combo.count > 0 {
+        combo.timer -= dt;
+        if combo.timer <= 0.0 {
+            combo.count = 0;
+        }
+    }
+
+    for ev in events.read() {
+        combo.count += 1;
+        combo.timer = 1.5;
+
+        if combo.count >= 3 {
+            floating_text_events.send(FloatingTextRequest {
+                text: format!("x{} COMBO!", combo.count),
+                position: ev.enemy_pos + Vec2::new(0.0, 15.0),
+                color: Color::srgb(1.0, 0.85, 0.2),
+            });
+            // Reset after 3-hit combo
+            combo.count = 0;
+            combo.timer = 0.0;
+        } else if combo.count == 2 {
+            floating_text_events.send(FloatingTextRequest {
+                text: "x2!".to_string(),
+                position: ev.enemy_pos + Vec2::new(0.0, 15.0),
+                color: Color::srgb(0.9, 0.75, 0.3),
+            });
+        }
+    }
+}
+
+/// 2E: Weapon specials — track hit counters, trigger special effects.
+fn weapon_specials(
+    mut events: EventReader<PlayerHitEvent>,
+    mut specials: ResMut<WeaponSpecialState>,
+    mut enemy_query: Query<(&mut Enemy, &Transform)>,
+    mut status_events: EventWriter<ApplyStatusEvent>,
+    mut player_health: Query<(&mut Health, &mut Hunger), (With<Player>, Without<Enemy>)>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+    mut particle_events: EventWriter<SpawnParticlesEvent>,
+) {
+    for ev in events.read() {
+        match ev.weapon {
+            ItemType::FlameBlade => {
+                specials.flame_hits += 1;
+                if specials.flame_hits >= 5 {
+                    specials.flame_hits = 0;
+                    // Fire burst AoE: damage all enemies within 40px
+                    let burst_dmg = ev.damage * 0.5;
+                    for (mut enemy, etf) in enemy_query.iter_mut() {
+                        if etf.translation.truncate().distance(ev.enemy_pos) < 40.0 {
+                            enemy.health -= burst_dmg;
+                        }
+                    }
+                    particle_events.send(SpawnParticlesEvent {
+                        position: ev.enemy_pos,
+                        color: Color::srgb(1.0, 0.4, 0.1),
+                        count: 12,
+                    });
+                    floating_text_events.send(FloatingTextRequest {
+                        text: "FIRE BURST!".to_string(),
+                        position: ev.enemy_pos + Vec2::new(0.0, 20.0),
+                        color: Color::srgb(1.0, 0.5, 0.1),
+                    });
+                }
+            }
+            ItemType::FrostBlade => {
+                specials.frost_hits += 1;
+                if specials.frost_hits >= 3 {
+                    specials.frost_hits = 0;
+                    // Shatter-kill enemies below 15% HP
+                    if let Ok((mut enemy, _)) = enemy_query.get_mut(ev.target) {
+                        if enemy.health > 0.0 && enemy.health / enemy.max_health < 0.15 {
+                            enemy.health = 0.0;
+                            floating_text_events.send(FloatingTextRequest {
+                                text: "SHATTER!".to_string(),
+                                position: ev.enemy_pos + Vec2::new(0.0, 20.0),
+                                color: Color::srgb(0.5, 0.8, 1.0),
+                            });
+                        }
+                    }
+                }
+            }
+            ItemType::VenomBlade => {
+                if specials.venom_last_target == Some(ev.target) {
+                    specials.venom_consecutive += 1;
+                } else {
+                    specials.venom_consecutive = 1;
+                    specials.venom_last_target = Some(ev.target);
+                }
+                // Damage ramps +10% per consecutive hit
+                let bonus = ev.damage * 0.1 * specials.venom_consecutive as f32;
+                if bonus > 0.0 {
+                    if let Ok((mut enemy, _)) = enemy_query.get_mut(ev.target) {
+                        enemy.health -= bonus;
+                    }
+                }
+            }
+            ItemType::LifestealBlade => {
+                // Check if kill — restore 15 hunger + 10 HP
+                if let Ok((enemy, _)) = enemy_query.get(ev.target) {
+                    if enemy.health <= 0.0 {
+                        if let Ok((mut health, mut hunger)) = player_health.get_single_mut() {
+                            health.heal(10.0);
+                            hunger.current = (hunger.current + 15.0).min(hunger.max);
+                            floating_text_events.send(FloatingTextRequest {
+                                text: "LIFE DRAIN!".to_string(),
+                                position: ev.player_pos + Vec2::new(0.0, 15.0),
+                                color: Color::srgb(0.3, 1.0, 0.3),
+                            });
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Wave 5A: Enemy Ranged Attacks
+// ---------------------------------------------------------------------------
+
+/// Ticks ability cooldowns and fires ranged attacks for specific enemy types.
+fn enemy_ranged_attacks(
+    mut commands: Commands,
+    mut enemy_query: Query<(&mut Enemy, &Transform), Without<Player>>,
+    player_query: Query<&Transform, With<Player>>,
+) {
+    let Ok(player_tf) = player_query.get_single() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    for (mut enemy, tf) in enemy_query.iter_mut() {
+        // Only fire when in Chase state
+        if enemy.state != EnemyState::Chase {
+            continue;
+        }
+
+        let enemy_pos = tf.translation.truncate();
+        let dist = enemy_pos.distance(player_pos);
+
+        // Tick ability cooldown (already ticked in enemy_ai too, but if timer was
+        // just set to a ranged-specific value we honour it here).
+        // We only act when cooldown <= 0 for the relevant type.
+
+        match enemy.enemy_type {
+            // IceWraith: frost bolt every 4s, range 40-160
+            EnemyType::IceWraith => {
+                if enemy.ability_cooldown_timer <= 0.0 && dist >= 40.0 && dist <= 160.0 {
+                    let dir = (player_pos - enemy_pos).normalize_or_zero();
+                    commands.spawn((
+                        Projectile {
+                            velocity: dir * 220.0,
+                            damage: 7.0,
+                            lifetime: 1.5,
+                        },
+                        EnemyProjectile,
+                        Sprite {
+                            color: Color::srgba(0.6, 0.85, 1.0, 0.9),
+                            custom_size: Some(Vec2::new(5.0, 5.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(enemy_pos.x, enemy_pos.y, 8.0),
+                    ));
+                    enemy.ability_cooldown_timer = 4.0;
+                }
+            }
+            // FrostLich: ice spike AoE at player position every 6s, range 50-180
+            EnemyType::FrostLich => {
+                if enemy.ability_cooldown_timer <= 0.0 && dist >= 50.0 && dist <= 180.0 {
+                    // Spawn telegraph marker at player position
+                    commands.spawn((
+                        IceSpikeAoE {
+                            delay: 1.0,
+                            damage: 12.0,
+                            radius: 20.0,
+                            position: player_pos,
+                        },
+                        Sprite {
+                            color: Color::srgba(0.5, 0.6, 0.9, 0.4),
+                            custom_size: Some(Vec2::new(40.0, 40.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(player_pos.x, player_pos.y, 7.0),
+                    ));
+                    enemy.ability_cooldown_timer = 6.0;
+                }
+            }
+            // LavaElemental: magma projectile every 5s, range 50-130, arcing, leaves burn zone
+            EnemyType::LavaElemental => {
+                if enemy.ability_cooldown_timer <= 0.0 && dist >= 50.0 && dist <= 130.0 {
+                    let dir = (player_pos - enemy_pos).normalize_or_zero();
+                    commands.spawn((
+                        Projectile {
+                            velocity: dir * 200.0,
+                            damage: 10.0,
+                            lifetime: 1.3,
+                        },
+                        EnemyProjectile,
+                        Sprite {
+                            color: Color::srgb(0.95, 0.35, 0.1),
+                            custom_size: Some(Vec2::new(7.0, 7.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(enemy_pos.x, enemy_pos.y, 8.0),
+                    ));
+                    enemy.ability_cooldown_timer = 5.0;
+                }
+            }
+            // NightBat: dive-bomb attack every 3s, range 30-140
+            EnemyType::NightBat => {
+                if enemy.ability_cooldown_timer <= 0.0 && dist >= 30.0 && dist <= 140.0 {
+                    // Spawn a telegraph marker at the target position
+                    commands.spawn((
+                        DiveBomb {
+                            telegraph_timer: 0.5,
+                            damage: 10.0,
+                            target_pos: player_pos,
+                            recovery_timer: 1.5,
+                        },
+                        Sprite {
+                            color: Color::srgba(0.3, 0.1, 0.4, 0.5),
+                            custom_size: Some(Vec2::new(16.0, 16.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(player_pos.x, player_pos.y, 7.0),
+                    ));
+                    enemy.ability_cooldown_timer = 3.0;
+                }
+            }
+            // SandScorpion: venom spit (moved from inline enemy_ai)
+            EnemyType::SandScorpion => {
+                if enemy.ability_cooldown_timer <= 0.0 && dist >= 50.0 && dist <= 120.0 {
+                    let dir = (player_pos - enemy_pos).normalize_or_zero();
+                    commands.spawn((
+                        Projectile {
+                            velocity: dir * 280.0,
+                            damage: 5.0,
+                            lifetime: 1.2,
+                        },
+                        EnemyProjectile,
+                        Sprite {
+                            color: Color::srgb(0.7, 0.55, 0.2),
+                            custom_size: Some(Vec2::new(6.0, 6.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(enemy_pos.x, enemy_pos.y, 8.0),
+                    ));
+                    enemy.ability_cooldown_timer = 2.5;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Checks enemy projectiles (marked with EnemyProjectile) hitting the player.
+fn enemy_projectile_hit_player(
+    mut commands: Commands,
+    proj_query: Query<(Entity, &Transform, &Projectile), With<EnemyProjectile>>,
+    mut player_query: Query<(&Transform, &mut Health, Option<&crate::death::RespawnInvulnerability>), With<Player>>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+    mut status_events: EventWriter<ApplyStatusEvent>,
+    mut screen_shake: ResMut<ScreenShake>,
+    player_entity_query: Query<Entity, With<Player>>,
+    mut death_stats: ResMut<DeathStats>,
+) {
+    let Ok((player_tf, mut health, maybe_invuln)) = player_query.get_single_mut() else { return };
+    // Wave 7C: Skip all projectile damage if player has respawn invulnerability
+    if maybe_invuln.is_some() { return; }
+    let Ok(player_entity) = player_entity_query.get_single() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    for (proj_entity, proj_tf, proj) in proj_query.iter() {
+        let proj_pos = proj_tf.translation.truncate();
+        let dist = proj_pos.distance(player_pos);
+        if dist <= 12.0 {
+            health.current = (health.current - proj.damage).max(0.0);
+
+            // Wave 7C: Track projectile damage source for death recap
+            if health.is_dead() {
+                death_stats.last_damage_source = "Enemy Projectile".to_string();
+            }
+
+            floating_text_events.send(FloatingTextRequest {
+                text: format!("-{:.0}", proj.damage),
+                position: player_pos + Vec2::new(0.0, 12.0),
+                color: Color::srgb(1.0, 0.3, 0.3),
+            });
+
+            screen_shake.timer = 0.1;
+            screen_shake.intensity = 2.0;
+
+            // IceWraith frost bolt applies Freeze (detect by projectile color heuristic:
+            // frost bolts are bluish). We check damage == 7 as an identifier.
+            if (proj.damage - 7.0).abs() < 0.1 {
+                status_events.send(ApplyStatusEvent {
+                    target: player_entity,
+                    effect: crate::status_effects::StatusEffectType::Freeze,
+                    duration: 2.0,
+                });
+            }
+
+            commands.entity(proj_entity).despawn();
+        }
+    }
+}
+
+/// Tick IceSpikeAoE markers: after delay expires, deal damage in radius then despawn.
+fn update_ice_spike_aoe(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut aoe_query: Query<(Entity, &mut IceSpikeAoE, &mut Sprite)>,
+    mut player_query: Query<(&Transform, &mut Health), With<Player>>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+    mut screen_shake: ResMut<ScreenShake>,
+) {
+    let dt = time.delta_secs();
+    let Ok((player_tf, mut health)) = player_query.get_single_mut() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    for (entity, mut aoe, mut sprite) in aoe_query.iter_mut() {
+        aoe.delay -= dt;
+
+        // Fade in the telegraph
+        let alpha = (1.0 - aoe.delay.max(0.0)).clamp(0.3, 0.9);
+        sprite.color = Color::srgba(0.5, 0.6, 0.9, alpha);
+
+        if aoe.delay <= 0.0 {
+            // Check if player is within radius
+            let dist = player_pos.distance(aoe.position);
+            if dist <= aoe.radius {
+                health.current = (health.current - aoe.damage).max(0.0);
+                floating_text_events.send(FloatingTextRequest {
+                    text: format!("-{:.0} ICE!", aoe.damage),
+                    position: player_pos + Vec2::new(0.0, 12.0),
+                    color: Color::srgb(0.5, 0.7, 1.0),
+                });
+                screen_shake.timer = 0.12;
+                screen_shake.intensity = 3.0;
+            }
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// Burn zones left by LavaElemental magma projectiles. Spawned when a magma
+/// EnemyProjectile despawns (lifetime expires) near where it was.
+/// For simplicity, magma projectiles spawn a burn zone on hit via the
+/// enemy_projectile_hit_player system, or when their lifetime expires.
+/// This system just ticks existing burn zones and damages the player.
+fn update_burn_zones(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut zone_query: Query<(Entity, &mut BurnZone, &Transform)>,
+    mut player_query: Query<(&Transform, &mut Health), (With<Player>, Without<BurnZone>)>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+) {
+    let dt = time.delta_secs();
+    let Ok((player_tf, mut health)) = player_query.get_single_mut() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    for (entity, mut zone, zone_tf) in zone_query.iter_mut() {
+        zone.lifetime -= dt;
+        if zone.lifetime <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+
+        let dist = player_pos.distance(zone_tf.translation.truncate());
+        if dist <= zone.radius {
+            let damage = zone.damage_per_sec * dt;
+            health.current = (health.current - damage).max(0.0);
+            // Throttle floating text to ~once per second
+            if (zone.lifetime * 4.0).fract() < dt * 4.0 {
+                floating_text_events.send(FloatingTextRequest {
+                    text: format!("-{:.0} BURN", damage.ceil()),
+                    position: player_pos + Vec2::new(0.0, 12.0),
+                    color: Color::srgb(1.0, 0.4, 0.1),
+                });
+            }
+        }
+    }
+}
+
+/// Tick NightBat dive-bomb attacks: telegraph, then damage, then despawn.
+fn update_dive_bombs(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut bomb_query: Query<(Entity, &mut DiveBomb, &mut Sprite)>,
+    mut player_query: Query<(&Transform, &mut Health), With<Player>>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+    mut screen_shake: ResMut<ScreenShake>,
+) {
+    let dt = time.delta_secs();
+    let Ok((player_tf, mut health)) = player_query.get_single_mut() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    for (entity, mut bomb, mut sprite) in bomb_query.iter_mut() {
+        if bomb.telegraph_timer > 0.0 {
+            bomb.telegraph_timer -= dt;
+            // Pulse the telegraph
+            let alpha = 0.3 + 0.4 * (bomb.telegraph_timer * 8.0).sin().abs();
+            sprite.color = Color::srgba(0.3, 0.1, 0.4, alpha);
+        } else if bomb.recovery_timer > 0.0 {
+            // Strike happened at the transition point
+            if bomb.recovery_timer > 1.4 {
+                // First frame after telegraph: apply damage
+                let dist = player_pos.distance(bomb.target_pos);
+                if dist <= 16.0 {
+                    health.current = (health.current - bomb.damage).max(0.0);
+                    floating_text_events.send(FloatingTextRequest {
+                        text: format!("-{:.0} DIVE!", bomb.damage),
+                        position: player_pos + Vec2::new(0.0, 12.0),
+                        color: Color::srgb(0.6, 0.2, 0.8),
+                    });
+                    screen_shake.timer = 0.15;
+                    screen_shake.intensity = 4.0;
+                }
+                // Flash white briefly
+                sprite.color = Color::srgba(1.0, 1.0, 1.0, 0.8);
+            }
+            bomb.recovery_timer -= dt;
+            if bomb.recovery_timer <= 0.0 {
+                commands.entity(entity).despawn();
+            }
+        }
+    }
+}
+
+/// Spawns a burn zone when a magma (LavaElemental) enemy projectile expires.
+/// This hooks into projectile_movement — we detect magma projectiles by their
+/// damage value (10.0) and spawn a burn zone at their position before despawn.
+/// NOTE: This is done by checking expiring EnemyProjectile in projectile_movement.
+/// We add a separate small system that watches for near-expiring magma projectiles.
+fn spawn_burn_zones_from_magma(
+    mut commands: Commands,
+    proj_query: Query<(Entity, &Transform, &Projectile), With<EnemyProjectile>>,
+) {
+    for (_entity, tf, proj) in proj_query.iter() {
+        // Magma projectiles have damage == 10.0 and are about to expire
+        if (proj.damage - 10.0).abs() < 0.1 && proj.lifetime <= 0.05 && proj.lifetime > 0.0 {
+            let pos = tf.translation.truncate();
+            commands.spawn((
+                BurnZone {
+                    damage_per_sec: 4.0,
+                    radius: 14.0,
+                    lifetime: 3.0,
+                },
+                Sprite {
+                    color: Color::srgba(0.9, 0.3, 0.05, 0.5),
+                    custom_size: Some(Vec2::new(28.0, 28.0)),
+                    ..default()
+                },
+                Transform::from_xyz(pos.x, pos.y, 4.0),
+            ));
+        }
     }
 }

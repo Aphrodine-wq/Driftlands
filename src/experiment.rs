@@ -24,14 +24,16 @@ struct ExperimentRecipe {
     slot_a: ItemType,
     slot_b: ItemType,
     output: ItemType,
+    /// If set, unlocking this recipe in the tech tree when discovered (one-time).
+    tech_key: Option<&'static str>,
 }
 
 const HIDDEN_RECIPES: [ExperimentRecipe; 5] = [
-    ExperimentRecipe { slot_a: ItemType::Berry,        slot_b: ItemType::MushroomCap,  output: ItemType::HealthPotion  },
-    ExperimentRecipe { slot_a: ItemType::IceShard,     slot_b: ItemType::Sulfur,       output: ItemType::Gemstone      },
-    ExperimentRecipe { slot_a: ItemType::Spore,        slot_b: ItemType::CactusFiber,  output: ItemType::SpeedPotion   },
-    ExperimentRecipe { slot_a: ItemType::Coal,         slot_b: ItemType::RareHerb,     output: ItemType::StrengthPotion},
-    ExperimentRecipe { slot_a: ItemType::ObsidianShard, slot_b: ItemType::CrystalShard, output: ItemType::AncientCore  },
+    ExperimentRecipe { slot_a: ItemType::Berry,        slot_b: ItemType::MushroomCap,  output: ItemType::HealthPotion,  tech_key: Some("health_potion") },
+    ExperimentRecipe { slot_a: ItemType::IceShard,    slot_b: ItemType::Sulfur,       output: ItemType::Gemstone,     tech_key: None },
+    ExperimentRecipe { slot_a: ItemType::Spore,       slot_b: ItemType::CactusFiber,   output: ItemType::SpeedPotion,  tech_key: Some("speed_potion") },
+    ExperimentRecipe { slot_a: ItemType::Coal,        slot_b: ItemType::RareHerb,     output: ItemType::StrengthPotion, tech_key: Some("strength_potion") },
+    ExperimentRecipe { slot_a: ItemType::ObsidianShard, slot_b: ItemType::CrystalShard, output: ItemType::AncientCore, tech_key: Some("ancient_pickaxe") },
 ];
 
 // ── Resources ─────────────────────────────────────────────────────────────────
@@ -90,6 +92,7 @@ fn attempt_combination(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut slots: ResMut<ExperimentSlots>,
     mut inventory: ResMut<Inventory>,
+    mut tech_tree: ResMut<crate::techtree::TechTree>,
     mut message: ResMut<ExperimentMessage>,
 ) {
     if !slots.is_open {
@@ -134,7 +137,10 @@ fn attempt_combination(
     match result {
         Some(recipe) => {
             inventory.add_item(recipe.output, 1);
-            message.text = format!("Discovery! You created: {}!", recipe.output.display_name());
+            if let Some(key) = recipe.tech_key {
+                tech_tree.unlock(key);
+            }
+            message.text = format!("Discovery! You created: {}! Recipe unlocked.", recipe.output.display_name());
             message.timer = 2.0;
         }
         None => {

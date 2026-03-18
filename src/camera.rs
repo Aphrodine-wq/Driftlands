@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use bevy::core_pipeline::bloom::Bloom;
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::input::mouse::MouseWheel;
 use rand::Rng;
 use crate::player::Player;
@@ -9,13 +11,19 @@ pub struct ScreenShake {
     pub intensity: f32,
 }
 
+#[derive(Resource, Default)]
+pub struct HitStop {
+    pub timer: f32,
+}
+
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScreenShake>()
+            .init_resource::<HitStop>()
             .add_systems(Startup, spawn_camera)
-            .add_systems(Update, (camera_follow, camera_zoom));
+            .add_systems(Update, (camera_follow, camera_zoom, tick_hit_stop));
     }
 }
 
@@ -33,7 +41,14 @@ const TELEPORT_THRESHOLD: f32 = 500.0;
 fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
-        GameCamera { zoom_level: 1.0 },
+        Camera {
+            hdr: true,
+            clear_color: ClearColorConfig::Custom(Color::srgb(0.008, 0.008, 0.024)),
+            ..default()
+        },
+        Tonemapping::TonyMcMapface,
+        Bloom::default(),
+        GameCamera { zoom_level: 0.45 },
         Transform::from_xyz(0.0, 0.0, 1000.0),
     ));
 }
@@ -101,4 +116,16 @@ fn camera_zoom(
     }
 
     projection.scale = camera.zoom_level;
+}
+
+fn tick_hit_stop(
+    time: Res<Time>,
+    mut hit_stop: ResMut<HitStop>,
+) {
+    if hit_stop.timer > 0.0 {
+        hit_stop.timer -= time.delta_secs();
+        if hit_stop.timer < 0.0 {
+            hit_stop.timer = 0.0;
+        }
+    }
 }

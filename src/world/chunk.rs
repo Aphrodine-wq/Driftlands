@@ -20,6 +20,18 @@ impl Chunk {
         }
     }
 
+    /// Build a chunk from saved tile data (e.g. from LoadedChunkCache). `tiles` is row-major [y][x].
+    pub fn from_tiles(position: IVec2, tiles: &[Vec<TileType>], biome: Biome) -> Self {
+        let mut chunk = Self::new(position);
+        chunk.biome = biome;
+        for (y, row) in tiles.iter().take(CHUNK_SIZE).enumerate() {
+            for (x, &tile) in row.iter().take(CHUNK_SIZE).enumerate() {
+                chunk.tiles[y][x] = tile;
+            }
+        }
+        chunk
+    }
+
     pub fn get_tile(&self, x: usize, y: usize) -> TileType {
         self.tiles[y][x]
     }

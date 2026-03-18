@@ -1,6 +1,6 @@
 [package]
 name = "driftlands"
-version = "0.1.0"
+version = "0.6.0"
 edition = "2021"
 description = "A 2D survival crafting game with procedural worlds, dynamic weather, and emergent gameplay"
 authors = ["James Walton <james@stratasoftwaregroup.com>"]

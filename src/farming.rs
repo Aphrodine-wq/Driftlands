@@ -3,7 +3,8 @@ use crate::building::BuildingState;
 use crate::hud::not_paused;
 use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
-use crate::season::SeasonCycle;
+use crate::season::{Season, SeasonCycle};
+use crate::weather::{Weather, WeatherSystem};
 use crate::world::TILE_SIZE;
 
 pub struct FarmingPlugin;
@@ -33,6 +34,16 @@ const FARM_RANGE: f32 = 32.0;
 pub enum CropType {
     Wheat,
     Carrot,
+    Tomato,
+    Pumpkin,
+    Corn,
+    Potato,
+    Melon,
+    Rice,
+    Pepper,
+    Onion,
+    Flax,
+    Sugarcane,
 }
 
 impl CropType {
@@ -41,6 +52,16 @@ impl CropType {
         match self {
             CropType::Wheat => ItemType::WheatSeed,
             CropType::Carrot => ItemType::CarrotSeed,
+            CropType::Tomato => ItemType::TomatoSeed,
+            CropType::Pumpkin => ItemType::PumpkinSeed,
+            CropType::Corn => ItemType::CornSeed,
+            CropType::Potato => ItemType::PotatoSeed,
+            CropType::Melon => ItemType::MelonSeed,
+            CropType::Rice => ItemType::RiceSeed,
+            CropType::Pepper => ItemType::PepperSeed,
+            CropType::Onion => ItemType::OnionSeed,
+            CropType::Flax => ItemType::FlaxSeed,
+            CropType::Sugarcane => ItemType::SugarcaneSeed,
         }
     }
 
@@ -49,6 +70,16 @@ impl CropType {
         match self {
             CropType::Wheat => ItemType::Wheat,
             CropType::Carrot => ItemType::Carrot,
+            CropType::Tomato => ItemType::Tomato,
+            CropType::Pumpkin => ItemType::Pumpkin,
+            CropType::Corn => ItemType::Corn,
+            CropType::Potato => ItemType::Potato,
+            CropType::Melon => ItemType::Melon,
+            CropType::Rice => ItemType::Rice,
+            CropType::Pepper => ItemType::Pepper,
+            CropType::Onion => ItemType::Onion,
+            CropType::Flax => ItemType::Flax,
+            CropType::Sugarcane => ItemType::Sugarcane,
         }
     }
 
@@ -57,6 +88,16 @@ impl CropType {
         match self {
             CropType::Wheat => 3,
             CropType::Carrot => 2,
+            CropType::Tomato => 2,
+            CropType::Pumpkin => 1,
+            CropType::Corn => 3,
+            CropType::Potato => 2,
+            CropType::Melon => 1,
+            CropType::Rice => 3,
+            CropType::Pepper => 2,
+            CropType::Onion => 2,
+            CropType::Flax => 2,
+            CropType::Sugarcane => 2,
         }
     }
 
@@ -64,6 +105,16 @@ impl CropType {
         match self {
             CropType::Wheat => Color::srgb(0.9, 0.8, 0.2),
             CropType::Carrot => Color::srgb(0.95, 0.5, 0.1),
+            CropType::Tomato => Color::srgb(0.9, 0.2, 0.15),
+            CropType::Pumpkin => Color::srgb(0.9, 0.5, 0.1),
+            CropType::Corn => Color::srgb(0.95, 0.85, 0.3),
+            CropType::Potato => Color::srgb(0.7, 0.55, 0.3),
+            CropType::Melon => Color::srgb(0.4, 0.75, 0.35),
+            CropType::Rice => Color::srgb(0.9, 0.88, 0.7),
+            CropType::Pepper => Color::srgb(0.85, 0.2, 0.1),
+            CropType::Onion => Color::srgb(0.8, 0.7, 0.4),
+            CropType::Flax => Color::srgb(0.6, 0.7, 0.85),
+            CropType::Sugarcane => Color::srgb(0.5, 0.8, 0.3),
         }
     }
 
@@ -71,6 +122,70 @@ impl CropType {
         match self {
             CropType::Wheat => Color::srgb(0.4, 0.75, 0.3),
             CropType::Carrot => Color::srgb(0.3, 0.7, 0.25),
+            CropType::Tomato => Color::srgb(0.5, 0.6, 0.2),
+            CropType::Pumpkin => Color::srgb(0.4, 0.65, 0.2),
+            CropType::Corn => Color::srgb(0.35, 0.7, 0.25),
+            CropType::Potato => Color::srgb(0.3, 0.6, 0.2),
+            CropType::Melon => Color::srgb(0.3, 0.65, 0.25),
+            CropType::Rice => Color::srgb(0.4, 0.7, 0.3),
+            CropType::Pepper => Color::srgb(0.35, 0.6, 0.2),
+            CropType::Onion => Color::srgb(0.35, 0.65, 0.22),
+            CropType::Flax => Color::srgb(0.35, 0.6, 0.3),
+            CropType::Sugarcane => Color::srgb(0.3, 0.65, 0.2),
+        }
+    }
+
+    /// Growth factor for this crop in the given season. 0.0 = off-season (no growth), 1.0 = in-season.
+    pub fn growth_factor_in(&self, season: Season) -> f32 {
+        match self {
+            CropType::Wheat => match season {
+                Season::Spring | Season::Summer => 1.0,
+                _ => 0.0,
+            },
+            CropType::Carrot => match season {
+                Season::Summer | Season::Autumn => 1.0,
+                _ => 0.0,
+            },
+            CropType::Tomato => match season {
+                Season::Summer => 1.0,
+                _ => 0.0,
+            },
+            CropType::Pumpkin => match season {
+                Season::Autumn => 1.0,
+                _ => 0.0,
+            },
+            CropType::Corn => match season {
+                Season::Spring | Season::Summer => 1.0,
+                _ => 0.0,
+            },
+            CropType::Potato => match season {
+                Season::Spring | Season::Autumn => 1.0,
+                _ => 0.0,
+            },
+            CropType::Melon => match season {
+                Season::Summer => 1.0,
+                _ => 0.0,
+            },
+            CropType::Rice => match season {
+                Season::Spring => 1.0,
+                _ => 0.0,
+            },
+            CropType::Pepper => match season {
+                Season::Summer | Season::Autumn => 1.0,
+                _ => 0.0,
+            },
+            CropType::Onion => match season {
+                Season::Spring | Season::Autumn => 1.0,
+                _ => 0.0,
+            },
+            CropType::Flax => match season {
+                Season::Summer => 1.0,
+                _ => 0.0,
+            },
+            CropType::Sugarcane => match season {
+                Season::Summer => 1.0,
+                _ => 0.0,
+            },
         }
     }
 }
@@ -169,6 +284,16 @@ fn plant_seed(
     let crop_type = match slot.item {
         ItemType::WheatSeed => CropType::Wheat,
         ItemType::CarrotSeed => CropType::Carrot,
+        ItemType::TomatoSeed => CropType::Tomato,
+        ItemType::PumpkinSeed => CropType::Pumpkin,
+        ItemType::CornSeed => CropType::Corn,
+        ItemType::PotatoSeed => CropType::Potato,
+        ItemType::MelonSeed => CropType::Melon,
+        ItemType::RiceSeed => CropType::Rice,
+        ItemType::PepperSeed => CropType::Pepper,
+        ItemType::OnionSeed => CropType::Onion,
+        ItemType::FlaxSeed => CropType::Flax,
+        ItemType::SugarcaneSeed => CropType::Sugarcane,
         _ => return,
     };
 
@@ -210,11 +335,14 @@ fn plant_seed(
 /// Advance growth of all planted farm plots based on elapsed time and season.
 fn grow_crops(
     season: Res<SeasonCycle>,
+    weather: Res<WeatherSystem>,
     time: Res<Time>,
     mut plot_query: Query<(&mut FarmPlot, &mut Sprite)>,
 ) {
-    let multiplier = season.current.growth_multiplier();
     let dt = time.delta_secs();
+    let drought = (season.current == Season::Summer && weather.current == Weather::Clear)
+        .then_some(0.6)
+        .unwrap_or(1.0);
 
     for (mut plot, mut sprite) in plot_query.iter_mut() {
         let Some(crop) = plot.crop else { continue };
@@ -223,6 +351,12 @@ fn grow_crops(
             continue;
         }
 
+        let in_season = crop.growth_factor_in(season.current);
+        let multiplier = if in_season > 0.0 {
+            in_season * season.current.growth_multiplier() * drought
+        } else {
+            0.0
+        };
         plot.growth += (dt / BASE_GROW_TIME) * multiplier;
         plot.growth = plot.growth.min(1.0);
 

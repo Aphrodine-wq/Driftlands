@@ -3,28 +3,65 @@ use serde::{Serialize, Deserialize};
 use std::fs;
 use std::path::Path;
 
-use crate::player::{Player, Health, Hunger, ArmorSlots};
+use crate::player::{Player, Health, Hunger, ArmorSlots, CurrentFloor};
 use crate::inventory::{Inventory, InventorySlot, ItemType};
 use crate::world::chunk::{Chunk, CHUNK_SIZE};
 use crate::world::tile::TileType;
-use crate::world::WorldState;
+use crate::world::{LoadedChunkCache, WorldState};
 use crate::world::TILE_SIZE;
 use crate::daynight::DayNightCycle;
-use crate::building::{Building, BuildingType, ChestStorage, CraftingStation, Door, Roof};
+use crate::building::{Building, BuildingType, ChestStorage, CraftingStation, Door, FloorLayer, Roof, StairsOrLadder};
 use crate::techtree::TechTree;
 use crate::lore::LoreRegistry;
 use crate::death::SpawnPoint;
 use crate::minimap::ExploredChunks;
 use crate::farming::{FarmPlot, CropType};
 use crate::tutorial::TutorialState;
+use crate::quests::QuestLog;
+use crate::pets::{Pet, PetData, PetType, PetSystem};
+use crate::skills::SkillLevels;
 
 pub struct SaveLoadPlugin;
+
+/// When Some, the load application system will apply it (avoids system param limit).
+#[derive(Resource, Default)]
+struct PendingLoad(Option<SaveData>);
+
+/// Holds expansion save data collected by pre_save_patch, read by handle_save_input.
+/// Keeps handle_save_input at 16 params by bundling extra data here.
+#[derive(Resource, Default)]
+struct SavePatchData {
+    pub quest_progress: Vec<(String, u32, bool, bool)>,
+    pub active_pet: Option<PetData>,
+    pub tutorial_shown_hints: Vec<String>,
+    pub skill_levels: Vec<(String, u32, u32)>,
+}
 
 impl Plugin for SaveLoadPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SaveMessage::default())
             .insert_resource(LoadRequested::default())
-            .add_systems(Update, (handle_save_input, handle_load_input, update_save_message));
+            .insert_resource(PendingLoad::default())
+            .insert_resource(SavePatchData::default())
+            .add_systems(
+                Update,
+                (
+                    pre_save_patch,
+                    handle_save_input,
+                    handle_load_input,
+                    apply_pending_load_1.after(handle_load_input),
+                    apply_pending_load_2.after(apply_pending_load_1),
+                    apply_pending_load_3.after(apply_pending_load_2),
+                    apply_pending_load_4.after(apply_pending_load_3),
+                ),
+            )
+            .add_systems(
+                Update,
+                (
+                    apply_pending_load_5.after(apply_pending_load_4),
+                    update_save_message,
+                ),
+            );
     }
 }
 
@@ -89,6 +126,18 @@ struct SaveData {
     // US-031: Tutorial hints shown
     #[serde(default)]
     tutorial_shown_hints: Vec<String>,
+    // Player floor (verticality)
+    #[serde(default)]
+    current_floor: u8,
+    // Expansion: Pet data
+    #[serde(default)]
+    active_pet: Option<crate::pets::PetData>,
+    // Expansion: Quest progress (quest_id, progress, completed, claimed)
+    #[serde(default)]
+    quest_progress: Vec<(String, u32, bool, bool)>,
+    // Expansion: Skill levels (skill_key, level, xp)
+    #[serde(default)]
+    skill_levels: Vec<(String, u32, u32)>,
 }
 
 fn default_spawn_point() -> (f32, f32) {
@@ -115,6 +164,8 @@ struct SaveBuilding {
     building_type: SaveBuildingType,
     pos: [f32; 3],
     is_door_open: Option<bool>,
+    #[serde(default)]
+    floor_layer: u8,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -159,6 +210,28 @@ enum SaveBuildingType {
     Campfire,
     AdvancedForge,
     AncientWorkstation,
+    WoodStairs,
+    StoneStairs,
+    Ladder,
+    WoodHalfWall,
+    WoodWallWindow,
+    BrickWall,
+    ReinforcedStoneWall,
+    EnchantingTable,
+    FishSmoker,
+    PetHouse,
+    DisplayCase,
+    // Wave 6 — New Furniture
+    Lantern,
+    Bookshelf,
+    WeaponRack,
+    CookingPot,
+    RainCollector,
+    TrophyMount,
+    // Wave 6 — Automation
+    AutoSmelter,
+    CropSprinkler,
+    AlarmBell,
 }
 
 impl From<BuildingType> for SaveBuildingType {
@@ -182,6 +255,26 @@ impl From<BuildingType> for SaveBuildingType {
             BuildingType::Campfire => SaveBuildingType::Campfire,
             BuildingType::AdvancedForge => SaveBuildingType::AdvancedForge,
             BuildingType::AncientWorkstation => SaveBuildingType::AncientWorkstation,
+            BuildingType::WoodStairs => SaveBuildingType::WoodStairs,
+            BuildingType::StoneStairs => SaveBuildingType::StoneStairs,
+            BuildingType::Ladder => SaveBuildingType::Ladder,
+            BuildingType::WoodHalfWall => SaveBuildingType::WoodHalfWall,
+            BuildingType::WoodWallWindow => SaveBuildingType::WoodWallWindow,
+            BuildingType::BrickWall => SaveBuildingType::BrickWall,
+            BuildingType::ReinforcedStoneWall => SaveBuildingType::ReinforcedStoneWall,
+            BuildingType::EnchantingTable => SaveBuildingType::EnchantingTable,
+            BuildingType::FishSmoker => SaveBuildingType::FishSmoker,
+            BuildingType::PetHouse => SaveBuildingType::PetHouse,
+            BuildingType::DisplayCase => SaveBuildingType::DisplayCase,
+            BuildingType::Lantern => SaveBuildingType::Lantern,
+            BuildingType::Bookshelf => SaveBuildingType::Bookshelf,
+            BuildingType::WeaponRack => SaveBuildingType::WeaponRack,
+            BuildingType::CookingPot => SaveBuildingType::CookingPot,
+            BuildingType::RainCollector => SaveBuildingType::RainCollector,
+            BuildingType::TrophyMount => SaveBuildingType::TrophyMount,
+            BuildingType::AutoSmelter => SaveBuildingType::AutoSmelter,
+            BuildingType::CropSprinkler => SaveBuildingType::CropSprinkler,
+            BuildingType::AlarmBell => SaveBuildingType::AlarmBell,
         }
     }
 }
@@ -207,16 +300,53 @@ impl From<SaveBuildingType> for BuildingType {
             SaveBuildingType::Campfire => BuildingType::Campfire,
             SaveBuildingType::AdvancedForge => BuildingType::AdvancedForge,
             SaveBuildingType::AncientWorkstation => BuildingType::AncientWorkstation,
+            SaveBuildingType::WoodStairs => BuildingType::WoodStairs,
+            SaveBuildingType::StoneStairs => BuildingType::StoneStairs,
+            SaveBuildingType::Ladder => BuildingType::Ladder,
+            SaveBuildingType::WoodHalfWall => BuildingType::WoodHalfWall,
+            SaveBuildingType::WoodWallWindow => BuildingType::WoodWallWindow,
+            SaveBuildingType::BrickWall => BuildingType::BrickWall,
+            SaveBuildingType::ReinforcedStoneWall => BuildingType::ReinforcedStoneWall,
+            SaveBuildingType::EnchantingTable => BuildingType::EnchantingTable,
+            SaveBuildingType::FishSmoker => BuildingType::FishSmoker,
+            SaveBuildingType::PetHouse => BuildingType::PetHouse,
+            SaveBuildingType::DisplayCase => BuildingType::DisplayCase,
+            SaveBuildingType::Lantern => BuildingType::Lantern,
+            SaveBuildingType::Bookshelf => BuildingType::Bookshelf,
+            SaveBuildingType::WeaponRack => BuildingType::WeaponRack,
+            SaveBuildingType::CookingPot => BuildingType::CookingPot,
+            SaveBuildingType::RainCollector => BuildingType::RainCollector,
+            SaveBuildingType::TrophyMount => BuildingType::TrophyMount,
+            SaveBuildingType::AutoSmelter => BuildingType::AutoSmelter,
+            SaveBuildingType::CropSprinkler => BuildingType::CropSprinkler,
+            SaveBuildingType::AlarmBell => BuildingType::AlarmBell,
         }
     }
 }
 
+/// Collects quest, pet, tutorial, and skill data into a resource before the save system runs.
+fn pre_save_patch(
+    quest_log: Res<QuestLog>,
+    pet_query: Query<&Pet>,
+    tutorial_state: Res<TutorialState>,
+    skill_levels: Res<SkillLevels>,
+    mut patch: ResMut<SavePatchData>,
+) {
+    patch.quest_progress = quest_log.to_save_data();
+    patch.active_pet = pet_query.get_single().ok().map(|pet| PetData {
+        pet_type_name: pet.pet_type.display_name().to_string(),
+        happiness: pet.happiness,
+    });
+    patch.tutorial_shown_hints = tutorial_state.shown_hints.iter().cloned().collect();
+    patch.skill_levels = skill_levels.to_save_data();
+}
+
 fn handle_save_input(
     keyboard: Res<ButtonInput<KeyCode>>,
-    player_query: Query<(&Transform, &Health, &Hunger), With<Player>>,
+    player_query: Query<(&Transform, &Health, &Hunger, &CurrentFloor), With<Player>>,
     inventory: Res<Inventory>,
     chunk_query: Query<&Chunk>,
-    building_query: Query<(&Building, &Transform, Option<&Door>), Without<Player>>,
+    building_query: Query<(&Building, &Transform, Option<&Door>, Option<&FloorLayer>), Without<Player>>,
     cycle: Res<DayNightCycle>,
     mut save_msg: ResMut<SaveMessage>,
     world_state: Res<WorldState>,
@@ -227,13 +357,13 @@ fn handle_save_input(
     explored: Res<ExploredChunks>,
     chest_query: Query<(&ChestStorage, &Transform), Without<Player>>,
     farm_query: Query<(&FarmPlot, &Transform), Without<Player>>,
-    tutorial_state: Res<TutorialState>,
+    save_patch: Res<SavePatchData>,
 ) {
     if !keyboard.just_pressed(KeyCode::F5) {
         return;
     }
 
-    let Ok((player_tf, health, hunger)) = player_query.get_single() else { return };
+    let Ok((player_tf, health, hunger, current_floor)) = player_query.get_single() else { return };
 
     let save_data = SaveData {
         player_pos: [player_tf.translation.x, player_tf.translation.y, player_tf.translation.z],
@@ -255,11 +385,12 @@ fn handle_save_input(
             }
             SaveChunk { pos_x: chunk.position.x, pos_y: chunk.position.y, tiles }
         }).collect(),
-        buildings: building_query.iter().map(|(building, tf, door)| {
+        buildings: building_query.iter().map(|(building, tf, door, floor)| {
             SaveBuilding {
                 building_type: building.building_type.into(),
                 pos: [tf.translation.x, tf.translation.y, tf.translation.z],
                 is_door_open: door.map(|d| d.is_open),
+                floor_layer: floor.map(|f| f.0).unwrap_or(0),
             }
         }).collect(),
         day_time: cycle.time_of_day,
@@ -293,8 +424,8 @@ fn handle_save_input(
                 }).collect(),
             }
         }).collect(),
-        // US-031: Tutorial hints
-        tutorial_shown_hints: tutorial_state.shown_hints.iter().cloned().collect(),
+        // US-031: Tutorial hints (via save patch)
+        tutorial_shown_hints: save_patch.tutorial_shown_hints.clone(),
         // US-026: Farm plots
         farms: farm_query.iter().map(|(plot, tf)| {
             SaveFarmData {
@@ -303,11 +434,25 @@ fn handle_save_input(
                 crop_name: match plot.crop {
                     Some(CropType::Wheat) => "Wheat".to_string(),
                     Some(CropType::Carrot) => "Carrot".to_string(),
+                    Some(CropType::Tomato) => "Tomato".to_string(),
+                    Some(CropType::Pumpkin) => "Pumpkin".to_string(),
+                    Some(CropType::Corn) => "Corn".to_string(),
+                    Some(CropType::Potato) => "Potato".to_string(),
+                    Some(CropType::Melon) => "Melon".to_string(),
+                    Some(CropType::Rice) => "Rice".to_string(),
+                    Some(CropType::Pepper) => "Pepper".to_string(),
+                    Some(CropType::Onion) => "Onion".to_string(),
+                    Some(CropType::Flax) => "Flax".to_string(),
+                    Some(CropType::Sugarcane) => "Sugarcane".to_string(),
                     None => "None".to_string(),
                 },
                 growth: plot.growth,
             }
         }).collect(),
+        current_floor: current_floor.0,
+        active_pet: save_patch.active_pet.clone(),
+        quest_progress: save_patch.quest_progress.clone(),
+        skill_levels: save_patch.skill_levels.clone(),
     };
 
     // Create directory
@@ -351,23 +496,10 @@ fn parse_armor_item(s: &str) -> Option<ItemType> {
 
 fn handle_load_input(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut player_query: Query<(&mut Transform, &mut Health, &mut Hunger), With<Player>>,
-    mut inventory: ResMut<Inventory>,
-    mut cycle: ResMut<DayNightCycle>,
-    mut commands: Commands,
-    building_entities: Query<Entity, With<Building>>,
-    farm_entities: Query<Entity, With<FarmPlot>>,
     mut save_msg: ResMut<SaveMessage>,
-    mut world_state: ResMut<WorldState>,
-    mut tech_tree: ResMut<TechTree>,
-    mut armor: ResMut<ArmorSlots>,
-    mut lore_registry: ResMut<LoreRegistry>,
-    mut spawn_point: ResMut<SpawnPoint>,
-    mut explored: ResMut<ExploredChunks>,
     mut load_requested: ResMut<LoadRequested>,
-    mut tutorial_state: ResMut<TutorialState>,
+    mut pending_load: ResMut<PendingLoad>,
 ) {
-    // Trigger on F9 key or programmatic request (e.g. from main menu)
     if load_requested.requested {
         load_requested.requested = false;
     } else if !keyboard.just_pressed(KeyCode::F9) {
@@ -398,35 +530,82 @@ fn handle_load_input(
         }
     };
 
-    // Restore player
-    if let Ok((mut tf, mut health, mut hunger)) = player_query.get_single_mut() {
+    pending_load.0 = Some(save_data);
+}
+
+fn apply_pending_load_1(
+    mut pending: ResMut<PendingLoad>,
+    mut player_query: Query<(&mut Transform, &mut Health, &mut Hunger, &mut CurrentFloor), With<Player>>,
+    mut inventory: ResMut<Inventory>,
+    mut cycle: ResMut<DayNightCycle>,
+    mut world_state: ResMut<WorldState>,
+    mut loaded_chunk_cache: ResMut<LoadedChunkCache>,
+    mut chunk_gen_async: ResMut<crate::world::ChunkGenAsync>,
+) {
+    let Some(save_data) = pending.0.take() else {
+        return;
+    };
+
+    if let Ok((mut tf, mut health, mut hunger, mut current_floor)) = player_query.get_single_mut() {
         tf.translation = Vec3::new(save_data.player_pos[0], save_data.player_pos[1], save_data.player_pos[2]);
         health.current = save_data.health;
         health.max = save_data.max_health;
         hunger.current = save_data.hunger;
         hunger.max = save_data.max_hunger;
         hunger.starvation_timer = 0.0;
+        current_floor.0 = save_data.current_floor;
     }
 
-    // Restore inventory
     inventory.slots = save_data.inventory_slots.iter().map(|s| {
         s.as_ref().map(|slot| InventorySlot { item: slot.item, count: slot.count, durability: slot.durability })
     }).collect();
-    // Pad if needed
     while inventory.slots.len() < 36 {
         inventory.slots.push(None);
     }
 
-    // Remove existing buildings
+    cycle.time_of_day = save_data.day_time;
+    cycle.day_count = save_data.day_count;
+
+    if save_data.seed != 0 {
+        world_state.seed = save_data.seed;
+        world_state.generator = crate::world::generation::WorldGenerator::new(save_data.seed);
+        world_state.loaded_chunks.clear();
+    }
+
+    loaded_chunk_cache.0.clear();
+    for sc in &save_data.chunks {
+        loaded_chunk_cache
+            .0
+            .insert(IVec2::new(sc.pos_x, sc.pos_y), sc.tiles.clone());
+    }
+
+    // Clear async chunk state so pending results from old seed are not spawned
+    chunk_gen_async.requested.clear();
+    if let Ok(mut q) = chunk_gen_async.results.lock() {
+        q.clear();
+    }
+
+    pending.0 = Some(save_data);
+}
+
+fn apply_pending_load_2(
+    mut pending: ResMut<PendingLoad>,
+    mut commands: Commands,
+    building_entities: Query<Entity, With<Building>>,
+) {
+    let Some(save_data) = pending.0.take() else {
+        return;
+    };
+
     for entity in building_entities.iter() {
         commands.entity(entity).despawn();
     }
 
-    // Restore buildings
     for sb in &save_data.buildings {
         let bt: BuildingType = sb.building_type.into();
         let mut entity_commands = commands.spawn((
             Building { building_type: bt },
+            FloorLayer(sb.floor_layer),
             Sprite {
                 color: bt.color(),
                 custom_size: Some(bt.size()),
@@ -435,6 +614,9 @@ fn handle_load_input(
             Transform::from_xyz(sb.pos[0], sb.pos[1], sb.pos[2]),
         ));
 
+        if bt.is_stairs_or_ladder() {
+            entity_commands.insert(StairsOrLadder);
+        }
         if matches!(bt, BuildingType::WoodDoor | BuildingType::StoneDoor | BuildingType::MetalDoor) {
             entity_commands.insert(Door { is_open: sb.is_door_open.unwrap_or(false) });
         }
@@ -445,7 +627,6 @@ fn handle_load_input(
             entity_commands.insert(CraftingStation { tier });
         }
         if matches!(bt, BuildingType::Chest) {
-            // US-026: Restore chest contents by matching position
             let mut chest = ChestStorage::new();
             for sc in &save_data.chests {
                 if (sc.x - sb.pos[0]).abs() < 1.0 && (sc.y - sb.pos[1]).abs() < 1.0 {
@@ -456,7 +637,6 @@ fn handle_load_input(
                             durability: slot.durability,
                         })
                     }).collect();
-                    // Pad to 18 slots if needed
                     while chest.slots.len() < 18 {
                         chest.slots.push(None);
                     }
@@ -465,18 +645,48 @@ fn handle_load_input(
             }
             entity_commands.insert(chest);
         }
+        // Wave 6 — Automation components
+        if matches!(bt, BuildingType::AutoSmelter) {
+            entity_commands.insert(crate::automation::AutoSmelter { timer: 0.0 });
+        }
+        if matches!(bt, BuildingType::CropSprinkler) {
+            entity_commands.insert(crate::automation::CropSprinkler);
+        }
+        if matches!(bt, BuildingType::AlarmBell) {
+            entity_commands.insert(crate::automation::AlarmBell { cooldown: 0.0 });
+        }
     }
 
-    // US-026: Remove existing farm plots
+    pending.0 = Some(save_data);
+}
+
+fn apply_pending_load_3(
+    mut pending: ResMut<PendingLoad>,
+    mut commands: Commands,
+    farm_entities: Query<Entity, With<FarmPlot>>,
+) {
+    let Some(save_data) = pending.0.take() else {
+        return;
+    };
+
     for entity in farm_entities.iter() {
         commands.entity(entity).despawn();
     }
 
-    // US-026: Restore farm plots
     for sf in &save_data.farms {
         let crop = match sf.crop_name.as_str() {
             "Wheat" => Some(CropType::Wheat),
             "Carrot" => Some(CropType::Carrot),
+            "Tomato" => Some(CropType::Tomato),
+            "Pumpkin" => Some(CropType::Pumpkin),
+            "Corn" => Some(CropType::Corn),
+            "Potato" => Some(CropType::Potato),
+            "Melon" => Some(CropType::Melon),
+            "Rice" => Some(CropType::Rice),
+            "Pepper" => Some(CropType::Pepper),
+            "Onion" => Some(CropType::Onion),
+            "Flax" => Some(CropType::Flax),
+            "Sugarcane" => Some(CropType::Sugarcane),
             _ => None,
         };
         let plot = FarmPlot { crop, growth: sf.growth };
@@ -501,41 +711,38 @@ fn handle_load_input(
         ));
     }
 
-    // Restore day/night
-    cycle.time_of_day = save_data.day_time;
-    cycle.day_count = save_data.day_count;
+    pending.0 = Some(save_data);
+}
 
-    // US-006: Restore world seed so regenerated chunks match the saved world.
-    // The seed must be set BEFORE any chunk regeneration occurs (managed by
-    // WorldState/manage_chunks on subsequent frames).
-    if save_data.seed != 0 {
-        world_state.seed = save_data.seed;
-        world_state.generator = crate::world::generation::WorldGenerator::new(save_data.seed);
-        // Clear loaded_chunks so chunks will be regenerated with the restored seed
-        world_state.loaded_chunks.clear();
-    }
+fn apply_pending_load_4(
+    mut pending: ResMut<PendingLoad>,
+    mut tech_tree: ResMut<TechTree>,
+    mut armor: ResMut<ArmorSlots>,
+    mut lore_registry: ResMut<LoreRegistry>,
+    mut spawn_point: ResMut<SpawnPoint>,
+    mut explored: ResMut<ExploredChunks>,
+    mut tutorial_state: ResMut<TutorialState>,
+    mut save_msg: ResMut<SaveMessage>,
+) {
+    let Some(save_data) = pending.0.take() else {
+        return;
+    };
 
-    // US-007: Restore tech tree
     tech_tree.unlocked_recipes = save_data.tech_tree_unlocks.into_iter().collect();
     tech_tree.research_points = save_data.research_points;
 
-    // US-007: Restore armor slots
     armor.helmet = save_data.armor_helmet.as_deref().and_then(parse_armor_item);
     armor.chest = save_data.armor_chest.as_deref().and_then(parse_armor_item);
     armor.shield = save_data.armor_shield.as_deref().and_then(parse_armor_item);
 
-    // US-007: Restore lore entries
     lore_registry.collected_entries = save_data.lore_entries;
 
-    // US-007: Restore spawn point
     spawn_point.position = Vec3::new(save_data.spawn_point.0, save_data.spawn_point.1, 10.0);
 
-    // US-007: Restore explored chunks
     explored.chunks = save_data.explored_chunks.iter().map(|&(x, y)| IVec2::new(x, y)).collect();
 
-    // US-031: Restore tutorial state
     tutorial_state.shown_hints = save_data.tutorial_shown_hints.into_iter().collect();
-    tutorial_state.spawn_hint_queued = true; // Don't re-show spawn hint
+    tutorial_state.spawn_hint_queued = true;
     tutorial_state.seen_pickup = tutorial_state.shown_hints.contains("first_gather");
     tutorial_state.seen_craft = tutorial_state.shown_hints.contains("first_craft");
     tutorial_state.seen_build = tutorial_state.shown_hints.contains("first_nightfall")
@@ -543,6 +750,65 @@ fn handle_load_input(
 
     save_msg.text = "Game Loaded!".to_string();
     save_msg.timer = 2.0;
+}
+
+fn apply_pending_load_5(
+    mut pending: ResMut<PendingLoad>,
+    mut commands: Commands,
+    mut quest_log: ResMut<QuestLog>,
+    mut pet_system: ResMut<PetSystem>,
+    existing_pets: Query<Entity, With<Pet>>,
+    mut skill_levels: ResMut<SkillLevels>,
+) {
+    let Some(save_data) = pending.0.take() else {
+        return;
+    };
+
+    // Restore quest progress
+    if !save_data.quest_progress.is_empty() {
+        *quest_log = QuestLog::from_save_data(&save_data.quest_progress);
+    }
+
+    // Restore skill levels
+    if !save_data.skill_levels.is_empty() {
+        skill_levels.restore_from_save_data(&save_data.skill_levels);
+    }
+
+    // Despawn any existing pets
+    for entity in existing_pets.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+    pet_system.active_pet = false;
+
+    // Restore pet if saved
+    if let Some(ref pet_data) = save_data.active_pet {
+        let pet_type = match pet_data.pet_type_name.as_str() {
+            "Wolf" => Some(PetType::Wolf),
+            "Cat" => Some(PetType::Cat),
+            "Hawk" => Some(PetType::Hawk),
+            "Bear" => Some(PetType::Bear),
+            _ => None,
+        };
+
+        if let Some(pt) = pet_type {
+            commands.spawn((
+                Pet {
+                    pet_type: pt,
+                    happiness: pet_data.happiness,
+                    attack_cooldown: 0.0,
+                },
+                Sprite {
+                    color: pt.color(),
+                    custom_size: Some(pt.size()),
+                    ..default()
+                },
+                Transform::from_xyz(0.0, 0.0, 6.0), // Will snap to player via pet_follow
+            ));
+            pet_system.active_pet = true;
+        }
+    }
+
+    // Don't consume save_data — it's already taken
 }
 
 fn update_save_message(

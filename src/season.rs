@@ -87,7 +87,6 @@ impl Default for SeasonCycle {
 
 impl Season {
     /// Grass/ground color tint multiplier for this season.
-    #[allow(dead_code)]
     pub fn grass_color(&self) -> Color {
         match self {
             Season::Spring => Color::srgb(0.3, 0.75, 0.3),
@@ -98,7 +97,6 @@ impl Season {
     }
 
     /// Tree color tint for this season.
-    #[allow(dead_code)]
     pub fn tree_color(&self) -> Color {
         match self {
             Season::Spring => Color::srgb(0.2, 0.7, 0.25),

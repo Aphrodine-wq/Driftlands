@@ -7,7 +7,7 @@ use crate::camera::GameCamera;
 use crate::world::chunk::{Chunk, CHUNK_SIZE};
 use crate::world::{TILE_SIZE, CHUNK_WORLD_SIZE};
 use crate::dungeon::DungeonEntrance;
-use crate::death::SpawnPoint;
+use crate::death::{SpawnPoint, DeathStats};
 use crate::npc::Trader;
 
 pub struct MinimapPlugin;
@@ -100,6 +100,7 @@ fn create_minimap_image() -> Image {
 fn update_minimap(
     player_query: Query<(&Transform, &PlayerFacing), With<Player>>,
     camera_query: Query<&Transform, (With<GameCamera>, Without<Player>, Without<Minimap>)>,
+    camera_proj_query: Query<&OrthographicProjection, With<GameCamera>>,
     chunk_query: Query<&Chunk>,
     mut minimap_query: Query<(&Minimap, &Sprite, &mut Transform), (Without<Player>, Without<GameCamera>)>,
     mut images: ResMut<Assets<Image>>,
@@ -108,14 +109,20 @@ fn update_minimap(
     dungeon_query: Query<&Transform, (With<DungeonEntrance>, Without<Player>, Without<GameCamera>, Without<Minimap>)>,
     trader_query: Query<&Transform, (With<Trader>, Without<Player>, Without<GameCamera>, Without<Minimap>, Without<DungeonEntrance>)>,
     spawn_point: Res<SpawnPoint>,
+    death_stats: Res<DeathStats>,
 ) {
     let Ok((player_tf, player_facing)) = player_query.get_single() else { return };
     let Ok(cam_tf) = camera_query.get_single() else { return };
     let Ok((_, sprite, mut minimap_tf)) = minimap_query.get_single_mut() else { return };
 
-    // Position minimap in top-right of screen (offset from camera)
-    minimap_tf.translation.x = cam_tf.translation.x + 570.0;
-    minimap_tf.translation.y = cam_tf.translation.y + 290.0;
+    // Position minimap in top-right of screen, accounting for camera zoom
+    let Ok(cam_proj) = camera_proj_query.get_single() else { return };
+    let zoom = cam_proj.scale;
+    // Offset in screen-space pixels, scaled by zoom so it stays in the corner
+    minimap_tf.translation.x = cam_tf.translation.x + 520.0 * zoom;
+    minimap_tf.translation.y = cam_tf.translation.y + 280.0 * zoom;
+    // Scale minimap inversely with zoom so it stays the same screen size
+    let minimap_display_scale = zoom * 1.3; // slightly larger than 1:1
 
     // Update the minimap image
     let image_handle = &sprite.image;
@@ -233,6 +240,17 @@ fn update_minimap(
         }
     }
 
+    // Wave 7C: Gravestone marker (red dot) — shows death position on minimap
+    if let Some(grave_pos) = death_stats.gravestone_pos {
+        let (gx, gy) = world_to_minimap(grave_pos.x, grave_pos.y);
+        let red = [220, 50, 50, 255];
+        for dy in -1..=1_i32 {
+            for dx in -1..=1_i32 {
+                set_pixel(&mut image.data, gx + dx, gy + dy, red);
+            }
+        }
+    }
+
     // --- Player directional arrow (white, at center) ---
     let cx = (MINIMAP_SIZE / 2) as i32;
     let cy = (MINIMAP_SIZE / 2) as i32;
@@ -282,12 +300,12 @@ fn update_minimap(
     if !state.minimap_visible && !state.fullscreen_open {
         minimap_tf.scale = Vec3::ZERO;
     } else if state.fullscreen_open {
-        // Fullscreen map: scale up 3x and center on camera
+        // Fullscreen map: scale up and center on camera
         minimap_tf.translation.x = cam_tf.translation.x;
         minimap_tf.translation.y = cam_tf.translation.y;
-        minimap_tf.scale = Vec3::splat(3.0);
+        minimap_tf.scale = Vec3::splat(3.0 * zoom);
     } else {
-        minimap_tf.scale = Vec3::ONE;
+        minimap_tf.scale = Vec3::splat(minimap_display_scale);
     }
 }
 
