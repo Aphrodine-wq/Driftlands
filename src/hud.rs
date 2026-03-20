@@ -188,6 +188,7 @@ impl Plugin for HudPlugin {
                 update_feedback_hud,
                 update_inventory_grid,
                 inventory_navigation,
+                update_inventory_equip_panel,
                 update_graphical_hotbar,
                 track_player_biome,
                 update_biome_banner,
@@ -344,6 +345,24 @@ pub struct InventoryTooltip;
 /// Footer text with controls help.
 #[derive(Component)]
 pub struct InventoryFooter;
+
+/// Full-screen dimming overlay shown when inventory is open.
+#[derive(Component)]
+pub struct InventoryDimOverlay;
+
+/// Marks one of the 3 equipment display slots (Helmet / Chest / Shield).
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+pub enum InventoryEquipSlotUI {
+    Helmet,
+    Chest,
+    Shield,
+}
+
+/// The name-label inside an equipment display slot.
+#[derive(Component)]
+pub struct InventoryEquipLabel {
+    pub slot: InventoryEquipSlotUI,
+}
 
 /// Returns the sprite handle for an item type, if one exists in GameAssets.
 fn item_sprite(item: &ItemType, assets: &GameAssets) -> Option<Handle<Image>> {
@@ -670,7 +689,25 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
             ));
         });
 
+        // Inventory dim overlay: full-screen dark veil (behind the panel)
+        parent.spawn((
+            InventoryDimOverlay,
+            Node {
+                display: Display::None,
+                position_type: PositionType::Absolute,
+                top: Val::Px(0.0),
+                left: Val::Px(0.0),
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
+        ));
+
         // Inventory Panel: Center — Graphical Grid (9x4 = 36 slots)
+        // Layout math: 9 slots * 48px + 8 gaps * 4px = 464px grid
+        // + 32px padding = 496px wide. Half = 248px offset.
+        // Height: equip(76) + title(32) + grid(4*52) + tooltip(28) + footer(22) + padding(32) ≈ 398px. Half ≈ 200px.
         parent.spawn((
             InventoryGrid,
             InventoryPanelText, // kept for Without<> filter compat
@@ -679,44 +716,94 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
                 position_type: PositionType::Absolute,
                 top: Val::Percent(50.0),
                 left: Val::Percent(50.0),
-                // Offset to center: -(total_width/2) x -(total_height/2)
-                // 9 cols * 48px + 8 gaps * 4px + 24px padding = 464px wide
-                // 4 rows * 48px + 3 gaps * 4px + title + tooltip + footer ~ 340px
                 margin: UiRect {
-                    left: Val::Px(-240.0),
-                    top: Val::Px(-200.0),
+                    left: Val::Px(-256.0),
+                    top: Val::Px(-220.0),
                     ..default()
                 },
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
-                padding: UiRect::all(Val::Px(12.0)),
+                padding: UiRect::all(Val::Px(16.0)),
                 border: UiRect::all(Val::Px(2.0)),
-                row_gap: Val::Px(4.0),
+                row_gap: Val::Px(6.0),
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.02, 0.02, 0.06, 0.92)),
-            BorderColor(theme.panel_border(false)),
+            BackgroundColor(Color::srgba(0.03, 0.02, 0.07, 0.97)),
+            BorderColor(theme.panel_border(true)),
         ))
         .with_children(|panel| {
             // Title
             panel.spawn((
                 Text::new("INVENTORY"),
-                TextFont { font_size: 16.0, ..default() },
+                TextFont { font_size: 20.0, ..default() },
                 TextColor(theme.accent_gold),
                 Node {
-                    margin: UiRect::bottom(Val::Px(2.0)),
+                    margin: UiRect::bottom(Val::Px(4.0)),
                     ..default()
                 },
             ));
-            // Subtitle (slot count)
+
+            // Equipment slots row: Helmet / Chest / Shield
+            panel.spawn(Node {
+                flex_direction: FlexDirection::Row,
+                column_gap: Val::Px(10.0),
+                margin: UiRect::bottom(Val::Px(6.0)),
+                ..default()
+            })
+            .with_children(|equip_row| {
+                for (slot_type, label) in [
+                    (InventoryEquipSlotUI::Helmet, "Helmet"),
+                    (InventoryEquipSlotUI::Chest, "Chest"),
+                    (InventoryEquipSlotUI::Shield, "Shield"),
+                ] {
+                    equip_row.spawn(Node {
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        row_gap: Val::Px(2.0),
+                        ..default()
+                    })
+                    .with_children(|col| {
+                        // Slot box
+                        col.spawn((
+                            slot_type,
+                            Node {
+                                width: Val::Px(52.0),
+                                height: Val::Px(52.0),
+                                border: UiRect::all(Val::Px(1.0)),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgba(0.06, 0.04, 0.12, 0.9)),
+                            BorderColor(Color::srgba(0.5, 0.4, 0.15, 0.7)),
+                        ))
+                        .with_children(|slot_inner| {
+                            slot_inner.spawn((
+                                InventoryEquipLabel { slot: slot_type },
+                                Text::new("—"),
+                                TextFont { font_size: 9.0, ..default() },
+                                TextColor(theme.accent_slate),
+                            ));
+                        });
+                        // Slot type label below the box
+                        col.spawn((
+                            Text::new(label),
+                            TextFont { font_size: 9.0, ..default() },
+                            TextColor(theme.accent_slate),
+                        ));
+                    });
+                }
+            });
+
+            // Thin gold separator line between equipment and grid
             panel.spawn((
-                Text::new("36 slots"),
-                TextFont { font_size: 11.0, ..default() },
-                TextColor(theme.accent_slate),
                 Node {
-                    margin: UiRect::bottom(Val::Px(6.0)),
+                    width: Val::Px(464.0),
+                    height: Val::Px(1.0),
+                    margin: UiRect::bottom(Val::Px(4.0)),
                     ..default()
                 },
+                BackgroundColor(Color::srgba(0.7, 0.6, 0.2, 0.4)),
             ));
 
             // Grid container: 9 columns x 4 rows
@@ -727,6 +814,18 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
             })
             .with_children(|grid| {
                 for row in 0..4 {
+                    // Extra gap between hotbar row (row 0) and main inventory
+                    if row == 1 {
+                        grid.spawn((
+                            Node {
+                                width: Val::Px(464.0),
+                                height: Val::Px(1.0),
+                                margin: UiRect::vertical(Val::Px(2.0)),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgba(0.7, 0.6, 0.2, 0.35)),
+                        ));
+                    }
                     grid.spawn(Node {
                         flex_direction: FlexDirection::Row,
                         column_gap: Val::Px(4.0),
@@ -735,30 +834,41 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
                     .with_children(|row_node| {
                         for col in 0..9 {
                             let idx = row * 9 + col;
+                            // Hotbar row gets a slightly warmer tint
+                            let slot_bg = if row == 0 {
+                                Color::srgba(0.07, 0.06, 0.14, 0.85)
+                            } else {
+                                Color::srgba(0.05, 0.04, 0.10, 0.85)
+                            };
+                            let slot_border = if row == 0 {
+                                Color::srgba(0.4, 0.35, 0.2, 0.5)
+                            } else {
+                                Color::srgba(0.28, 0.28, 0.38, 0.55)
+                            };
                             // Slot container
                             row_node.spawn((
                                 InventorySlotUI { index: idx },
                                 Node {
-                                    width: Val::Px(44.0),
-                                    height: Val::Px(44.0),
+                                    width: Val::Px(48.0),
+                                    height: Val::Px(48.0),
                                     border: UiRect::all(Val::Px(1.0)),
                                     flex_direction: FlexDirection::Column,
                                     align_items: AlignItems::Center,
                                     justify_content: JustifyContent::Center,
                                     ..default()
                                 },
-                                BackgroundColor(Color::srgba(0.05, 0.05, 0.1, 0.8)),
-                                BorderColor(Color::srgba(0.3, 0.3, 0.4, 0.6)),
+                                BackgroundColor(slot_bg),
+                                BorderColor(slot_border),
                             ))
                             .with_children(|slot| {
                                 // Inner colored square (item indicator — hidden when sprite is available)
                                 slot.spawn((
                                     InventoryItemColor { index: idx },
                                     Node {
-                                        width: Val::Px(30.0),
-                                        height: Val::Px(30.0),
+                                        width: Val::Px(34.0),
+                                        height: Val::Px(34.0),
                                         position_type: PositionType::Absolute,
-                                        top: Val::Px(4.0),
+                                        top: Val::Px(5.0),
                                         left: Val::Px(7.0),
                                         ..default()
                                     },
@@ -769,10 +879,10 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
                                     InventoryItemIcon { index: idx },
                                     ImageNode::default(),
                                     Node {
-                                        width: Val::Px(32.0),
-                                        height: Val::Px(32.0),
+                                        width: Val::Px(36.0),
+                                        height: Val::Px(36.0),
                                         position_type: PositionType::Absolute,
-                                        top: Val::Px(3.0),
+                                        top: Val::Px(4.0),
                                         left: Val::Px(6.0),
                                         ..default()
                                     },
@@ -781,12 +891,12 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
                                 slot.spawn((
                                     InventoryCountBadge { index: idx },
                                     Text::new(""),
-                                    TextFont { font_size: 9.0, ..default() },
+                                    TextFont { font_size: 10.0, ..default() },
                                     TextColor(Color::WHITE),
                                     Node {
                                         position_type: PositionType::Absolute,
                                         top: Val::Px(1.0),
-                                        right: Val::Px(1.0),
+                                        right: Val::Px(2.0),
                                         ..default()
                                     },
                                 ));
@@ -794,11 +904,11 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
                                 slot.spawn((
                                     InventorySlotLabel { index: idx },
                                     Text::new(""),
-                                    TextFont { font_size: 8.0, ..default() },
+                                    TextFont { font_size: 9.0, ..default() },
                                     TextColor(theme.accent_slate),
                                     Node {
                                         position_type: PositionType::Absolute,
-                                        bottom: Val::Px(1.0),
+                                        bottom: Val::Px(2.0),
                                         ..default()
                                     },
                                 ));
@@ -810,7 +920,7 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
                                         bottom: Val::Px(0.0),
                                         left: Val::Px(2.0),
                                         width: Val::Px(0.0),
-                                        height: Val::Px(2.0),
+                                        height: Val::Px(3.0),
                                         ..default()
                                     },
                                     BackgroundColor(Color::NONE),
@@ -825,10 +935,11 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
             panel.spawn((
                 InventoryTooltip,
                 Text::new(""),
-                TextFont { font_size: 12.0, ..default() },
+                TextFont { font_size: 13.0, ..default() },
                 TextColor(theme.accent_gold),
                 Node {
                     margin: UiRect::top(Val::Px(6.0)),
+                    max_width: Val::Px(480.0),
                     ..default()
                 },
             ));
@@ -836,11 +947,11 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
             // Footer (controls)
             panel.spawn((
                 InventoryFooter,
-                Text::new("[Tab/I] Close  [1-9] Hotbar  [Arrows] Navigate"),
+                Text::new("[I] Close  [1-9] Hotbar  [Arrows] Navigate  [R] Equip"),
                 TextFont { font_size: 10.0, ..default() },
                 TextColor(theme.accent_slate),
                 Node {
-                    margin: UiRect::top(Val::Px(4.0)),
+                    margin: UiRect::top(Val::Px(2.0)),
                     ..default()
                 },
             ));
@@ -1556,6 +1667,7 @@ fn update_inventory_grid(
     inventory: Res<Inventory>,
     game_assets: Res<GameAssets>,
     mut grid_query: Query<&mut Node, With<InventoryGrid>>,
+    mut dim_query: Query<&mut Node, (With<InventoryDimOverlay>, Without<InventoryGrid>)>,
     mut slot_query: Query<(&InventorySlotUI, &mut BackgroundColor, &mut BorderColor), Without<InventoryGrid>>,
     mut item_color_query: Query<(&InventoryItemColor, &mut BackgroundColor), (Without<InventorySlotUI>, Without<InventoryDurabilityBar>, Without<InventoryItemIcon>)>,
     mut icon_query: Query<(&InventoryItemIcon, &mut ImageNode, &mut Node), (Without<InventoryGrid>, Without<InventorySlotUI>, Without<InventoryItemColor>, Without<InventoryDurabilityBar>)>,
@@ -1568,8 +1680,12 @@ fn update_inventory_grid(
     mut inv_cache: ResMut<InventoryGridCache>,
 ) {
     // Toggle visibility
+    let vis = if inventory.is_open { Display::Flex } else { Display::None };
     if let Ok(mut grid_node) = grid_query.get_single_mut() {
-        grid_node.display = if inventory.is_open { Display::Flex } else { Display::None };
+        grid_node.display = vis;
+    }
+    if let Ok(mut dim_node) = dim_query.get_single_mut() {
+        dim_node.display = vis;
     }
 
     if !inventory.is_open {
@@ -1609,19 +1725,26 @@ fn update_inventory_grid(
         let idx = slot_ui.index;
         let is_selected = idx == selected;
         let is_occupied = inventory.slots[idx].is_some();
+        let is_hotbar = idx < 9;
 
         *bg = BackgroundColor(if is_selected {
-            Color::srgba(0.12, 0.12, 0.2, 0.95)
+            Color::srgba(0.18, 0.14, 0.28, 0.97)
+        } else if is_occupied && is_hotbar {
+            Color::srgba(0.10, 0.08, 0.18, 0.92)
         } else if is_occupied {
-            Color::srgba(0.08, 0.08, 0.15, 0.9)
+            Color::srgba(0.09, 0.07, 0.16, 0.92)
+        } else if is_hotbar {
+            Color::srgba(0.07, 0.06, 0.14, 0.85)
         } else {
-            Color::srgba(0.05, 0.05, 0.1, 0.8)
+            Color::srgba(0.05, 0.04, 0.10, 0.85)
         });
 
         *border = BorderColor(if is_selected {
-            Color::srgba(0.9, 0.75, 0.3, 0.9)
+            Color::srgba(0.95, 0.80, 0.25, 1.0)
+        } else if is_hotbar {
+            Color::srgba(0.4, 0.35, 0.2, 0.55)
         } else {
-            Color::srgba(0.3, 0.3, 0.4, 0.6)
+            Color::srgba(0.28, 0.28, 0.38, 0.55)
         });
     }
 
@@ -1666,7 +1789,7 @@ fn update_inventory_grid(
             if let Some(dur) = slot.durability {
                 let max_dur = slot.item.max_durability().unwrap_or(1);
                 let frac = dur as f32 / max_dur as f32;
-                node.width = Val::Px(40.0 * frac);
+                node.width = Val::Px(44.0 * frac);
                 let bar_color = if frac > 0.5 {
                     Color::srgb(0.2, 0.8, 0.3)
                 } else if frac > 0.25 {
@@ -1776,6 +1899,45 @@ fn inventory_navigation(
         if cur >= cols {
             inventory.selected_slot = cur - cols;
         }
+    }
+}
+
+/// Updates the equipment slot display panel inside the inventory.
+fn update_inventory_equip_panel(
+    inventory: Res<Inventory>,
+    armor: Res<crate::player::ArmorSlots>,
+    mut label_query: Query<(&InventoryEquipLabel, &mut Text)>,
+    mut slot_query: Query<(&InventoryEquipSlotUI, &mut BorderColor)>,
+) {
+    if !inventory.is_open {
+        return;
+    }
+    for (label, mut text) in label_query.iter_mut() {
+        let item_opt: Option<crate::inventory::ItemType> = match label.slot {
+            InventoryEquipSlotUI::Helmet => armor.helmet,
+            InventoryEquipSlotUI::Chest  => armor.chest,
+            InventoryEquipSlotUI::Shield => armor.shield,
+        };
+        **text = match item_opt {
+            Some(item) => {
+                let name = item.display_name();
+                let short: String = name.chars().take(7).collect();
+                short
+            }
+            None => "—".to_string(),
+        };
+    }
+    for (slot_type, mut border) in slot_query.iter_mut() {
+        let equipped = match slot_type {
+            InventoryEquipSlotUI::Helmet => armor.helmet.is_some(),
+            InventoryEquipSlotUI::Chest  => armor.chest.is_some(),
+            InventoryEquipSlotUI::Shield => armor.shield.is_some(),
+        };
+        *border = BorderColor(if equipped {
+            Color::srgba(0.9, 0.75, 0.3, 0.85)
+        } else {
+            Color::srgba(0.5, 0.4, 0.15, 0.7)
+        });
     }
 }
 
