@@ -22,6 +22,7 @@ use crate::status_effects::ApplyStatusEvent;
 use crate::weather::WeatherSystem;
 use crate::animation::{SpriteAnimation, SpriteAnimationKind};
 use crate::spatial::SpatialGrid;
+use crate::skills::{SkillXpEvent, SkillType};
 
 pub struct CombatPlugin;
 
@@ -67,7 +68,8 @@ impl Plugin for CombatPlugin {
             .add_systems(Update, (
                 combo_tracker,
                 weapon_specials,
-            ).run_if(not_paused));
+            ).run_if(not_paused))
+            .add_systems(Update, award_combat_skill_xp.run_if(not_paused));
     }
 }
 
@@ -1755,7 +1757,7 @@ fn weapon_specials(
     mut events: EventReader<PlayerHitEvent>,
     mut specials: ResMut<WeaponSpecialState>,
     mut enemy_query: Query<(&mut Enemy, &Transform)>,
-    mut status_events: EventWriter<ApplyStatusEvent>,
+    _status_events: EventWriter<ApplyStatusEvent>,
     mut player_health: Query<(&mut Health, &mut Hunger), (With<Player>, Without<Enemy>)>,
     mut floating_text_events: EventWriter<FloatingTextRequest>,
     mut particle_events: EventWriter<SpawnParticlesEvent>,
@@ -2192,5 +2194,15 @@ fn spawn_burn_zones_from_magma(
                 Transform::from_xyz(pos.x, pos.y, 4.0),
             ));
         }
+    }
+}
+
+/// Award combat skill XP whenever the player lands a hit on an enemy.
+fn award_combat_skill_xp(
+    mut events: EventReader<PlayerHitEvent>,
+    mut skill_xp_events: EventWriter<SkillXpEvent>,
+) {
+    for _ in events.read() {
+        skill_xp_events.send(SkillXpEvent { skill: SkillType::Combat, amount: 5 });
     }
 }

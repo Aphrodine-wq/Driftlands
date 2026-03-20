@@ -1,5 +1,7 @@
 use bevy::prelude::*;
-use crate::inventory::Inventory;
+use crate::inventory::{Inventory, ItemType};
+use crate::gathering::dropped_item_color;
+use crate::assets::GameAssets;
 use crate::crafting::{CraftingSystem, CraftingTier};
 use crate::daynight::DayNightCycle;
 use crate::building::{BuildingState, ChestStorage, ChestUI, CraftingStation};
@@ -71,6 +73,91 @@ pub struct FishingCatchFlash {
     pub timer: f32,
 }
 
+// ── HUD Caches (skip text rebuild when nothing changed) ─────────────────────
+
+#[derive(Resource, Default)]
+struct StatusHudCache {
+    last_hp_i: i32,
+    last_max_hp_i: i32,
+    last_hunger_i: i32,
+    last_max_hunger_i: i32,
+    last_armor: u32,
+    last_atk_i: i32,
+    last_buff: Option<(BuffType, i32, i32)>, // (type, magnitude_pct, remaining_secs)
+    last_pet_happiness_i: i32,
+    last_pet_exists: bool,
+    last_save_text: String,
+}
+
+#[derive(Resource, Default)]
+struct MainHudCache {
+    last_day: u32,
+    last_phase: String,
+    last_season: String,
+    last_weather: String,
+    last_forecast: String,
+    last_build_active: bool,
+    last_build_name: String,
+    last_paused: bool,
+}
+
+#[derive(Resource, Default)]
+struct FishingHudCache {
+    last_phase: String,
+    last_reel_pct: u32,
+    last_hook_window_i: i32,
+    last_dots_idx: u32,
+    last_catch_flash_active: bool,
+}
+
+#[derive(Resource, Default)]
+struct QuestLogHudCache {
+    last_open: bool,
+    last_selected: usize,
+    last_quest_fingerprint: u64,
+}
+
+#[derive(Resource, Default)]
+struct StatusEffectsHudCache {
+    last_count: usize,
+    last_secs_fingerprint: Vec<(u8, u32, u32)>, // (effect_type_idx, stacks, remaining_whole_secs)
+}
+
+#[derive(Resource, Default)]
+struct SkillHudCache {
+    last_open: bool,
+    last_fingerprint: Vec<(u32, u32)>, // (level, xp) per skill
+}
+
+#[derive(Resource, Default)]
+struct NpcHudCache {
+    last_chest_open: bool,
+    last_chest_selected: usize,
+    last_trade_open: bool,
+    last_trade_selected: usize,
+    last_experiment_open: bool,
+    last_fingerprint: u64,
+}
+
+#[derive(Resource, Default)]
+struct InventoryGridCache {
+    last_slots_fingerprint: u64,
+    last_selected: usize,
+    last_open: bool,
+}
+
+/// Frame counter for grow_crops throttling in farming.rs.
+#[derive(Resource, Default)]
+pub struct FarmGrowthFrame(pub u32);
+
+/// Timer for weather gameplay effects throttling.
+#[derive(Resource)]
+pub struct WeatherEffectsTimer(pub f32);
+
+impl Default for WeatherEffectsTimer {
+    fn default() -> Self { Self(0.0) }
+}
+
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<FloatingTextRequest>()
@@ -80,15 +167,27 @@ impl Plugin for HudPlugin {
             .insert_resource(BarDisplayState::default())
             .insert_resource(FloatingTextQueue::default())
             .insert_resource(FishingCatchFlash::default())
+            .insert_resource(StatusHudCache::default())
+            .insert_resource(MainHudCache::default())
+            .insert_resource(FishingHudCache::default())
+            .insert_resource(QuestLogHudCache::default())
+            .insert_resource(StatusEffectsHudCache::default())
+            .insert_resource(SkillHudCache::default())
+            .insert_resource(NpcHudCache::default())
+            .insert_resource(InventoryGridCache::default())
+            .insert_resource(FarmGrowthFrame::default())
+            .insert_resource(WeatherEffectsTimer::default())
+            .insert_resource(PauseMenuState::default())
             .add_systems(Startup, spawn_hud)
             .add_systems(Update, (
                 toggle_pause,
-                adjust_volume_when_paused,
+                pause_menu_navigation,
                 update_hud,
                 update_status_hud,
                 update_npc_hud,
                 update_feedback_hud,
-                update_inventory_panel,
+                update_inventory_grid,
+                inventory_navigation,
                 update_graphical_hotbar,
                 track_player_biome,
                 update_biome_banner,
@@ -99,6 +198,7 @@ impl Plugin for HudPlugin {
                 update_quest_log_hud,
                 update_status_effects_hud,
                 update_skill_hud,
+                toggle_panel_visibility,
             ));
     }
 }
@@ -109,14 +209,26 @@ pub struct HudText;
 #[derive(Component)]
 pub struct CraftingHudText;
 
+/// Marker for the crafting panel's parent node (for visibility toggling).
+#[derive(Component)]
+pub struct CraftingPanelRoot;
+
 #[derive(Component)]
 pub struct StatusHudText;
 
 #[derive(Component)]
 pub struct NpcHudText;
 
+/// Marker for the NPC panel's parent node (for visibility toggling).
+#[derive(Component)]
+pub struct NpcPanelRoot;
+
 #[derive(Component)]
 pub struct FeedbackHudText;
+
+/// Marker for the feedback panel's parent node (for visibility toggling).
+#[derive(Component)]
+pub struct FeedbackPanelRoot;
 
 #[derive(Component)]
 pub struct InventoryPanelText;
@@ -126,6 +238,36 @@ pub struct HealthBarFill;
 
 #[derive(Component)]
 pub struct HungerBarFill;
+
+// --- Pause Menu Components ---
+
+/// Root container for the pause menu overlay.
+#[derive(Component)]
+pub struct PauseMenuPanel;
+
+/// Individual selectable menu item in the pause menu.
+#[derive(Component)]
+pub struct PauseMenuItem {
+    pub index: usize,
+}
+
+/// Tracks which pause menu item is selected.
+#[derive(Resource, Default)]
+pub struct PauseMenuState {
+    pub selected: usize,
+}
+
+/// Marker for the fishing panel's parent node (for visibility toggling).
+#[derive(Component)]
+pub struct FishingPanelRoot;
+
+/// Marker for the quest log panel's parent node (for visibility toggling).
+#[derive(Component)]
+pub struct QuestLogPanelRoot;
+
+/// Marker for the skill panel's parent node (for visibility toggling).
+#[derive(Component)]
+pub struct SkillPanelRoot;
 
 #[derive(Component)]
 pub struct HotbarSlotUI {
@@ -152,6 +294,137 @@ pub struct StatusEffectsHudText;
 
 #[derive(Component)]
 pub struct SkillHudText;
+
+// --- Graphical Inventory Grid Components ---
+
+/// Root container for the graphical inventory panel.
+#[derive(Component)]
+pub struct InventoryGrid;
+
+/// Marks an individual inventory slot UI node. `index` is 0-35.
+#[derive(Component)]
+pub struct InventorySlotUI {
+    pub index: usize,
+}
+
+/// The inner colored square representing the item type.
+#[derive(Component)]
+pub struct InventoryItemColor {
+    pub index: usize,
+}
+
+/// Small text label at the bottom of a slot (abbreviated item name).
+#[derive(Component)]
+pub struct InventorySlotLabel {
+    pub index: usize,
+}
+
+/// Count badge (top-right) showing "x5" for stackable items.
+#[derive(Component)]
+pub struct InventoryCountBadge {
+    pub index: usize,
+}
+
+/// Thin durability bar at the bottom of a slot for tools.
+#[derive(Component)]
+pub struct InventoryDurabilityBar {
+    pub index: usize,
+}
+
+/// Image child that displays the actual item sprite icon (if available).
+#[derive(Component)]
+pub struct InventoryItemIcon {
+    pub index: usize,
+}
+
+/// Tooltip text below the grid showing details for the selected slot.
+#[derive(Component)]
+pub struct InventoryTooltip;
+
+/// Footer text with controls help.
+#[derive(Component)]
+pub struct InventoryFooter;
+
+/// Returns the sprite handle for an item type, if one exists in GameAssets.
+fn item_sprite(item: &ItemType, assets: &GameAssets) -> Option<Handle<Image>> {
+    match item {
+        // Weapons
+        ItemType::WoodSword => Some(assets.weapon_wood_sword.clone()),
+        ItemType::IronSword => Some(assets.weapon_iron_sword.clone()),
+        ItemType::SteelSword => Some(assets.weapon_steel_sword.clone()),
+        ItemType::AncientBlade => Some(assets.weapon_ancient_blade.clone()),
+        ItemType::FlameBlade => Some(assets.weapon_flame_blade.clone()),
+        ItemType::FrostBlade => Some(assets.weapon_frost_blade.clone()),
+        ItemType::VenomBlade => Some(assets.weapon_venom_blade.clone()),
+        ItemType::LifestealBlade => Some(assets.weapon_lifesteal_blade.clone()),
+        ItemType::WoodBow => Some(assets.weapon_wood_bow.clone()),
+        ItemType::Arrow => Some(assets.weapon_arrow.clone()),
+        // Tools
+        ItemType::WoodAxe => Some(assets.tool_wood_axe.clone()),
+        ItemType::StoneAxe => Some(assets.tool_stone_axe.clone()),
+        ItemType::IronAxe => Some(assets.tool_iron_axe.clone()),
+        ItemType::SteelAxe => Some(assets.tool_steel_axe.clone()),
+        ItemType::WoodPickaxe => Some(assets.tool_wood_pickaxe.clone()),
+        ItemType::StonePickaxe => Some(assets.tool_stone_pickaxe.clone()),
+        ItemType::IronPickaxe => Some(assets.tool_iron_pickaxe.clone()),
+        ItemType::SteelPickaxe => Some(assets.tool_steel_pickaxe.clone()),
+        ItemType::AncientPickaxe => Some(assets.tool_ancient_pickaxe.clone()),
+        ItemType::Hoe => Some(assets.tool_hoe.clone()),
+        ItemType::FishingRod => Some(assets.tool_fishing_rod.clone()),
+        ItemType::SteelFishingRod => Some(assets.tool_steel_fishing_rod.clone()),
+        ItemType::FishBait => Some(assets.tool_fish_bait.clone()),
+        // Buildings / placeables
+        ItemType::Campfire => Some(assets.campfire.clone()),
+        ItemType::WoodFloor => Some(assets.wood_floor.clone()),
+        ItemType::Workbench => Some(assets.workbench.clone()),
+        ItemType::WoodWall => Some(assets.wood_wall.clone()),
+        ItemType::WoodDoor => Some(assets.wood_door.clone()),
+        ItemType::WoodRoof => Some(assets.roof_thatch.clone()),
+        ItemType::WoodFence => Some(assets.wood_fence.clone()),
+        ItemType::Chest => Some(assets.chest_building.clone()),
+        ItemType::Torch => Some(assets.torch_wall.clone()),
+        ItemType::StoneWall => Some(assets.stone_wall.clone()),
+        ItemType::Forge => Some(assets.forge.clone()),
+        ItemType::Anvil => Some(assets.forge.clone()),
+        ItemType::Bed => Some(assets.bed.clone()),
+        ItemType::StoneFloor => Some(assets.stone_floor.clone()),
+        ItemType::StoneDoor => Some(assets.stone_door_building.clone()),
+        ItemType::StoneRoof => Some(assets.stone_roof.clone()),
+        ItemType::MetalWall => Some(assets.metal_wall.clone()),
+        ItemType::MetalDoor => Some(assets.metal_door.clone()),
+        ItemType::WoodStairs => Some(assets.wood_stairs.clone()),
+        ItemType::StoneStairs => Some(assets.stone_stairs.clone()),
+        ItemType::Ladder => Some(assets.ladder.clone()),
+        ItemType::BrickWall => Some(assets.brick_wall.clone()),
+        ItemType::ReinforcedStoneWall => Some(assets.reinforced_wall.clone()),
+        ItemType::WoodHalfWall => Some(assets.wood_half_wall.clone()),
+        ItemType::WoodWallWindow => Some(assets.wood_wall_window.clone()),
+        ItemType::AdvancedForge => Some(assets.advanced_forge.clone()),
+        ItemType::AlchemyLab => Some(assets.alchemy_lab.clone()),
+        ItemType::AncientWorkstation => Some(assets.ancient_workstation.clone()),
+        ItemType::EnchantingTable => Some(assets.enchanting_table.clone()),
+        ItemType::FishSmoker => Some(assets.fish_smoker.clone()),
+        ItemType::PetHouse => Some(assets.pet_house.clone()),
+        ItemType::DisplayCase => Some(assets.display_case.clone()),
+        ItemType::Lantern => Some(assets.lantern.clone()),
+        ItemType::Bookshelf => Some(assets.bookshelf.clone()),
+        ItemType::WeaponRack => Some(assets.weapon_rack.clone()),
+        ItemType::CookingPot => Some(assets.cooking_pot.clone()),
+        ItemType::RainCollector => Some(assets.rain_collector.clone()),
+        ItemType::TrophyMount => Some(assets.trophy_mount.clone()),
+        ItemType::AutoSmelterItem => Some(assets.auto_smelter.clone()),
+        ItemType::CropSprinklerItem => Some(assets.crop_sprinkler.clone()),
+        ItemType::AlarmBellItem => Some(assets.alarm_bell.clone()),
+        // World object resources (use the object sprite as the icon)
+        ItemType::Berry => Some(assets.bush_berry.clone()),
+        ItemType::Pumpkin => Some(assets.pumpkin.clone()),
+        ItemType::Wheat => Some(assets.wheat_crop.clone()),
+        ItemType::CrystalShard => Some(assets.crystal_node.clone()),
+        ItemType::Seaweed => Some(assets.seaweed.clone()),
+        // Items without dedicated sprites keep colored rectangles
+        _ => None,
+    }
+}
 
 fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
     // Root UI container
@@ -329,6 +602,7 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
 
         // Crafting Menu: Right
         parent.spawn((
+            CraftingPanelRoot,
             Node {
                 position_type: PositionType::Absolute,
                 top: Val::Px(12.0),
@@ -352,6 +626,7 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
 
         // NPC / Experiment Panel: Far-Right
         parent.spawn((
+            NpcPanelRoot,
             Node {
                 position_type: PositionType::Absolute,
                 top: Val::Px(12.0),
@@ -374,6 +649,7 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
 
         // Feedback: Bottom-Left
         parent.spawn((
+            FeedbackPanelRoot,
             Node {
                 position_type: PositionType::Absolute,
                 bottom: Val::Px(52.0),
@@ -394,25 +670,179 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
             ));
         });
 
-        // Inventory Panel: Center
+        // Inventory Panel: Center — Graphical Grid (9x4 = 36 slots)
         parent.spawn((
+            InventoryGrid,
+            InventoryPanelText, // kept for Without<> filter compat
             Node {
+                display: Display::None,
                 position_type: PositionType::Absolute,
-                top: Val::Px(80.0),
-                left: Val::Percent(20.0),
+                top: Val::Percent(50.0),
+                left: Val::Percent(50.0),
+                // Offset to center: -(total_width/2) x -(total_height/2)
+                // 9 cols * 48px + 8 gaps * 4px + 24px padding = 464px wide
+                // 4 rows * 48px + 3 gaps * 4px + title + tooltip + footer ~ 340px
+                margin: UiRect {
+                    left: Val::Px(-240.0),
+                    top: Val::Px(-200.0),
+                    ..default()
+                },
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
                 padding: UiRect::all(Val::Px(12.0)),
                 border: UiRect::all(Val::Px(2.0)),
+                row_gap: Val::Px(4.0),
                 ..default()
             },
-            BackgroundColor(theme.panel_bg()),
+            BackgroundColor(Color::srgba(0.02, 0.02, 0.06, 0.92)),
             BorderColor(theme.panel_border(false)),
         ))
         .with_children(|panel| {
+            // Title
             panel.spawn((
-                InventoryPanelText,
+                Text::new("INVENTORY"),
+                TextFont { font_size: 16.0, ..default() },
+                TextColor(theme.accent_gold),
+                Node {
+                    margin: UiRect::bottom(Val::Px(2.0)),
+                    ..default()
+                },
+            ));
+            // Subtitle (slot count)
+            panel.spawn((
+                Text::new("36 slots"),
+                TextFont { font_size: 11.0, ..default() },
+                TextColor(theme.accent_slate),
+                Node {
+                    margin: UiRect::bottom(Val::Px(6.0)),
+                    ..default()
+                },
+            ));
+
+            // Grid container: 9 columns x 4 rows
+            panel.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(4.0),
+                ..default()
+            })
+            .with_children(|grid| {
+                for row in 0..4 {
+                    grid.spawn(Node {
+                        flex_direction: FlexDirection::Row,
+                        column_gap: Val::Px(4.0),
+                        ..default()
+                    })
+                    .with_children(|row_node| {
+                        for col in 0..9 {
+                            let idx = row * 9 + col;
+                            // Slot container
+                            row_node.spawn((
+                                InventorySlotUI { index: idx },
+                                Node {
+                                    width: Val::Px(44.0),
+                                    height: Val::Px(44.0),
+                                    border: UiRect::all(Val::Px(1.0)),
+                                    flex_direction: FlexDirection::Column,
+                                    align_items: AlignItems::Center,
+                                    justify_content: JustifyContent::Center,
+                                    ..default()
+                                },
+                                BackgroundColor(Color::srgba(0.05, 0.05, 0.1, 0.8)),
+                                BorderColor(Color::srgba(0.3, 0.3, 0.4, 0.6)),
+                            ))
+                            .with_children(|slot| {
+                                // Inner colored square (item indicator — hidden when sprite is available)
+                                slot.spawn((
+                                    InventoryItemColor { index: idx },
+                                    Node {
+                                        width: Val::Px(30.0),
+                                        height: Val::Px(30.0),
+                                        position_type: PositionType::Absolute,
+                                        top: Val::Px(4.0),
+                                        left: Val::Px(7.0),
+                                        ..default()
+                                    },
+                                    BackgroundColor(Color::NONE),
+                                ));
+                                // Sprite icon overlay (shown when item has a sprite)
+                                slot.spawn((
+                                    InventoryItemIcon { index: idx },
+                                    ImageNode::default(),
+                                    Node {
+                                        width: Val::Px(32.0),
+                                        height: Val::Px(32.0),
+                                        position_type: PositionType::Absolute,
+                                        top: Val::Px(3.0),
+                                        left: Val::Px(6.0),
+                                        ..default()
+                                    },
+                                ));
+                                // Count badge (top-right)
+                                slot.spawn((
+                                    InventoryCountBadge { index: idx },
+                                    Text::new(""),
+                                    TextFont { font_size: 9.0, ..default() },
+                                    TextColor(Color::WHITE),
+                                    Node {
+                                        position_type: PositionType::Absolute,
+                                        top: Val::Px(1.0),
+                                        right: Val::Px(1.0),
+                                        ..default()
+                                    },
+                                ));
+                                // Item name label (bottom)
+                                slot.spawn((
+                                    InventorySlotLabel { index: idx },
+                                    Text::new(""),
+                                    TextFont { font_size: 8.0, ..default() },
+                                    TextColor(theme.accent_slate),
+                                    Node {
+                                        position_type: PositionType::Absolute,
+                                        bottom: Val::Px(1.0),
+                                        ..default()
+                                    },
+                                ));
+                                // Durability bar (thin bar at very bottom)
+                                slot.spawn((
+                                    InventoryDurabilityBar { index: idx },
+                                    Node {
+                                        position_type: PositionType::Absolute,
+                                        bottom: Val::Px(0.0),
+                                        left: Val::Px(2.0),
+                                        width: Val::Px(0.0),
+                                        height: Val::Px(2.0),
+                                        ..default()
+                                    },
+                                    BackgroundColor(Color::NONE),
+                                ));
+                            });
+                        }
+                    });
+                }
+            });
+
+            // Tooltip (selected slot details)
+            panel.spawn((
+                InventoryTooltip,
                 Text::new(""),
-                TextFont { font_size: 13.0, ..default() },
-                TextColor(theme.hud_label_color()),
+                TextFont { font_size: 12.0, ..default() },
+                TextColor(theme.accent_gold),
+                Node {
+                    margin: UiRect::top(Val::Px(6.0)),
+                    ..default()
+                },
+            ));
+
+            // Footer (controls)
+            panel.spawn((
+                InventoryFooter,
+                Text::new("[Tab/I] Close  [1-9] Hotbar  [Arrows] Navigate"),
+                TextFont { font_size: 10.0, ..default() },
+                TextColor(theme.accent_slate),
+                Node {
+                    margin: UiRect::top(Val::Px(4.0)),
+                    ..default()
+                },
             ));
         });
 
@@ -432,6 +862,7 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
 
         // Fishing HUD: Bottom-center above hotbar
         parent.spawn((
+            FishingPanelRoot,
             Node {
                 position_type: PositionType::Absolute,
                 bottom: Val::Px(68.0),
@@ -456,6 +887,7 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
 
         // Quest Log HUD: Center panel (like inventory, toggled by J)
         parent.spawn((
+            QuestLogPanelRoot,
             Node {
                 position_type: PositionType::Absolute,
                 top: Val::Px(80.0),
@@ -499,6 +931,7 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
 
         // Skill Panel: Center-Left (toggled by K)
         parent.spawn((
+            SkillPanelRoot,
             Node {
                 position_type: PositionType::Absolute,
                 top: Val::Px(160.0),
@@ -519,6 +952,87 @@ fn spawn_hud(mut commands: Commands, theme: Res<EtherealTheme>) {
                 TextColor(theme.hud_label_color()),
             ));
         });
+
+        // Pause Menu: Centered overlay (hidden by default)
+        parent.spawn((
+            PauseMenuPanel,
+            Node {
+                display: Display::None,
+                position_type: PositionType::Absolute,
+                top: Val::Percent(50.0),
+                left: Val::Percent(50.0),
+                margin: UiRect {
+                    left: Val::Px(-160.0),
+                    top: Val::Px(-180.0),
+                    ..default()
+                },
+                width: Val::Px(320.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                padding: UiRect::all(Val::Px(24.0)),
+                border: UiRect::all(Val::Px(2.0)),
+                row_gap: Val::Px(4.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.02, 0.02, 0.06, 0.92)),
+            BorderColor(Color::srgba(0.4, 0.35, 0.2, 0.8)),
+        ))
+        .with_children(|menu| {
+            // Title
+            menu.spawn((
+                Text::new("PAUSED"),
+                TextFont { font_size: 28.0, ..default() },
+                TextColor(theme.accent_gold),
+                Node {
+                    margin: UiRect::bottom(Val::Px(16.0)),
+                    ..default()
+                },
+            ));
+
+            let items = [
+                "Resume Game",
+                "Save Game",
+                "Load Game",
+                "Settings",
+                "Controls",
+                "Quit to Menu",
+            ];
+
+            for (i, label) in items.iter().enumerate() {
+                menu.spawn((
+                    PauseMenuItem { index: i },
+                    Node {
+                        width: Val::Px(240.0),
+                        height: Val::Px(36.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        margin: UiRect::vertical(Val::Px(2.0)),
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.08, 0.08, 0.14, 0.8)),
+                    BorderColor(Color::srgba(0.25, 0.25, 0.35, 0.5)),
+                ))
+                .with_children(|item_node| {
+                    item_node.spawn((
+                        Text::new(label.to_string()),
+                        TextFont { font_size: 16.0, ..default() },
+                        TextColor(theme.hud_label_color()),
+                    ));
+                });
+            }
+
+            // Volume control hint
+            menu.spawn((
+                Text::new(""),
+                TextFont { font_size: 12.0, ..default() },
+                TextColor(theme.accent_slate),
+                Node {
+                    margin: UiRect::top(Val::Px(12.0)),
+                    ..default()
+                },
+            ));
+        });
     });
 }
 
@@ -530,14 +1044,32 @@ fn toggle_pause(
     trade_menu: Res<TradeMenu>,
     menu: Res<MainMenuActive>,
     controls_overlay: Res<ControlsOverlay>,
+    mut pause_menu_state: ResMut<PauseMenuState>,
+    mut pause_panel_query: Query<&mut Node, With<PauseMenuPanel>>,
+    settings_state: Res<crate::settings::SettingsMenuState>,
+    save_slot_browser_state: Res<crate::saveslots::SaveSlotBrowserState>,
 ) {
     if menu.active { return; }
+    if save_slot_browser_state.open { return; }
     if keyboard.just_pressed(KeyCode::Escape) {
         if chest_ui.is_open || trade_menu.is_open || controls_overlay.is_visible {
             return;
         }
+        // If settings menu is open, let settings handle its own ESC
+        if settings_state.is_open {
+            return;
+        }
         pause_state.paused = !pause_state.paused;
         cycle.paused = pause_state.paused;
+
+        // Show/hide pause menu panel
+        if let Ok(mut node) = pause_panel_query.get_single_mut() {
+            node.display = if pause_state.paused { Display::Flex } else { Display::None };
+        }
+        // Reset selection when opening
+        if pause_state.paused {
+            pause_menu_state.selected = 0;
+        }
     }
 }
 
@@ -555,9 +1087,11 @@ fn update_status_hud(
     inventory: Res<Inventory>,
     pet_query: Query<&Pet>,
     _theme: Res<EtherealTheme>,
+    mut cache: ResMut<StatusHudCache>,
 ) {
     let Ok((health, hunger, active_buff)) = player_query.get_single() else { return };
 
+    // Bars still lerp every frame (cheap, no allocations)
     let target_health = (health.current / health.max).clamp(0.0, 1.0);
     let target_hunger = (hunger.current / hunger.max).clamp(0.0, 1.0);
     let dt = time.delta_secs();
@@ -571,15 +1105,58 @@ fn update_status_hud(
         node.width = Val::Percent(bar_display.hunger_frac * 100.0);
     }
 
-    let Ok(mut text) = status_query.get_single_mut() else { return };
-
+    // Fingerprint current values (integers — avoids float epsilon issues)
+    let hp_i = health.current as i32;
+    let max_hp_i = health.max as i32;
+    let hunger_i = hunger.current as i32;
+    let max_hunger_i = hunger.max as i32;
+    let armor_val = armor.total_armor();
     let atk = inventory.selected_item()
         .and_then(|s| s.item.weapon_damage())
         .unwrap_or(5.0);
+    let atk_i = atk as i32;
+
+    let buff_key = active_buff.map(|b| {
+        (b.buff_type, ((b.magnitude - 1.0) * 100.0) as i32, b.remaining as i32)
+    });
+
+    let pet_exists = pet_query.get_single().is_ok();
+    let pet_happiness_i = pet_query.get_single().map(|p| p.happiness as i32).unwrap_or(-1);
+
+    let save_text = &save_msg.text;
+
+    // Compare with cache — skip rebuild if nothing changed
+    if hp_i == cache.last_hp_i
+        && max_hp_i == cache.last_max_hp_i
+        && hunger_i == cache.last_hunger_i
+        && max_hunger_i == cache.last_max_hunger_i
+        && armor_val == cache.last_armor
+        && atk_i == cache.last_atk_i
+        && buff_key == cache.last_buff
+        && pet_exists == cache.last_pet_exists
+        && pet_happiness_i == cache.last_pet_happiness_i
+        && *save_text == cache.last_save_text
+    {
+        return;
+    }
+
+    // Update cache
+    cache.last_hp_i = hp_i;
+    cache.last_max_hp_i = max_hp_i;
+    cache.last_hunger_i = hunger_i;
+    cache.last_max_hunger_i = max_hunger_i;
+    cache.last_armor = armor_val;
+    cache.last_atk_i = atk_i;
+    cache.last_buff = buff_key;
+    cache.last_pet_exists = pet_exists;
+    cache.last_pet_happiness_i = pet_happiness_i;
+    cache.last_save_text = save_text.clone();
+
+    let Ok(mut text) = status_query.get_single_mut() else { return };
 
     let mut lines = vec![
         format!("{:.0}/{:.0} HP | {:.0}/{:.0} FOOD", health.current, health.max, hunger.current, hunger.max),
-        format!("ARMOR: {} | ATK: {:.0}", armor.total_armor(), atk),
+        format!("ARMOR: {} | ATK: {:.0}", armor_val, atk),
     ];
 
     if let Some(buff) = active_buff {
@@ -591,7 +1168,6 @@ fn update_status_hud(
         lines.push(format!("[{}] +{:.0}% ({:.0}s)", buff_name, (buff.magnitude - 1.0) * 100.0, buff.remaining));
     }
 
-    // 1C: Pet Status
     if let Ok(pet) = pet_query.get_single() {
         let max_h = pet.pet_type.max_happiness();
         let frac = (pet.happiness / max_h).clamp(0.0, 1.0);
@@ -609,22 +1185,6 @@ fn update_status_hud(
     **text = lines.join("\n");
 }
 
-fn adjust_volume_when_paused(
-    pause_state: Res<PauseState>,
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut game_audio: ResMut<crate::audio::GameAudio>,
-) {
-    if !pause_state.paused {
-        return;
-    }
-    if keyboard.just_pressed(KeyCode::Minus) {
-        game_audio.sfx_volume = (game_audio.sfx_volume - 0.1).max(0.0);
-    }
-    if keyboard.just_pressed(KeyCode::Equal) {
-        game_audio.sfx_volume = (game_audio.sfx_volume + 0.1).min(1.0);
-    }
-}
-
 fn update_hud(
     inventory: Res<Inventory>,
     crafting: Res<CraftingSystem>,
@@ -635,37 +1195,18 @@ fn update_hud(
     _lore_registry: Res<LoreRegistry>,
     pause_state: Res<PauseState>,
     tech_tree: Res<TechTree>,
-    game_audio: Res<crate::audio::GameAudio>,
     mut hud_query: Query<&mut Text, (With<HudText>, Without<CraftingHudText>, Without<StatusHudText>, Without<NpcHudText>, Without<FeedbackHudText>, Without<InventoryPanelText>)>,
     mut craft_hud_query: Query<&mut Text, (With<CraftingHudText>, Without<HudText>, Without<StatusHudText>, Without<NpcHudText>, Without<FeedbackHudText>, Without<InventoryPanelText>)>,
     station_query: Query<(&CraftingStation, &Transform), Without<Player>>,
     player_query: Query<&Transform, With<Player>>,
+    mut cache: ResMut<MainHudCache>,
 ) {
     if let Ok(mut text) = hud_query.get_single_mut() {
         if pause_state.paused {
-            let sfx_pct = (game_audio.sfx_volume * 100.0) as u32;
-            let lines = vec![
-                "".to_string(),
-                "=== PAUSED ===".to_string(),
-                "".to_string(),
-                "[ESC] Resume".to_string(),
-                "[F5] Save Game".to_string(),
-                format!("SFX Volume: {}%  [-] [+]", sfx_pct),
-                "".to_string(),
-                "--- Controls ---".to_string(),
-                "[WASD] Move".to_string(),
-                "[LClick] Gather / Attack".to_string(),
-                "[RClick] Use Item / Eat / Place".to_string(),
-                "[B] Build Mode  [Q] Cycle Type".to_string(),
-                "[C] Crafting Menu".to_string(),
-                "[I/Tab] Inventory".to_string(),
-                "[E] Interact (Door/NPC/Bed)".to_string(),
-                "[R] Equip Armor/Shield".to_string(),
-                "[X] Experiment Table".to_string(),
-                "[+/-] Zoom".to_string(),
-                "[F5] Save  [F9] Load".to_string(),
-            ];
-            **text = lines.join("\n");
+            if !cache.last_paused {
+                cache.last_paused = true;
+                **text = String::new();
+            }
             return;
         }
 
@@ -678,23 +1219,48 @@ fn update_hud(
             crate::weather::Weather::Blizzard => " BLIZZARD",
         };
 
-        // Weather forecast: show what's coming next
         let forecast_str = match weather.next_weather {
             Some(next) => format!(" -> {}", next.name()),
             None => String::new(),
         };
 
+        let phase_name = cycle.phase_name().to_string();
+        let season_name = season.current.name().to_string();
+        let build_name = if building_state.active { building_state.selected_type.name().to_string() } else { String::new() };
+
+        // Compare with cache
+        if !cache.last_paused
+            && cycle.day_count == cache.last_day
+            && phase_name == cache.last_phase
+            && season_name == cache.last_season
+            && weather_str == cache.last_weather
+            && forecast_str == cache.last_forecast
+            && building_state.active == cache.last_build_active
+            && build_name == cache.last_build_name
+        {
+            return;
+        }
+
+        cache.last_paused = false;
+        cache.last_day = cycle.day_count;
+        cache.last_phase = phase_name;
+        cache.last_season = season_name;
+        cache.last_weather = weather_str.to_string();
+        cache.last_forecast = forecast_str.clone();
+        cache.last_build_active = building_state.active;
+        cache.last_build_name = build_name.clone();
+
         let mut lines = Vec::new();
 
         if building_state.active {
-            lines.push(format!("BUILD: {} | Q Cycle | RClick Place", building_state.selected_type.name()));
+            lines.push(format!("BUILD: {} | Q Cycle | RClick Place", build_name));
         }
 
         lines.push(format!(
             "Day {} {} | {}{}{}",
             cycle.day_count,
-            cycle.phase_name(),
-            season.current.name(),
+            cache.last_phase,
+            cache.last_season,
             weather_str,
             forecast_str,
         ));
@@ -808,8 +1374,54 @@ fn update_npc_hud(
     trader_query: Query<&Trader>,
     chest_query: Query<&ChestStorage>,
     mut npc_hud_query: Query<&mut Text, With<NpcHudText>>,
+    mut cache: ResMut<NpcHudCache>,
 ) {
     let Ok(mut text) = npc_hud_query.get_single_mut() else { return };
+
+    // Build a cheap fingerprint of current NPC UI state
+    let mut fp: u64 = 0;
+
+    if chest_ui.is_open {
+        fp = fp.wrapping_mul(31).wrapping_add(1);
+        fp = fp.wrapping_mul(31).wrapping_add(chest_ui.selected_slot as u64);
+        if let Some(entity) = chest_ui.target_entity {
+            if let Ok(chest) = chest_query.get(entity) {
+                for slot in &chest.slots {
+                    match slot {
+                        Some(s) => {
+                            fp = fp.wrapping_mul(31).wrapping_add(s.count as u64);
+                            fp = fp.wrapping_mul(31).wrapping_add(s.durability.unwrap_or(0) as u64);
+                        }
+                        None => { fp = fp.wrapping_mul(31).wrapping_add(9999); }
+                    }
+                }
+            }
+        }
+    } else if experiment_slots.is_open {
+        fp = fp.wrapping_mul(31).wrapping_add(2);
+        fp = fp.wrapping_mul(31).wrapping_add(experiment_slots.slot_a.map(|_| 1u64).unwrap_or(0));
+        fp = fp.wrapping_mul(31).wrapping_add(experiment_slots.slot_b.map(|_| 1u64).unwrap_or(0));
+    } else if trade_menu.is_open {
+        fp = fp.wrapping_mul(31).wrapping_add(3);
+        fp = fp.wrapping_mul(31).wrapping_add(trade_menu.selected_offer as u64);
+    }
+
+    if chest_ui.is_open == cache.last_chest_open
+        && chest_ui.selected_slot == cache.last_chest_selected
+        && trade_menu.is_open == cache.last_trade_open
+        && trade_menu.selected_offer == cache.last_trade_selected
+        && experiment_slots.is_open == cache.last_experiment_open
+        && fp == cache.last_fingerprint
+    {
+        return;
+    }
+
+    cache.last_chest_open = chest_ui.is_open;
+    cache.last_chest_selected = chest_ui.selected_slot;
+    cache.last_trade_open = trade_menu.is_open;
+    cache.last_trade_selected = trade_menu.selected_offer;
+    cache.last_experiment_open = experiment_slots.is_open;
+    cache.last_fingerprint = fp;
 
     // Chest UI takes highest priority if open
     if chest_ui.is_open {
@@ -914,6 +1526,15 @@ fn update_feedback_hud(
     experiment_msg: Res<ExperimentMessage>,
     mut feedback_query: Query<&mut Text, With<FeedbackHudText>>,
 ) {
+    // Only update when any of the source resources changed
+    if !experiment_msg.is_changed()
+        && !lore_msg.is_changed()
+        && !hermit_display.is_changed()
+        && !npc_display.is_changed()
+    {
+        return;
+    }
+
     let Ok(mut text) = feedback_query.get_single_mut() else { return };
 
     // Priority order: experiment > lore > hermit > npc
@@ -930,56 +1551,232 @@ fn update_feedback_hud(
     }
 }
 
-/// US-012 — Renders a grid-style inventory panel when the inventory is open.
-fn update_inventory_panel(
+/// Toggles the inventory grid visibility and updates all slot visuals.
+fn update_inventory_grid(
     inventory: Res<Inventory>,
-    mut panel_query: Query<&mut Text, With<InventoryPanelText>>,
+    game_assets: Res<GameAssets>,
+    mut grid_query: Query<&mut Node, With<InventoryGrid>>,
+    mut slot_query: Query<(&InventorySlotUI, &mut BackgroundColor, &mut BorderColor), Without<InventoryGrid>>,
+    mut item_color_query: Query<(&InventoryItemColor, &mut BackgroundColor), (Without<InventorySlotUI>, Without<InventoryDurabilityBar>, Without<InventoryItemIcon>)>,
+    mut icon_query: Query<(&InventoryItemIcon, &mut ImageNode, &mut Node), (Without<InventoryGrid>, Without<InventorySlotUI>, Without<InventoryItemColor>, Without<InventoryDurabilityBar>)>,
+    mut durability_query: Query<(&InventoryDurabilityBar, &mut Node, &mut BackgroundColor), (Without<InventoryGrid>, Without<InventorySlotUI>, Without<InventoryItemColor>, Without<InventoryItemIcon>)>,
+    mut text_queries: ParamSet<(
+        Query<(&InventorySlotLabel, &mut Text)>,
+        Query<(&InventoryCountBadge, &mut Text)>,
+        Query<&mut Text, With<InventoryTooltip>>,
+    )>,
+    mut inv_cache: ResMut<InventoryGridCache>,
 ) {
-    let Ok(mut text) = panel_query.get_single_mut() else { return };
+    // Toggle visibility
+    if let Ok(mut grid_node) = grid_query.get_single_mut() {
+        grid_node.display = if inventory.is_open { Display::Flex } else { Display::None };
+    }
 
     if !inventory.is_open {
-        **text = String::new();
+        inv_cache.last_open = false;
         return;
     }
 
-    let mut lines = Vec::new();
-    lines.push("=== INVENTORY (Tab to close) ===".to_string());
-    lines.push(String::new());
-
-    let slots_per_row = 9;
-    for row_start in (0..inventory.slots.len()).step_by(slots_per_row) {
-        let row_end = (row_start + slots_per_row).min(inventory.slots.len());
-        let mut row = String::new();
-        for i in row_start..row_end {
-            let slot_num = i + 1;
-            let cell = match &inventory.slots[i] {
-                Some(slot) => {
-                    // Abbreviate name to 8 chars
-                    let name: String = slot.item.display_name().chars().take(8).collect();
-                    if let Some(dur) = slot.durability {
-                        let max_dur = slot.item.max_durability().unwrap_or(dur);
-                        format!("{:02}: {:<8} {}/{}", slot_num, name, dur, max_dur)
-                    } else if slot.count > 1 {
-                        format!("{:02}: {:<8} x{}", slot_num, name, slot.count)
-                    } else {
-                        format!("{:02}: {:<8}    ", slot_num, name)
-                    }
-                }
-                None => {
-                    format!("{:02}: --------    ", slot_num)
-                }
-            };
-            // Mark selected slot
-            let prefix = if i == inventory.selected_slot { ">" } else { " " };
-            row.push_str(&format!("{}[{}] ", prefix, cell));
+    // Build cheap fingerprint of inventory state
+    let mut fp: u64 = 0;
+    for slot in &inventory.slots {
+        match slot {
+            Some(s) => {
+                fp = fp.wrapping_mul(31).wrapping_add(s.count as u64);
+                fp = fp.wrapping_mul(31).wrapping_add(s.durability.unwrap_or(0) as u64);
+                fp = fp.wrapping_mul(31).wrapping_add(1); // occupied marker
+            }
+            None => {
+                fp = fp.wrapping_mul(31).wrapping_add(9999);
+            }
         }
-        lines.push(row.trim_end().to_string());
     }
 
-    lines.push(String::new());
-    lines.push("[1-9] Select hotbar  [Tab/I] Close".to_string());
+    if inv_cache.last_open
+        && inventory.selected_slot == inv_cache.last_selected
+        && fp == inv_cache.last_slots_fingerprint
+    {
+        return;
+    }
+    inv_cache.last_open = true;
+    inv_cache.last_selected = inventory.selected_slot;
+    inv_cache.last_slots_fingerprint = fp;
 
-    **text = lines.join("\n");
+    let selected = inventory.selected_slot;
+
+    // Update slot backgrounds and borders
+    for (slot_ui, mut bg, mut border) in slot_query.iter_mut() {
+        let idx = slot_ui.index;
+        let is_selected = idx == selected;
+        let is_occupied = inventory.slots[idx].is_some();
+
+        *bg = BackgroundColor(if is_selected {
+            Color::srgba(0.12, 0.12, 0.2, 0.95)
+        } else if is_occupied {
+            Color::srgba(0.08, 0.08, 0.15, 0.9)
+        } else {
+            Color::srgba(0.05, 0.05, 0.1, 0.8)
+        });
+
+        *border = BorderColor(if is_selected {
+            Color::srgba(0.9, 0.75, 0.3, 0.9)
+        } else {
+            Color::srgba(0.3, 0.3, 0.4, 0.6)
+        });
+    }
+
+    // Update item sprite icons
+    for (icon, mut image_node, mut icon_node) in icon_query.iter_mut() {
+        let idx = icon.index;
+        if let Some(slot) = &inventory.slots[idx] {
+            if let Some(sprite_handle) = item_sprite(&slot.item, &game_assets) {
+                image_node.image = sprite_handle;
+                icon_node.display = Display::Flex;
+            } else {
+                image_node.image = Handle::default();
+                icon_node.display = Display::None;
+            }
+        } else {
+            image_node.image = Handle::default();
+            icon_node.display = Display::None;
+        }
+    }
+
+    // Update item color indicators (hidden when a sprite icon is available)
+    for (item_color, mut bg) in item_color_query.iter_mut() {
+        let idx = item_color.index;
+        if let Some(slot) = &inventory.slots[idx] {
+            if item_sprite(&slot.item, &game_assets).is_some() {
+                // Sprite icon handles this slot — hide the color swatch
+                *bg = BackgroundColor(Color::NONE);
+            } else {
+                // No sprite available — show the colored rectangle fallback
+                let c = dropped_item_color(slot.item).to_srgba();
+                *bg = BackgroundColor(Color::srgba(c.red, c.green, c.blue, 0.85));
+            }
+        } else {
+            *bg = BackgroundColor(Color::NONE);
+        }
+    }
+
+    // Update durability bars
+    for (dur_bar, mut node, mut bg) in durability_query.iter_mut() {
+        let idx = dur_bar.index;
+        if let Some(slot) = &inventory.slots[idx] {
+            if let Some(dur) = slot.durability {
+                let max_dur = slot.item.max_durability().unwrap_or(1);
+                let frac = dur as f32 / max_dur as f32;
+                node.width = Val::Px(40.0 * frac);
+                let bar_color = if frac > 0.5 {
+                    Color::srgb(0.2, 0.8, 0.3)
+                } else if frac > 0.25 {
+                    Color::srgb(0.9, 0.8, 0.2)
+                } else {
+                    Color::srgb(0.9, 0.2, 0.2)
+                };
+                *bg = BackgroundColor(bar_color);
+            } else {
+                node.width = Val::Px(0.0);
+                *bg = BackgroundColor(Color::NONE);
+            }
+        } else {
+            node.width = Val::Px(0.0);
+            *bg = BackgroundColor(Color::NONE);
+        }
+    }
+
+    // Update slot labels (p0)
+    {
+        let mut label_query = text_queries.p0();
+        for (label, mut text) in label_query.iter_mut() {
+            let idx = label.index;
+            if let Some(slot) = &inventory.slots[idx] {
+                let name: String = slot.item.display_name().chars().take(6).collect();
+                **text = name;
+            } else {
+                **text = String::new();
+            }
+        }
+    }
+
+    // Update count badges (p1)
+    {
+        let mut badge_query = text_queries.p1();
+        for (badge, mut text) in badge_query.iter_mut() {
+            let idx = badge.index;
+            if let Some(slot) = &inventory.slots[idx] {
+                if slot.count > 1 {
+                    **text = format!("x{}", slot.count);
+                } else {
+                    **text = String::new();
+                }
+            } else {
+                **text = String::new();
+            }
+        }
+    }
+
+    // Update tooltip (p2)
+    {
+        let mut tooltip_query = text_queries.p2();
+        if let Ok(mut text) = tooltip_query.get_single_mut() {
+            if let Some(slot) = &inventory.slots[selected] {
+                let name = slot.item.display_name();
+                let mut detail = name.to_string();
+                if slot.count > 1 {
+                    detail.push_str(&format!("  (x{})", slot.count));
+                }
+                if let Some(dur) = slot.durability {
+                    let max_dur = slot.item.max_durability().unwrap_or(dur);
+                    detail.push_str(&format!("  [{}/{}]", dur, max_dur));
+                }
+                if let Some(dmg) = slot.item.weapon_damage() {
+                    detail.push_str(&format!("  ATK: {:.0}", dmg));
+                }
+                let armor = slot.item.armor_value();
+                if armor > 0 {
+                    detail.push_str(&format!("  DEF: {}", armor));
+                }
+                **text = detail;
+            } else {
+                **text = format!("Slot {} - Empty", selected + 1);
+            }
+        }
+    }
+}
+
+/// Arrow-key navigation for inventory grid when open.
+fn inventory_navigation(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut inventory: ResMut<Inventory>,
+) {
+    if !inventory.is_open {
+        return;
+    }
+
+    let cols: usize = 9;
+    let total: usize = 36;
+    let cur = inventory.selected_slot;
+
+    if keyboard.just_pressed(KeyCode::ArrowRight) {
+        let new = if cur + 1 < total { cur + 1 } else { cur };
+        inventory.selected_slot = new;
+    }
+    if keyboard.just_pressed(KeyCode::ArrowLeft) {
+        let new = if cur > 0 { cur - 1 } else { cur };
+        inventory.selected_slot = new;
+    }
+    if keyboard.just_pressed(KeyCode::ArrowDown) {
+        let new = cur + cols;
+        if new < total {
+            inventory.selected_slot = new;
+        }
+    }
+    if keyboard.just_pressed(KeyCode::ArrowUp) {
+        if cur >= cols {
+            inventory.selected_slot = cur - cols;
+        }
+    }
 }
 
 /// Updates the graphical hotbar slots: highlights selected, shows item color and label; updates tooltip.
@@ -1025,7 +1822,7 @@ fn update_graphical_hotbar(
         for child in children {
             if let Ok(mut bg) = color_query.get_mut(*child) {
                 if let Some(slot) = &inventory.slots[*i] {
-                    let item_color = crate::gathering::dropped_item_color(slot.item);
+                    let item_color = dropped_item_color(slot.item);
                     let c = item_color.to_srgba();
                     *bg = BackgroundColor(Color::srgba(c.red, c.green, c.blue, 0.7));
                 } else {
@@ -1233,6 +2030,7 @@ fn update_fishing_hud(
     mut fishing_hud_query: Query<&mut Text, With<FishingHudText>>,
     player_query: Query<&Transform, With<Player>>,
     mut floating_text_events: EventWriter<FloatingTextRequest>,
+    mut cache: ResMut<FishingHudCache>,
 ) {
     let Ok(mut text) = fishing_hud_query.get_single_mut() else { return };
 
@@ -1240,6 +2038,35 @@ fn update_fishing_hud(
     if catch_flash.timer > 0.0 {
         catch_flash.timer -= time.delta_secs();
     }
+
+    // Build fingerprint of current phase
+    let phase_str = match fishing.phase {
+        FishingPhase::Idle => "idle",
+        FishingPhase::Casting => "casting",
+        FishingPhase::Waiting => "waiting",
+        FishingPhase::Hooked => "hooked",
+        FishingPhase::Reeling => "reeling",
+        FishingPhase::Caught => "caught",
+    };
+    let reel_pct = (fishing.reel_progress * 100.0) as u32;
+    let hook_window_i = (fishing.hook_window * 10.0) as i32;
+    let dots_idx = ((time.elapsed_secs() * 2.0) as u32) % 4;
+    let flash_active = catch_flash.timer > 0.0;
+
+    if phase_str == cache.last_phase
+        && reel_pct == cache.last_reel_pct
+        && hook_window_i == cache.last_hook_window_i
+        && dots_idx == cache.last_dots_idx
+        && flash_active == cache.last_catch_flash_active
+    {
+        return;
+    }
+
+    cache.last_phase = phase_str.to_string();
+    cache.last_reel_pct = reel_pct;
+    cache.last_hook_window_i = hook_window_i;
+    cache.last_dots_idx = dots_idx;
+    cache.last_catch_flash_active = flash_active;
 
     match fishing.phase {
         FishingPhase::Idle => {
@@ -1253,7 +2080,7 @@ fn update_fishing_hud(
             **text = "Casting...".to_string();
         }
         FishingPhase::Waiting => {
-            let dots = match ((time.elapsed_secs() * 2.0) as u32) % 4 {
+            let dots = match dots_idx {
                 0 => "",
                 1 => ".",
                 2 => "..",
@@ -1271,8 +2098,7 @@ fn update_fishing_hud(
             let fish_name = fishing.target_fish
                 .map(|f| fish_type_name(f))
                 .unwrap_or("???");
-            let pct = (fishing.reel_progress * 100.0) as u32;
-            **text = format!("Reeling: {} [{}] {}%", fish_name, bar, pct);
+            **text = format!("Reeling: {} [{}] {}%", fish_name, bar, reel_pct);
         }
         FishingPhase::Caught => {
             let fish_name = fishing.target_fish
@@ -1313,13 +2139,42 @@ fn update_quest_log_hud(
     quest_log: Res<QuestLog>,
     dynamic_log: Res<crate::quests::DynamicQuestLog>,
     mut quest_hud_query: Query<&mut Text, With<QuestLogHudText>>,
+    mut cache: ResMut<QuestLogHudCache>,
 ) {
     let Ok(mut text) = quest_hud_query.get_single_mut() else { return };
 
     if !quest_log.is_open {
-        **text = String::new();
+        if cache.last_open {
+            cache.last_open = false;
+            **text = String::new();
+        }
         return;
     }
+
+    // Cheap fingerprint: hash selected + all progress/completed/claimed values
+    let mut fp: u64 = quest_log.selected as u64;
+    for q in &quest_log.quests {
+        fp = fp.wrapping_mul(31).wrapping_add(q.progress as u64);
+        fp = fp.wrapping_mul(31).wrapping_add(if q.completed { 1 } else { 0 });
+        fp = fp.wrapping_mul(31).wrapping_add(if q.claimed { 1 } else { 0 });
+    }
+    for dq in &dynamic_log.quests {
+        fp = fp.wrapping_mul(31).wrapping_add(dq.progress as u64);
+        fp = fp.wrapping_mul(31).wrapping_add(if dq.completed { 1 } else { 0 });
+        fp = fp.wrapping_mul(31).wrapping_add(if dq.claimed { 1 } else { 0 });
+    }
+    fp = fp.wrapping_mul(31).wrapping_add(dynamic_log.quests.len() as u64);
+
+    if cache.last_open
+        && quest_log.selected == cache.last_selected
+        && fp == cache.last_quest_fingerprint
+    {
+        return;
+    }
+
+    cache.last_open = true;
+    cache.last_selected = quest_log.selected;
+    cache.last_quest_fingerprint = fp;
 
     let defs = crate::quests::quest_definitions();
     let mut lines = vec!["=== QUEST LOG [J] ===".to_string(), String::new()];
@@ -1340,7 +2195,6 @@ fn update_quest_log_hud(
 
         lines.push(format!("{}{}", sel, status));
 
-        // Show description for selected quest
         if i == quest_log.selected {
             lines.push(format!("    {}", def.description));
             if !def.reward.is_empty() {
@@ -1361,7 +2215,6 @@ fn update_quest_log_hud(
         }
     }
 
-    // Dynamic quests section
     if !dynamic_log.quests.is_empty() {
         lines.push(String::new());
         lines.push("--- DYNAMIC QUESTS ---".to_string());
@@ -1412,22 +2265,55 @@ fn update_quest_log_hud(
 fn update_status_effects_hud(
     player_query: Query<Option<&ActiveStatusEffects>, With<Player>>,
     mut effects_hud_query: Query<&mut Text, With<StatusEffectsHudText>>,
+    mut cache: ResMut<StatusEffectsHudCache>,
 ) {
     let Ok(mut text) = effects_hud_query.get_single_mut() else { return };
     let Ok(maybe_effects) = player_query.get_single() else {
-        **text = String::new();
+        if cache.last_count != 0 {
+            cache.last_count = 0;
+            cache.last_secs_fingerprint.clear();
+            **text = String::new();
+        }
         return;
     };
 
     let Some(active) = maybe_effects else {
-        **text = String::new();
+        if cache.last_count != 0 {
+            cache.last_count = 0;
+            cache.last_secs_fingerprint.clear();
+            **text = String::new();
+        }
         return;
     };
 
     if active.effects.is_empty() {
-        **text = String::new();
+        if cache.last_count != 0 {
+            cache.last_count = 0;
+            cache.last_secs_fingerprint.clear();
+            **text = String::new();
+        }
         return;
     }
+
+    // Build fingerprint: (effect_type as u8, stacks, remaining whole seconds)
+    let current_fp: Vec<(u8, u32, u32)> = active.effects.iter().map(|e| {
+        let type_idx = match e.effect_type {
+            StatusEffectType::Poison => 0,
+            StatusEffectType::Burn => 1,
+            StatusEffectType::Freeze => 2,
+            StatusEffectType::Bleed => 3,
+            StatusEffectType::Stun => 4,
+            StatusEffectType::Regen => 5,
+            StatusEffectType::WellFed => 6,
+        };
+        (type_idx, e.stacks, e.remaining_secs as u32)
+    }).collect();
+
+    if current_fp == cache.last_secs_fingerprint {
+        return;
+    }
+    cache.last_count = active.effects.len();
+    cache.last_secs_fingerprint = current_fp;
 
     let parts: Vec<String> = active.effects.iter().map(|e| {
         let name = match e.effect_type {
@@ -1456,15 +2342,17 @@ fn update_status_effects_hud(
 fn update_skill_hud(
     skill_levels: Res<SkillLevels>,
     mut skill_hud_query: Query<&mut Text, With<SkillHudText>>,
+    mut cache: ResMut<SkillHudCache>,
 ) {
     let Ok(mut text) = skill_hud_query.get_single_mut() else { return };
 
     if !skill_levels.skills_open {
-        **text = String::new();
+        if cache.last_open {
+            cache.last_open = false;
+            **text = String::new();
+        }
         return;
     }
-
-    let mut lines = vec!["=== SKILLS [K] ===".to_string(), String::new()];
 
     let skills = [
         SkillType::Gathering,
@@ -1474,6 +2362,20 @@ fn update_skill_hud(
         SkillType::Crafting,
         SkillType::Building,
     ];
+
+    let current_fp: Vec<(u32, u32)> = skills.iter().map(|s| {
+        let d = skill_levels.get(*s);
+        (d.level, d.xp)
+    }).collect();
+
+    if cache.last_open && current_fp == cache.last_fingerprint {
+        return;
+    }
+
+    cache.last_open = true;
+    cache.last_fingerprint = current_fp;
+
+    let mut lines = vec!["=== SKILLS [K] ===".to_string(), String::new()];
 
     for skill in &skills {
         let data = skill_levels.get(*skill);
@@ -1521,5 +2423,175 @@ fn floating_text_system(
         if ft.timer <= 0.0 {
             commands.entity(entity).despawn();
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pause Menu Navigation
+// ---------------------------------------------------------------------------
+
+const PAUSE_MENU_ITEMS: usize = 6;
+
+fn pause_menu_navigation(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut pause_menu_state: ResMut<PauseMenuState>,
+    mut menu_item_query: Query<(&PauseMenuItem, &mut BackgroundColor, &mut BorderColor)>,
+    mut pause_panel_query: Query<&mut Node, (With<PauseMenuPanel>, Without<crate::settings::SettingsPanel>)>,
+    mut controls_overlay: ResMut<ControlsOverlay>,
+    mut main_menu: ResMut<MainMenuActive>,
+    active_slot: Res<crate::saveload::ActiveSaveSlot>,
+    mut save_slot_browser_state: ResMut<crate::saveslots::SaveSlotBrowserState>,
+    _save_msg: ResMut<SaveMessage>,
+    mut cycle: ResMut<crate::daynight::DayNightCycle>,
+    mut pause_state: ResMut<PauseState>,
+    mut settings_state: ResMut<crate::settings::SettingsMenuState>,
+    mut settings_panel_query: Query<&mut Node, (With<crate::settings::SettingsPanel>, Without<PauseMenuPanel>)>,
+) {
+    if !pause_state.paused {
+        return;
+    }
+    // Don't process pause menu navigation while settings is open
+    if settings_state.is_open {
+        return;
+    }
+
+    // Don't process pause menu navigation while save-slot browser is open.
+    if save_slot_browser_state.open {
+        return;
+    }
+
+    // Navigate up/down
+    if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+        if pause_menu_state.selected > 0 {
+            pause_menu_state.selected -= 1;
+        }
+    }
+    if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+        if pause_menu_state.selected < PAUSE_MENU_ITEMS - 1 {
+            pause_menu_state.selected += 1;
+        }
+    }
+
+    // Update visual highlights
+    for (item, mut bg, mut border) in menu_item_query.iter_mut() {
+        if item.index == pause_menu_state.selected {
+            *bg = BackgroundColor(Color::srgba(0.15, 0.13, 0.08, 0.95));
+            *border = BorderColor(Color::srgba(0.9, 0.75, 0.3, 0.9));
+        } else {
+            *bg = BackgroundColor(Color::srgba(0.08, 0.08, 0.14, 0.8));
+            *border = BorderColor(Color::srgba(0.25, 0.25, 0.35, 0.5));
+        }
+    }
+
+    // Handle selection
+    if keyboard.just_pressed(KeyCode::Enter) {
+        match pause_menu_state.selected {
+            0 => {
+                // Resume Game
+                pause_state.paused = false;
+                cycle.paused = false;
+                if let Ok(mut node) = pause_panel_query.get_single_mut() {
+                    node.display = Display::None;
+                }
+            }
+            1 => {
+                // Save Game -> open save slot browser
+                save_slot_browser_state.open = true;
+                save_slot_browser_state.context = crate::saveslots::SaveSlotBrowserContext::PauseSave;
+                save_slot_browser_state.selected_focus = active_slot.index;
+                save_slot_browser_state.confirm_delete = false;
+                save_slot_browser_state.delete_target_slot = active_slot.index;
+            }
+            2 => {
+                // Load Game -> open save slot browser
+                save_slot_browser_state.open = true;
+                save_slot_browser_state.context = crate::saveslots::SaveSlotBrowserContext::PauseLoad;
+                save_slot_browser_state.selected_focus = active_slot.index;
+                save_slot_browser_state.confirm_delete = false;
+                save_slot_browser_state.delete_target_slot = active_slot.index;
+            }
+            3 => {
+                // Settings — open settings panel, hide pause menu
+                settings_state.is_open = true;
+                settings_state.selected = 0;
+                if let Ok(mut node) = pause_panel_query.get_single_mut() {
+                    node.display = Display::None;
+                }
+                if let Ok(mut node) = settings_panel_query.get_single_mut() {
+                    node.display = Display::Flex;
+                }
+            }
+            4 => {
+                // Controls
+                controls_overlay.is_visible = !controls_overlay.is_visible;
+            }
+            5 => {
+                // Quit to Menu
+                main_menu.active = true;
+                pause_state.paused = false;
+                cycle.paused = false;
+                if let Ok(mut node) = pause_panel_query.get_single_mut() {
+                    node.display = Display::None;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Panel Visibility Toggle: hide empty panels
+// ---------------------------------------------------------------------------
+
+fn toggle_panel_visibility(
+    feedback_text_query: Query<&Text, With<FeedbackHudText>>,
+    npc_text_query: Query<&Text, (With<NpcHudText>, Without<FeedbackHudText>)>,
+    crafting_text_query: Query<&Text, (With<CraftingHudText>, Without<FeedbackHudText>, Without<NpcHudText>)>,
+    fishing_text_query: Query<&Text, (With<FishingHudText>, Without<FeedbackHudText>, Without<NpcHudText>, Without<CraftingHudText>)>,
+    quest_text_query: Query<&Text, (With<QuestLogHudText>, Without<FeedbackHudText>, Without<NpcHudText>, Without<CraftingHudText>, Without<FishingHudText>)>,
+    skill_text_query: Query<&Text, (With<SkillHudText>, Without<FeedbackHudText>, Without<NpcHudText>, Without<CraftingHudText>, Without<FishingHudText>, Without<QuestLogHudText>)>,
+    mut panel_queries: ParamSet<(
+        Query<&mut Node, With<FeedbackPanelRoot>>,
+        Query<&mut Node, With<NpcPanelRoot>>,
+        Query<&mut Node, With<CraftingPanelRoot>>,
+        Query<&mut Node, With<FishingPanelRoot>>,
+        Query<&mut Node, With<QuestLogPanelRoot>>,
+        Query<&mut Node, With<SkillPanelRoot>>,
+    )>,
+) {
+    // Feedback panel
+    let feedback_empty = feedback_text_query.get_single().map(|t| t.as_str().is_empty()).unwrap_or(true);
+    if let Ok(mut node) = panel_queries.p0().get_single_mut() {
+        node.display = if feedback_empty { Display::None } else { Display::Flex };
+    }
+
+    // NPC panel
+    let npc_empty = npc_text_query.get_single().map(|t| t.as_str().is_empty()).unwrap_or(true);
+    if let Ok(mut node) = panel_queries.p1().get_single_mut() {
+        node.display = if npc_empty { Display::None } else { Display::Flex };
+    }
+
+    // Crafting panel
+    let crafting_empty = crafting_text_query.get_single().map(|t| t.as_str().is_empty()).unwrap_or(true);
+    if let Ok(mut node) = panel_queries.p2().get_single_mut() {
+        node.display = if crafting_empty { Display::None } else { Display::Flex };
+    }
+
+    // Fishing panel
+    let fishing_empty = fishing_text_query.get_single().map(|t| t.as_str().is_empty()).unwrap_or(true);
+    if let Ok(mut node) = panel_queries.p3().get_single_mut() {
+        node.display = if fishing_empty { Display::None } else { Display::Flex };
+    }
+
+    // Quest log panel
+    let quest_empty = quest_text_query.get_single().map(|t| t.as_str().is_empty()).unwrap_or(true);
+    if let Ok(mut node) = panel_queries.p4().get_single_mut() {
+        node.display = if quest_empty { Display::None } else { Display::Flex };
+    }
+
+    // Skill panel
+    let skill_empty = skill_text_query.get_single().map(|t| t.as_str().is_empty()).unwrap_or(true);
+    if let Ok(mut node) = panel_queries.p5().get_single_mut() {
+        node.display = if skill_empty { Display::None } else { Display::Flex };
     }
 }
