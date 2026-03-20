@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 use rand::Rng;
-use std::collections::HashSet;
 use crate::hud::not_paused;
-use crate::player::{Player, Health, Hunger, ActiveBuff, BuffType, ArmorSlots};
+use crate::player::{Player, Health, Hunger, ActiveBuff, BuffType, ArmorSlots, DamageFlash, AttackLunge};
 use crate::daynight::{DayNightCycle, DayPhase};
 use crate::season::SeasonCycle;
 use crate::inventory::{Inventory, ItemType};
@@ -11,7 +10,7 @@ use crate::world::generation::Biome;
 use crate::world::{CHUNK_WORLD_SIZE};
 use crate::npc::Invulnerable;
 use crate::building::{Building, BuildingType, Door};
-use crate::camera::{ScreenShake, HitStop};
+use crate::camera::CameraEffects;
 use crate::death::DeathStats;
 use crate::particles::SpawnParticlesEvent;
 use crate::audio::SoundEvent;
@@ -21,6 +20,8 @@ use crate::dungeon::cave_spider_random_drop;
 use crate::enchanting::enemy_on_hit_effect;
 use crate::status_effects::ApplyStatusEvent;
 use crate::weather::WeatherSystem;
+use crate::animation::{SpriteAnimation, SpriteAnimationKind};
+use crate::spatial::SpatialGrid;
 
 pub struct CombatPlugin;
 
@@ -171,32 +172,32 @@ impl EnemyType {
     pub fn stats(&self) -> (f32, f32, f32, f32, Color, Vec2) {
         // (health, damage, speed, aggro_range, color, size)
         match self {
-            EnemyType::ShadowCrawler => (30.0, 5.0, 80.0, 150.0, Color::srgb(0.4, 0.1, 0.5), Vec2::new(10.0, 10.0)),
-            EnemyType::FeralWolf => (40.0, 8.0, 100.0, 180.0, Color::srgb(0.5, 0.5, 0.5), Vec2::new(12.0, 10.0)),
-            EnemyType::NightBat => (18.0, 4.0, 130.0, 140.0, Color::srgb(0.2, 0.15, 0.25), Vec2::new(8.0, 8.0)),
-            EnemyType::CaveSpider => (20.0, 4.0, 120.0, 120.0, Color::srgb(0.3, 0.2, 0.15), Vec2::new(8.0, 8.0)),
-            EnemyType::FungalZombie => (50.0, 6.0, 40.0, 100.0, Color::srgb(0.3, 0.5, 0.2), Vec2::new(12.0, 14.0)),
-            EnemyType::LavaElemental => (60.0, 12.0, 50.0, 130.0, Color::srgb(0.9, 0.3, 0.1), Vec2::new(14.0, 14.0)),
-            EnemyType::IceWraith => (35.0, 7.0, 70.0, 160.0, Color::srgb(0.7, 0.85, 1.0), Vec2::new(10.0, 12.0)),
-            EnemyType::BogLurker => (45.0, 6.0, 60.0, 100.0, Color::srgb(0.25, 0.4, 0.2), Vec2::new(12.0, 12.0)),
-            EnemyType::SandScorpion => (30.0, 8.0, 90.0, 140.0, Color::srgb(0.7, 0.55, 0.3), Vec2::new(10.0, 8.0)),
+            EnemyType::ShadowCrawler => (30.0, 5.0, 80.0, 150.0, Color::srgb(0.4, 0.1, 0.5), Vec2::new(14.0, 12.0)),
+            EnemyType::FeralWolf => (40.0, 8.0, 100.0, 180.0, Color::srgb(0.5, 0.5, 0.5), Vec2::new(16.0, 12.0)),
+            EnemyType::NightBat => (18.0, 4.0, 130.0, 140.0, Color::srgb(0.2, 0.15, 0.25), Vec2::new(12.0, 10.0)),
+            EnemyType::CaveSpider => (20.0, 4.0, 120.0, 120.0, Color::srgb(0.3, 0.2, 0.15), Vec2::new(12.0, 10.0)),
+            EnemyType::FungalZombie => (50.0, 6.0, 40.0, 100.0, Color::srgb(0.3, 0.5, 0.2), Vec2::new(14.0, 16.0)),
+            EnemyType::LavaElemental => (60.0, 12.0, 50.0, 130.0, Color::srgb(0.9, 0.3, 0.1), Vec2::new(16.0, 16.0)),
+            EnemyType::IceWraith => (35.0, 7.0, 70.0, 160.0, Color::srgb(0.7, 0.85, 1.0), Vec2::new(12.0, 14.0)),
+            EnemyType::BogLurker => (45.0, 6.0, 60.0, 100.0, Color::srgb(0.25, 0.4, 0.2), Vec2::new(14.0, 14.0)),
+            EnemyType::SandScorpion => (30.0, 8.0, 90.0, 140.0, Color::srgb(0.7, 0.55, 0.3), Vec2::new(14.0, 10.0)),
             // Elite enemies
-            EnemyType::AlphaWolf     => (80.0, 12.0, 110.0, 200.0, Color::srgb(0.35, 0.35, 0.4), Vec2::new(14.0, 12.0)),
-            EnemyType::VenomScorpion => (60.0, 14.0, 95.0, 160.0, Color::srgb(0.5, 0.7, 0.2), Vec2::new(12.0, 10.0)),
-            EnemyType::FrostLich     => (70.0, 10.0, 65.0, 180.0, Color::srgb(0.5, 0.6, 0.9), Vec2::new(12.0, 14.0)),
-            EnemyType::MagmaGolem    => (120.0, 16.0, 30.0, 150.0, Color::srgb(0.8, 0.3, 0.05), Vec2::new(16.0, 16.0)),
+            EnemyType::AlphaWolf     => (80.0, 12.0, 110.0, 200.0, Color::srgb(0.35, 0.35, 0.4), Vec2::new(18.0, 14.0)),
+            EnemyType::VenomScorpion => (60.0, 14.0, 95.0, 160.0, Color::srgb(0.5, 0.7, 0.2), Vec2::new(16.0, 12.0)),
+            EnemyType::FrostLich     => (70.0, 10.0, 65.0, 180.0, Color::srgb(0.5, 0.6, 0.9), Vec2::new(14.0, 16.0)),
+            EnemyType::MagmaGolem    => (120.0, 16.0, 30.0, 150.0, Color::srgb(0.8, 0.3, 0.05), Vec2::new(20.0, 20.0)),
             // Dungeon boss
-            EnemyType::StoneGolem => (200.0, 15.0, 30.0, 200.0, Color::srgb(0.6, 0.6, 0.6), Vec2::new(20.0, 20.0)),
+            EnemyType::StoneGolem => (200.0, 15.0, 30.0, 200.0, Color::srgb(0.6, 0.6, 0.6), Vec2::new(28.0, 28.0)),
             // Biome bosses
-            EnemyType::ForestGuardian  => (200.0, 12.0, 40.0, 200.0, Color::srgb(0.2, 0.6, 0.15), Vec2::new(20.0, 20.0)),
-            EnemyType::SwampBeast      => (180.0, 14.0, 35.0, 200.0, Color::srgb(0.15, 0.35, 0.1), Vec2::new(22.0, 22.0)),
-            EnemyType::DesertWyrm      => (250.0, 18.0, 45.0, 200.0, Color::srgb(0.8, 0.65, 0.3), Vec2::new(22.0, 20.0)),
-            EnemyType::FrostGiant      => (280.0, 16.0, 25.0, 200.0, Color::srgb(0.6, 0.8, 1.0), Vec2::new(24.0, 24.0)),
-            EnemyType::MagmaKing       => (300.0, 20.0, 20.0, 200.0, Color::srgb(0.9, 0.4, 0.1), Vec2::new(24.0, 24.0)),
-            EnemyType::FungalOverlord  => (160.0, 10.0, 50.0, 200.0, Color::srgb(0.5, 0.2, 0.6), Vec2::new(18.0, 18.0)),
-            EnemyType::CrystalSentinel => (220.0, 15.0, 30.0, 200.0, Color::srgb(0.6, 0.5, 0.8), Vec2::new(20.0, 22.0)),
-            EnemyType::TidalSerpent   => (240.0, 16.0, 35.0, 200.0, Color::srgb(0.2, 0.5, 0.8), Vec2::new(22.0, 20.0)),
-            EnemyType::MountainTitan  => (260.0, 17.0, 25.0, 200.0, Color::srgb(0.5, 0.45, 0.35), Vec2::new(24.0, 24.0)),
+            EnemyType::ForestGuardian  => (200.0, 12.0, 40.0, 200.0, Color::srgb(0.2, 0.6, 0.15), Vec2::new(28.0, 28.0)),
+            EnemyType::SwampBeast      => (180.0, 14.0, 35.0, 200.0, Color::srgb(0.15, 0.35, 0.1), Vec2::new(30.0, 28.0)),
+            EnemyType::DesertWyrm      => (250.0, 18.0, 45.0, 200.0, Color::srgb(0.8, 0.65, 0.3), Vec2::new(30.0, 26.0)),
+            EnemyType::FrostGiant      => (280.0, 16.0, 25.0, 200.0, Color::srgb(0.6, 0.8, 1.0), Vec2::new(32.0, 32.0)),
+            EnemyType::MagmaKing       => (300.0, 20.0, 20.0, 200.0, Color::srgb(0.9, 0.4, 0.1), Vec2::new(32.0, 32.0)),
+            EnemyType::FungalOverlord  => (160.0, 10.0, 50.0, 200.0, Color::srgb(0.5, 0.2, 0.6), Vec2::new(24.0, 24.0)),
+            EnemyType::CrystalSentinel => (220.0, 15.0, 30.0, 200.0, Color::srgb(0.6, 0.5, 0.8), Vec2::new(26.0, 28.0)),
+            EnemyType::TidalSerpent   => (240.0, 16.0, 35.0, 200.0, Color::srgb(0.2, 0.5, 0.8), Vec2::new(28.0, 24.0)),
+            EnemyType::MountainTitan  => (260.0, 17.0, 25.0, 200.0, Color::srgb(0.5, 0.45, 0.35), Vec2::new(32.0, 32.0)),
         }
     }
 
@@ -259,6 +260,52 @@ pub fn boss_for_biome(biome: Biome) -> EnemyType {
     }
 }
 
+/// Health bar dimensions (in pixels).
+const HEALTH_BAR_WIDTH: f32 = 20.0;
+const HEALTH_BAR_HEIGHT: f32 = 3.0;
+/// Gap between top of enemy sprite and bottom of health bar.
+const HEALTH_BAR_GAP: f32 = 2.0;
+
+/// Spawn background + fill health bar sprites as children of the given entity.
+/// `sprite_height` is the Y size of the enemy sprite — used to position the bar above the enemy.
+/// Bars start invisible (alpha 0) and become visible when the enemy takes damage.
+pub fn spawn_health_bar_children(commands: &mut Commands, parent: Entity, sprite_height: f32) {
+    let bar_y = sprite_height / 2.0 + HEALTH_BAR_GAP + HEALTH_BAR_HEIGHT / 2.0;
+    commands.entity(parent).with_children(|parent_builder| {
+        // Background bar (dark gray, hidden until damaged)
+        parent_builder.spawn((
+            EnemyHealthBarBg,
+            Sprite {
+                color: Color::srgba(0.2, 0.2, 0.2, 0.0),
+                custom_size: Some(Vec2::new(HEALTH_BAR_WIDTH, HEALTH_BAR_HEIGHT)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, bar_y, 0.1),
+        ));
+        // Foreground fill (hidden until damaged)
+        parent_builder.spawn((
+            EnemyHealthBarFill,
+            Sprite {
+                color: Color::srgba(0.1, 0.8, 0.1, 0.0),
+                custom_size: Some(Vec2::new(HEALTH_BAR_WIDTH, HEALTH_BAR_HEIGHT)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, bar_y, 0.2),
+        ));
+    });
+}
+
+/// Return the health bar fill color for a given HP ratio (0.0 .. 1.0).
+fn health_bar_color(ratio: f32) -> Color {
+    if ratio > 0.5 {
+        Color::srgb(0.1, 0.8, 0.1) // green
+    } else if ratio > 0.25 {
+        Color::srgb(0.9, 0.8, 0.1) // yellow
+    } else {
+        Color::srgb(0.9, 0.15, 0.1) // red
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum EnemyState {
     Idle,
@@ -274,6 +321,16 @@ pub struct HitFlash {
     pub original_color: Color,
 }
 
+/// Background sprite for the enemy health bar (dark gray, full width).
+#[derive(Component)]
+pub struct EnemyHealthBarBg;
+
+/// Foreground fill sprite for the enemy health bar (color changes by HP %).
+#[derive(Component)]
+pub struct EnemyHealthBarFill;
+
+/// Legacy component kept for reference (no longer spawned -- replaced by child-based health bars).
+#[allow(dead_code)]
 #[derive(Component)]
 pub struct EnemyHealthBar {
     pub parent_enemy: Entity,
@@ -413,6 +470,31 @@ fn loot_for_enemy(enemy_type: EnemyType) -> (ItemType, u32) {
     }
 }
 
+/// Fast integer-to-string for small damage numbers (avoids format! overhead).
+fn fast_damage_string(damage: f32, suffix: &str) -> String {
+    let d = damage.round() as i32;
+    let mut s = String::with_capacity(8);
+    s.push('-');
+    // itoa-style: push digits without format! machinery
+    if d <= 0 {
+        s.push('0');
+    } else {
+        let mut buf = [0u8; 10];
+        let mut n = d as u32;
+        let mut i = 0;
+        while n > 0 {
+            buf[i] = b'0' + (n % 10) as u8;
+            n /= 10;
+            i += 1;
+        }
+        for j in (0..i).rev() {
+            s.push(buf[j] as char);
+        }
+    }
+    s.push_str(suffix);
+    s
+}
+
 fn damage_text_style(damage: f32, reference_max: f32) -> (String, Color) {
     let ratio = if reference_max > 0.0 {
         (damage / reference_max).clamp(0.0, 1.0)
@@ -422,13 +504,13 @@ fn damage_text_style(damage: f32, reference_max: f32) -> (String, Color) {
 
     if ratio >= 0.6 {
         // Crit-like big hit
-        (format!("-{:.0}!!", damage), Color::srgb(0.95, 0.8, 0.35))
+        (fast_damage_string(damage, "!!"), Color::srgb(0.95, 0.8, 0.35))
     } else if ratio >= 0.3 {
         // Strong hit
-        (format!("-{:.0}!", damage), Color::srgb(1.0, 0.5, 0.2))
+        (fast_damage_string(damage, "!"), Color::srgb(1.0, 0.5, 0.2))
     } else {
         // Normal chip damage
-        (format!("-{:.0}", damage), Color::srgb(1.0, 0.3, 0.3))
+        (fast_damage_string(damage, ""), Color::srgb(1.0, 0.3, 0.3))
     }
 }
 
@@ -438,23 +520,32 @@ fn damage_text_style(damage: f32, reference_max: f32) -> (String, Color) {
 fn enemy_sprite(enemy_type: EnemyType, assets: &crate::assets::GameAssets) -> (Handle<Image>, Color) {
     let (_hp, _dmg, _spd, _aggro, color, _size) = enemy_type.stats();
     let texture = match enemy_type {
+        // Regular enemies
         EnemyType::FeralWolf => assets.enemy_wolf.clone(),
         EnemyType::CaveSpider => assets.enemy_spider.clone(),
         EnemyType::ShadowCrawler => assets.enemy_crawler.clone(),
-        EnemyType::NightBat => assets.enemy_crawler.clone(),
+        EnemyType::NightBat => assets.elite_night_bat.clone(),
         EnemyType::FungalZombie => assets.enemy_zombie.clone(),
         EnemyType::LavaElemental => assets.enemy_elemental.clone(),
         EnemyType::IceWraith => assets.enemy_wraith.clone(),
-        EnemyType::BogLurker => assets.enemy_zombie.clone(),
-        EnemyType::SandScorpion | EnemyType::VenomScorpion => assets.enemy_scorpion.clone(),
-        EnemyType::AlphaWolf => assets.enemy_wolf.clone(),
-        EnemyType::FrostLich => assets.enemy_wraith.clone(),
-        EnemyType::MagmaGolem => assets.enemy_elemental.clone(),
-        // All bosses use the boss texture with their stat color as tint
-        EnemyType::ForestGuardian | EnemyType::SwampBeast | EnemyType::DesertWyrm
-        | EnemyType::FrostGiant | EnemyType::MagmaKing | EnemyType::FungalOverlord
-        | EnemyType::CrystalSentinel | EnemyType::TidalSerpent | EnemyType::MountainTitan
-        | EnemyType::StoneGolem => assets.enemy_boss.clone(),
+        EnemyType::BogLurker => assets.elite_bog_lurker.clone(),
+        EnemyType::SandScorpion => assets.enemy_scorpion.clone(),
+        // Elite enemies
+        EnemyType::AlphaWolf => assets.elite_alpha_wolf.clone(),
+        EnemyType::VenomScorpion => assets.elite_venom_scorpion.clone(),
+        EnemyType::FrostLich => assets.elite_frost_lich.clone(),
+        EnemyType::MagmaGolem => assets.elite_magma_golem.clone(),
+        // Biome bosses — each gets its own unique sprite
+        EnemyType::ForestGuardian => assets.boss_forest_treant.clone(),
+        EnemyType::SwampBeast => assets.boss_swamp_hydra.clone(),
+        EnemyType::DesertWyrm => assets.boss_desert_wyrm.clone(),
+        EnemyType::FrostGiant => assets.boss_tundra_yeti.clone(),
+        EnemyType::MagmaKing => assets.boss_volcanic_dragon.clone(),
+        EnemyType::FungalOverlord => assets.boss_fungal_overmind.clone(),
+        EnemyType::CrystalSentinel => assets.boss_crystal_golem.clone(),
+        EnemyType::TidalSerpent => assets.boss_coastal_kraken.clone(),
+        EnemyType::MountainTitan => assets.boss_mountain_titan.clone(),
+        EnemyType::StoneGolem => assets.boss_stone_golem.clone(),
     };
     (texture, color)
 }
@@ -542,7 +633,34 @@ fn spawn_night_enemies(
         rng.gen_range(-1.0f32..1.0),
     ).normalize_or_zero();
 
-    commands.spawn((
+    // Determine walk animation frames for this enemy type (if available)
+    let walk_frames = match enemy_type {
+        EnemyType::FeralWolf | EnemyType::AlphaWolf => assets.wolf_walk_frames.clone(),
+        EnemyType::CaveSpider | EnemyType::VenomScorpion => assets.spider_walk_frames.clone(),
+        EnemyType::ShadowCrawler => assets.shadow_crawler_walk_frames.clone(),
+        _ => Vec::new(),
+    };
+
+    // If runtime texture atlases have been built, use them for the walk
+    // animation to avoid swapping `Sprite.image` handles each tick.
+    let (walk_atlas_image, walk_atlas_layout) = match enemy_type {
+        EnemyType::FeralWolf | EnemyType::AlphaWolf => (
+            assets.wolf_walk_atlas_image.clone(),
+            assets.wolf_walk_atlas_layout.clone(),
+        ),
+        EnemyType::CaveSpider | EnemyType::VenomScorpion => (
+            assets.spider_walk_atlas_image.clone(),
+            assets.spider_walk_atlas_layout.clone(),
+        ),
+        EnemyType::ShadowCrawler => (
+            assets.shadow_crawler_walk_atlas_image.clone(),
+            assets.shadow_crawler_walk_atlas_layout.clone(),
+        ),
+        _ => (None, None),
+    };
+
+    let bar_y = size.y / 2.0 + HEALTH_BAR_GAP + HEALTH_BAR_HEIGHT / 2.0;
+    let mut entity_commands = commands.spawn((
         Enemy {
             enemy_type,
             health: scaled_health,
@@ -562,13 +680,50 @@ fn spawn_night_enemies(
             ability_cooldown_timer: 0.0,
         },
         Sprite {
-            image: texture,
+            image: walk_atlas_image.clone().unwrap_or(texture),
+            texture_atlas: walk_atlas_layout
+                .clone()
+                .map(|layout| TextureAtlas { layout, index: 0 }),
             color: tint,
             custom_size: Some(size),
             ..default()
         },
         Transform::from_xyz(spawn_pos.x, spawn_pos.y, 5.0),
     ));
+
+    if !walk_frames.is_empty() {
+        let kind = match enemy_type {
+            EnemyType::FeralWolf | EnemyType::AlphaWolf => SpriteAnimationKind::WolfWalk,
+            EnemyType::CaveSpider | EnemyType::VenomScorpion => SpriteAnimationKind::SpiderWalk,
+            EnemyType::ShadowCrawler => SpriteAnimationKind::ShadowCrawlerWalk,
+            _ => SpriteAnimationKind::WolfWalk,
+        };
+        entity_commands.insert(SpriteAnimation::new(kind, walk_frames, 0.15, true));
+    }
+
+    // Health bar as child entity (auto-follows parent)
+    entity_commands.with_children(|parent| {
+        // Background bar (dark gray)
+        parent.spawn((
+            EnemyHealthBarBg,
+            Sprite {
+                color: Color::srgba(0.2, 0.2, 0.2, 0.0),
+                custom_size: Some(Vec2::new(HEALTH_BAR_WIDTH, HEALTH_BAR_HEIGHT)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, bar_y, 0.1),
+        ));
+        // Foreground fill
+        parent.spawn((
+            EnemyHealthBarFill,
+            Sprite {
+                color: Color::srgba(0.1, 0.8, 0.1, 0.0),
+                custom_size: Some(Vec2::new(HEALTH_BAR_WIDTH, HEALTH_BAR_HEIGHT)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, bar_y, 0.2),
+        ));
+    });
 }
 
 fn despawn_enemies_at_sunrise(
@@ -756,9 +911,9 @@ fn player_attack(
     mut enemy_query: Query<(Entity, &Transform, &mut Enemy, &mut Sprite, Option<&Boss>), (Without<Player>, Without<Invulnerable>)>,
     mut cooldown_query: Query<&mut PlayerAttackCooldown>,
     mut inventory: ResMut<Inventory>,
+    spatial_grid: Res<SpatialGrid>,
     mut rp_events: EventWriter<ResearchPointEvent>,
-    mut screen_shake: ResMut<ScreenShake>,
-    mut hit_stop: ResMut<HitStop>,
+    mut effects: ResMut<CameraEffects>,
     mut death_stats: ResMut<DeathStats>,
     mut particle_events: EventWriter<SpawnParticlesEvent>,
     mut sound_events: EventWriter<SoundEvent>,
@@ -795,16 +950,16 @@ fn player_attack(
         }
         // Find nearest enemy for aim direction, or shoot right
         let mut aim_dir = Vec2::X;
-        let mut nearest_dist = f32::MAX;
-        for (_, tf, _, _, _) in enemy_query.iter() {
-            let dist = player_pos.distance(tf.translation.truncate());
-            if dist < nearest_dist && dist <= 300.0 {
-                nearest_dist = dist;
-                aim_dir = (tf.translation.truncate() - player_pos).normalize_or_zero();
+        let mut nearest_dist_sq = f32::MAX;
+        for (_enemy_entity, enemy_pos) in spatial_grid.query_enemies_in_radius(player_pos, 300.0) {
+            let dist_sq = player_pos.distance_squared(enemy_pos);
+            if dist_sq < nearest_dist_sq {
+                nearest_dist_sq = dist_sq;
+                aim_dir = (enemy_pos - player_pos).normalize_or_zero();
             }
         }
         if aim_dir == Vec2::ZERO {
-            aim_dir = Vec2::X;
+            aim_dir = Vec2::X; // no nearby enemies found
         }
 
         inventory.remove_items(ItemType::Arrow, 1);
@@ -845,16 +1000,17 @@ fn player_attack(
 
     // Find nearest enemy within 40px
     let mut nearest: Option<(Entity, f32)> = None;
-    for (entity, tf, _, _, _) in enemy_query.iter() {
-        let dist = player_pos.distance(tf.translation.truncate());
-        if dist <= 40.0 {
-            if nearest.is_none() || dist < nearest.unwrap().1 {
-                nearest = Some((entity, dist));
-            }
+    for (entity, enemy_pos) in spatial_grid.query_enemies_in_radius(player_pos, 40.0) {
+        let dist = player_pos.distance(enemy_pos);
+        if nearest.is_none() || dist < nearest.unwrap().1 {
+            nearest = Some((entity, dist));
         }
     }
 
     let Some((target_entity, _)) = nearest else { return };
+
+    // Attack lunge: briefly scale player sprite up by 10%
+    commands.entity(player_entity).insert(AttackLunge { timer: 0.05 });
 
     // Deal damage
     let mut killed = false;
@@ -873,16 +1029,16 @@ fn player_attack(
         let is_boss = maybe_boss.is_some();
         let ratio = (damage / enemy.max_health).clamp(0.0, 1.0);
         if ratio >= 0.6 {
-            screen_shake.timer = 0.16;
-            screen_shake.intensity = if is_boss { 7.5 } else { 4.5 };
-            hit_stop.timer = hit_stop.timer.max(0.07);
+            effects.shake.timer = 0.16;
+            effects.shake.intensity = if is_boss { 7.5 } else { 4.5 };
+            effects.hit_stop.timer = effects.hit_stop.timer.max(0.07);
         } else if ratio >= 0.3 {
-            screen_shake.timer = 0.12;
-            screen_shake.intensity = if is_boss { 6.0 } else { 3.5 };
-            hit_stop.timer = hit_stop.timer.max(0.045);
+            effects.shake.timer = 0.12;
+            effects.shake.intensity = if is_boss { 6.0 } else { 3.5 };
+            effects.hit_stop.timer = effects.hit_stop.timer.max(0.045);
         } else {
-            screen_shake.timer = 0.08;
-            screen_shake.intensity = if is_boss { 4.0 } else { 2.0 };
+            effects.shake.timer = 0.08;
+            effects.shake.intensity = if is_boss { 4.0 } else { 2.0 };
         }
 
         // Knockback: push enemy away from player
@@ -930,7 +1086,7 @@ fn player_attack(
         // US-028: Floating damage number at enemy position (tiered visuals)
         let (text, color) = damage_text_style(damage, enemy.max_health);
         floating_text_events.send(FloatingTextRequest {
-            text: text.clone(),
+            text,
             position: enemy_tf.translation.truncate(),
             color,
         });
@@ -944,7 +1100,14 @@ fn player_attack(
                 color: Color::srgb(0.95, 0.3, 0.2),
                 count: 8,
             });
-            hit_stop.timer = hit_stop.timer.max(if maybe_boss.is_some() { 0.12 } else { 0.06 });
+            // Death particles in enemy's own color
+            let (_, _, _, _, enemy_color, _) = enemy.enemy_type.stats();
+            particle_events.send(SpawnParticlesEvent {
+                position: pos,
+                color: enemy_color,
+                count: 8,
+            });
+            effects.hit_stop.timer = effects.hit_stop.timer.max(if maybe_boss.is_some() { 0.12 } else { 0.06 });
         }
     }
 
@@ -993,39 +1156,47 @@ fn player_attack(
 fn enemy_attack_player(
     time: Res<Time>,
     armor: Res<ArmorSlots>,
+    spatial_grid: Res<SpatialGrid>,
     mut enemy_query: Query<(&mut Enemy, &Transform, Option<&mut Boss>), Without<Player>>,
     mut player_query: Query<(&Transform, &mut Health, &mut Sprite, Option<&Dodging>, Option<&Blocking>, Option<&crate::death::RespawnInvulnerability>), With<Player>>,
     mut commands: Commands,
     player_entity_query: Query<Entity, With<Player>>,
     mut floating_text_events: EventWriter<FloatingTextRequest>,
-    mut screen_shake: ResMut<ScreenShake>,
+    mut effects: ResMut<CameraEffects>,
     mut status_events: EventWriter<ApplyStatusEvent>,
     mut death_stats: ResMut<DeathStats>,
 ) {
-    let Ok((player_tf, mut health, mut sprite, maybe_dodging, maybe_blocking, maybe_invuln)) = player_query.get_single_mut() else { return };
+    let Ok((player_tf, mut health, _sprite, maybe_dodging, maybe_blocking, maybe_invuln)) = player_query.get_single_mut() else { return };
     let player_pos = player_tf.translation.truncate();
     let total_armor = armor.total_armor();
 
     // 2B: Dodge invulnerability — skip all damage
     if maybe_dodging.is_some() {
         // Still need to tick enemy cooldowns
-        for (mut enemy, _, _) in enemy_query.iter_mut() {
-            enemy.attack_cooldown.tick(time.delta());
+        for (enemy_entity, _) in spatial_grid.query_enemies_in_radius(player_pos, 24.0) {
+            if let Ok((mut enemy, _, _)) = enemy_query.get_mut(enemy_entity) {
+                enemy.attack_cooldown.tick(time.delta());
+            }
         }
         return;
     }
 
     // Wave 7C: Respawn invulnerability — skip all damage
     if maybe_invuln.is_some() {
-        for (mut enemy, _, _) in enemy_query.iter_mut() {
-            enemy.attack_cooldown.tick(time.delta());
+        for (enemy_entity, _) in spatial_grid.query_enemies_in_radius(player_pos, 24.0) {
+            if let Ok((mut enemy, _, _)) = enemy_query.get_mut(enemy_entity) {
+                enemy.attack_cooldown.tick(time.delta());
+            }
         }
         return;
     }
 
     let mut took_damage = false;
 
-    for (mut enemy, tf, mut maybe_boss) in enemy_query.iter_mut() {
+    for (enemy_entity, _) in spatial_grid.query_enemies_in_radius(player_pos, 24.0) {
+        let Ok((mut enemy, tf, mut maybe_boss)) = enemy_query.get_mut(enemy_entity) else {
+            continue;
+        };
         if enemy.state != EnemyState::Chase && enemy.state != EnemyState::Attack {
             continue;
         }
@@ -1067,7 +1238,7 @@ fn enemy_attack_player(
             }
 
             if let Some(ref mut boss) = maybe_boss {
-                if !boss.phase_2 && health.current <= health.max * 0.5 {
+                if !boss.phase_2 && enemy.health <= enemy.max_health * 0.5 {
                     boss.phase_2 = true;
                 }
             }
@@ -1090,24 +1261,19 @@ fn enemy_attack_player(
             // US-028: Floating damage number at player position (tiered by HP)
             let (text, color) = damage_text_style(final_damage, health.max);
             floating_text_events.send(FloatingTextRequest {
-                text: text.clone(),
+                text,
                 position: player_pos,
                 color,
             });
         }
     }
 
-    // Player hit reaction: screen shake + red flash
+    // Player hit reaction: screen shake + red damage flash
     if took_damage {
-        screen_shake.timer = 0.12;
-        screen_shake.intensity = 2.5;
-        let original_color = sprite.color;
-        sprite.color = Color::srgb(1.0, 0.2, 0.2);
+        effects.shake.timer = 0.12;
+        effects.shake.intensity = 2.5;
         if let Ok(entity) = player_entity_query.get_single() {
-            commands.entity(entity).insert(HitFlash {
-                timer: Timer::from_seconds(0.08, TimerMode::Once),
-                original_color,
-            });
+            commands.entity(entity).insert(DamageFlash { timer: 0.15 });
         }
     }
 }
@@ -1130,13 +1296,14 @@ fn update_hit_flash(
 /// entries from its loot table to the player inventory then despawn it.
 fn boss_death_loot(
     mut commands: Commands,
-    boss_query: Query<(Entity, &Enemy, &Boss)>,
+    boss_query: Query<(Entity, &Transform, &Enemy, &Boss)>,
     mut inventory: ResMut<Inventory>,
     mut rp_events: EventWriter<ResearchPointEvent>,
     mut death_stats: ResMut<DeathStats>,
     mut sound_events: EventWriter<SoundEvent>,
+    mut particle_events: EventWriter<SpawnParticlesEvent>,
 ) {
-    for (entity, enemy, boss) in boss_query.iter() {
+    for (entity, tf, enemy, boss) in boss_query.iter() {
         if enemy.health <= 0.0 {
             // Grant all loot
             for (item, count) in &boss.loot_table {
@@ -1148,6 +1315,19 @@ fn boss_death_loot(
             death_stats.total_kills += 1;
             // Sound: boss death
             sound_events.send(SoundEvent::Death);
+            // Death particles in boss color
+            let pos = tf.translation.truncate();
+            let (_, _, _, _, enemy_color, _) = enemy.enemy_type.stats();
+            particle_events.send(SpawnParticlesEvent {
+                position: pos,
+                color: enemy_color,
+                count: 10,
+            });
+            particle_events.send(SpawnParticlesEvent {
+                position: pos,
+                color: Color::srgb(0.95, 0.3, 0.2),
+                count: 8,
+            });
             commands.entity(entity).despawn();
         }
     }
@@ -1157,9 +1337,9 @@ fn projectile_movement(
     mut commands: Commands,
     time: Res<Time>,
     mut query: Query<(Entity, &mut Projectile, &mut Transform)>,
-    hit_stop: Res<HitStop>,
+    effects: Res<CameraEffects>,
 ) {
-    if hit_stop.timer > 0.0 {
+    if effects.hit_stop.timer > 0.0 {
         return;
     }
     for (entity, mut proj, mut tf) in query.iter_mut() {
@@ -1177,97 +1357,127 @@ fn projectile_hit(
     proj_query: Query<(Entity, &Transform, &Projectile)>,
     mut enemy_query: Query<(Entity, &Transform, &mut Enemy, &mut Sprite, Option<&Boss>), Without<Invulnerable>>,
     mut inventory: ResMut<Inventory>,
+    spatial_grid: Res<SpatialGrid>,
     mut rp_events: EventWriter<ResearchPointEvent>,
     mut death_stats: ResMut<DeathStats>,
-    mut screen_shake: ResMut<ScreenShake>,
-    mut hit_stop: ResMut<HitStop>,
+    mut effects: ResMut<CameraEffects>,
     mut particle_events: EventWriter<SpawnParticlesEvent>,
     mut sound_events: EventWriter<SoundEvent>,
     mut floating_text_events: EventWriter<FloatingTextRequest>,
 ) {
     for (proj_entity, proj_tf, proj) in proj_query.iter() {
         let proj_pos = proj_tf.translation.truncate();
-        for (enemy_entity, enemy_tf, mut enemy, mut sprite, maybe_boss) in enemy_query.iter_mut() {
-            let dist = proj_pos.distance(enemy_tf.translation.truncate());
-            if dist <= 15.0 {
-                enemy.health -= proj.damage;
+        let mut candidates = spatial_grid.query_enemies_in_radius(proj_pos, 15.0);
+        if candidates.is_empty() {
+            continue;
+        }
 
-                let pos = enemy_tf.translation.truncate();
+        // Prefer the closest enemy candidate.
+        candidates.sort_by(|a, b| {
+            let da = a.1.distance_squared(proj_pos);
+            let db = b.1.distance_squared(proj_pos);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        for (enemy_entity, _enemy_pos) in candidates {
+            // `enemy_query` excludes invulnerable enemies; if the candidate is
+            // invulnerable, skip it.
+            let Ok((_, enemy_tf, mut enemy, mut sprite, maybe_boss)) =
+                enemy_query.get_mut(enemy_entity)
+            else {
+                continue;
+            };
+
+            let dist = proj_pos.distance(enemy_tf.translation.truncate());
+            if dist > 15.0 {
+                continue;
+            }
+
+            enemy.health -= proj.damage;
+
+            let pos = enemy_tf.translation.truncate();
+            particle_events.send(SpawnParticlesEvent {
+                position: pos,
+                color: Color::srgb(0.9, 0.15, 0.15),
+                count: 6,
+            });
+
+            // Flash
+            let original_color = sprite.color;
+            sprite.color = Color::WHITE;
+            commands.entity(enemy_entity).insert(HitFlash {
+                timer: Timer::from_seconds(0.08, TimerMode::Once),
+                original_color,
+            });
+
+            // Screen shake + hit-stop on projectile hit
+            let is_boss = maybe_boss.is_some();
+            let ratio = (proj.damage / enemy.max_health).clamp(0.0, 1.0);
+            if ratio >= 0.6 {
+                effects.shake.timer = 0.16;
+                effects.shake.intensity = if is_boss { 7.0 } else { 4.0 };
+                effects.hit_stop.timer = effects.hit_stop.timer.max(0.07);
+            } else if ratio >= 0.3 {
+                effects.shake.timer = 0.13;
+                effects.shake.intensity = if is_boss { 5.5 } else { 3.0 };
+                effects.hit_stop.timer = effects.hit_stop.timer.max(0.04);
+            } else {
+                effects.shake.timer = 0.10;
+                effects.shake.intensity = if is_boss { 3.5 } else { 1.8 };
+            }
+
+            // Knockback from projectile direction
+            let knockback_dir = proj.velocity.normalize_or_zero();
+            commands.entity(enemy_entity).insert(Knockback {
+                direction: knockback_dir,
+                timer: 0.1,
+            });
+
+            // Sound: ranged hit
+            sound_events.send(SoundEvent::Hit);
+
+            // US-028: Floating damage number at enemy position (tiered)
+            let (text, color) = damage_text_style(proj.damage, enemy.max_health);
+            floating_text_events.send(FloatingTextRequest {
+                text,
+                position: enemy_tf.translation.truncate(),
+                color,
+            });
+
+            commands.entity(proj_entity).despawn();
+            if enemy.health <= 0.0 {
                 particle_events.send(SpawnParticlesEvent {
                     position: pos,
-                    color: Color::srgb(0.9, 0.15, 0.15),
-                    count: 6,
+                    color: Color::srgb(0.95, 0.3, 0.2),
+                    count: 8,
                 });
-
-                // Flash
-                let original_color = sprite.color;
-                sprite.color = Color::WHITE;
-                commands.entity(enemy_entity).insert(HitFlash {
-                    timer: Timer::from_seconds(0.08, TimerMode::Once),
-                    original_color,
+                // Death particles in enemy's own color
+                let (_, _, _, _, enemy_color, _) = enemy.enemy_type.stats();
+                particle_events.send(SpawnParticlesEvent {
+                    position: pos,
+                    color: enemy_color,
+                    count: 8,
                 });
-
-                // Screen shake + hit-stop on projectile hit
-                let is_boss = maybe_boss.is_some();
-                let ratio = (proj.damage / enemy.max_health).clamp(0.0, 1.0);
-                if ratio >= 0.6 {
-                    screen_shake.timer = 0.16;
-                    screen_shake.intensity = if is_boss { 7.0 } else { 4.0 };
-                    hit_stop.timer = hit_stop.timer.max(0.07);
-                } else if ratio >= 0.3 {
-                    screen_shake.timer = 0.13;
-                    screen_shake.intensity = if is_boss { 5.5 } else { 3.0 };
-                    hit_stop.timer = hit_stop.timer.max(0.04);
-                } else {
-                    screen_shake.timer = 0.10;
-                    screen_shake.intensity = if is_boss { 3.5 } else { 1.8 };
-                }
-
-                // Knockback from projectile direction
-                let knockback_dir = proj.velocity.normalize_or_zero();
-                commands.entity(enemy_entity).insert(Knockback {
-                    direction: knockback_dir,
-                    timer: 0.1,
-                });
-
-                // Sound: ranged hit
-                sound_events.send(SoundEvent::Hit);
-
-                // US-028: Floating damage number at enemy position (tiered)
-                let (text, color) = damage_text_style(proj.damage, enemy.max_health);
-                floating_text_events.send(FloatingTextRequest {
-                    text: text.clone(),
-                    position: enemy_tf.translation.truncate(),
-                    color,
-                });
-
-                commands.entity(proj_entity).despawn();
-                if enemy.health <= 0.0 {
-                    particle_events.send(SpawnParticlesEvent {
-                        position: pos,
-                        color: Color::srgb(0.95, 0.3, 0.2),
-                        count: 8,
-                    });
-                    hit_stop.timer = hit_stop.timer.max(if maybe_boss.is_some() { 0.12 } else { 0.06 });
-                    let (drop_item, drop_count) = loot_for_enemy(enemy.enemy_type);
-                    inventory.add_item(drop_item, drop_count);
-                    // US-036: Cave spiders have a 30% chance to drop a bonus item
-                    if enemy.enemy_type == EnemyType::CaveSpider {
-                        let mut rng = rand::thread_rng();
-                        let enemy_pos = enemy_tf.translation.truncate();
-                        if let Some((bonus_item, bonus_count)) = cave_spider_random_drop(&mut rng) {
-                            spawn_dropped_item(&mut commands, enemy_pos, bonus_item, bonus_count, &mut rng);
-                        }
+                effects.hit_stop.timer = effects.hit_stop.timer.max(if maybe_boss.is_some() { 0.12 } else { 0.06 });
+                let (drop_item, drop_count) = loot_for_enemy(enemy.enemy_type);
+                inventory.add_item(drop_item, drop_count);
+                // US-036: Cave spiders have a 30% chance to drop a bonus item
+                if enemy.enemy_type == EnemyType::CaveSpider {
+                    let mut rng = rand::thread_rng();
+                    let enemy_pos = enemy_tf.translation.truncate();
+                    if let Some((bonus_item, bonus_count)) = cave_spider_random_drop(&mut rng) {
+                        spawn_dropped_item(&mut commands, enemy_pos, bonus_item, bonus_count, &mut rng);
                     }
-                    rp_events.send(ResearchPointEvent { amount: 5 });
-                    // Track kill in death stats
-                    death_stats.total_kills += 1;
-                    // Sound: death
-                    sound_events.send(SoundEvent::Death);
-                    commands.entity(enemy_entity).despawn();
                 }
-                break;
+                rp_events.send(ResearchPointEvent { amount: 5 });
+                // Track kill in death stats
+                death_stats.total_kills += 1;
+                // Sound: death
+                sound_events.send(SoundEvent::Death);
+                commands.entity(enemy_entity).despawn();
             }
+
+            break; // projectile despawned; no more hits.
         }
     }
 }
@@ -1276,9 +1486,9 @@ fn knockback_system(
     mut commands: Commands,
     time: Res<Time>,
     mut query: Query<(Entity, &mut Knockback, &mut Transform)>,
-    hit_stop: Res<HitStop>,
+    effects: Res<CameraEffects>,
 ) {
-    if hit_stop.timer > 0.0 {
+    if effects.hit_stop.timer > 0.0 {
         return;
     }
     for (entity, mut kb, mut tf) in query.iter_mut() {
@@ -1293,80 +1503,37 @@ fn knockback_system(
 }
 
 fn update_enemy_health_bars(
-    mut commands: Commands,
-    enemy_query: Query<(Entity, &Transform, &Enemy), Without<EnemyHealthBar>>,
-    mut bar_query: Query<(Entity, &EnemyHealthBar, &mut Transform, &mut Sprite)>,
+    enemy_query: Query<(&Enemy, &Children)>,
+    mut fill_query: Query<(&mut Sprite, &mut Transform), With<EnemyHealthBarFill>>,
+    mut bg_query: Query<&mut Sprite, (With<EnemyHealthBarBg>, Without<EnemyHealthBarFill>)>,
 ) {
-    // Update existing bars: reposition to follow their parent enemy
-    let mut seen_parents = HashSet::new();
-    let mut bars_to_despawn = Vec::new();
+    for (enemy, children) in enemy_query.iter() {
+        let ratio = (enemy.health / enemy.max_health).clamp(0.0, 1.0);
+        // Hide bars when at full HP or dead
+        let visible = ratio < 1.0 && enemy.health > 0.0;
 
-    for (bar_entity, bar, mut bar_tf, mut bar_sprite) in bar_query.iter_mut() {
-        // Find the parent enemy
-        let mut found = false;
-        for (enemy_entity, enemy_tf, enemy) in enemy_query.iter() {
-            if enemy_entity == bar.parent_enemy {
-                found = true;
-                seen_parents.insert(enemy_entity);
-                if enemy.health >= enemy.max_health || enemy.health <= 0.0 {
-                    bars_to_despawn.push(bar_entity);
+        for &child in children.iter() {
+            // Update background bar: toggle visibility via alpha
+            if let Ok(mut bg_sprite) = bg_query.get_mut(child) {
+                if visible {
+                    bg_sprite.color = Color::srgba(0.2, 0.2, 0.2, 1.0);
                 } else {
-                    let ratio = (enemy.health / enemy.max_health).clamp(0.0, 1.0);
-                    if bar.is_fill {
-                        let fill_width = 16.0 * ratio;
-                        let fill_offset = (16.0 - fill_width) / 2.0;
-                        bar_sprite.custom_size = Some(Vec2::new(fill_width, 2.0));
-                        bar_tf.translation.x = enemy_tf.translation.x - fill_offset;
-                        bar_tf.translation.y = enemy_tf.translation.y + 12.0;
-                    } else {
-                        bar_tf.translation.x = enemy_tf.translation.x;
-                        bar_tf.translation.y = enemy_tf.translation.y + 12.0;
-                    }
+                    bg_sprite.color = Color::srgba(0.2, 0.2, 0.2, 0.0);
                 }
-                break;
+            }
+            // Update fill bar: width, color, offset, and visibility via alpha
+            if let Ok((mut sprite, mut tf)) = fill_query.get_mut(child) {
+                if visible {
+                    let fill_width = HEALTH_BAR_WIDTH * ratio;
+                    sprite.custom_size = Some(Vec2::new(fill_width, HEALTH_BAR_HEIGHT));
+                    sprite.color = health_bar_color(ratio);
+                    // Shift fill left so it drains from right to left
+                    tf.translation.x = -(HEALTH_BAR_WIDTH - fill_width) / 2.0;
+                } else {
+                    sprite.color = Color::srgba(0.0, 0.0, 0.0, 0.0);
+                }
             }
         }
-        if !found {
-            bars_to_despawn.push(bar_entity);
-        }
-    }
-
-    for entity in bars_to_despawn {
-        commands.entity(entity).despawn();
-    }
-
-    // Spawn bars for newly damaged enemies that don't have bars yet
-    for (enemy_entity, enemy_tf, enemy) in enemy_query.iter() {
-        if enemy.health >= enemy.max_health || enemy.health <= 0.0 || seen_parents.contains(&enemy_entity) {
-            continue;
-        }
-
-        let ratio = (enemy.health / enemy.max_health).clamp(0.0, 1.0);
-        let bar_y = enemy_tf.translation.y + 12.0;
-
-        // Background (red)
-        commands.spawn((
-            EnemyHealthBar { parent_enemy: enemy_entity, is_fill: false },
-            Sprite {
-                color: Color::srgb(0.6, 0.1, 0.1),
-                custom_size: Some(Vec2::new(16.0, 2.0)),
-                ..default()
-            },
-            Transform::from_xyz(enemy_tf.translation.x, bar_y, 9.0),
-        ));
-
-        // Fill (green)
-        let fill_width = 16.0 * ratio;
-        let fill_offset = (16.0 - fill_width) / 2.0;
-        commands.spawn((
-            EnemyHealthBar { parent_enemy: enemy_entity, is_fill: true },
-            Sprite {
-                color: Color::srgb(0.1, 0.7, 0.1),
-                custom_size: Some(Vec2::new(fill_width, 2.0)),
-                ..default()
-            },
-            Transform::from_xyz(enemy_tf.translation.x - fill_offset, bar_y, 9.1),
-        ));
     }
 }
 
@@ -1451,18 +1618,19 @@ fn dodge_roll_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut dodge_cd: ResMut<DodgeCooldown>,
     player_query: Query<(Entity, Option<&Dodging>), With<Player>>,
+    game_settings: Res<crate::settings::GameSettings>,
 ) {
     let Ok((player_entity, maybe_dodging)) = player_query.get_single() else { return };
     if maybe_dodging.is_some() { return; }
     if dodge_cd.timer > 0.0 { return; }
-    if !keyboard.just_pressed(KeyCode::Space) { return; }
+    if !keyboard.just_pressed(game_settings.keybinds.dodge) { return; }
 
     // Determine dodge direction from WASD
     let mut dir = Vec2::ZERO;
-    if keyboard.pressed(KeyCode::KeyW) { dir.y += 1.0; }
-    if keyboard.pressed(KeyCode::KeyS) { dir.y -= 1.0; }
-    if keyboard.pressed(KeyCode::KeyA) { dir.x -= 1.0; }
-    if keyboard.pressed(KeyCode::KeyD) { dir.x += 1.0; }
+    if keyboard.pressed(game_settings.keybinds.move_up) { dir.y += 1.0; }
+    if keyboard.pressed(game_settings.keybinds.move_down) { dir.y -= 1.0; }
+    if keyboard.pressed(game_settings.keybinds.move_left) { dir.x -= 1.0; }
+    if keyboard.pressed(game_settings.keybinds.move_right) { dir.x += 1.0; }
     if dir == Vec2::ZERO { dir = Vec2::X; } // Default right
     dir = dir.normalize_or_zero();
 
@@ -1563,8 +1731,9 @@ fn combo_tracker(
         combo.timer = 1.5;
 
         if combo.count >= 3 {
+            // Static string — combo always resets at 3 so this is always "x3 COMBO!"
             floating_text_events.send(FloatingTextRequest {
-                text: format!("x{} COMBO!", combo.count),
+                text: "x3 COMBO!".to_string(),
                 position: ev.enemy_pos + Vec2::new(0.0, 15.0),
                 color: Color::srgb(1.0, 0.85, 0.2),
             });
@@ -1590,6 +1759,7 @@ fn weapon_specials(
     mut player_health: Query<(&mut Health, &mut Hunger), (With<Player>, Without<Enemy>)>,
     mut floating_text_events: EventWriter<FloatingTextRequest>,
     mut particle_events: EventWriter<SpawnParticlesEvent>,
+    spatial_grid: Res<SpatialGrid>,
 ) {
     for ev in events.read() {
         match ev.weapon {
@@ -1599,9 +1769,11 @@ fn weapon_specials(
                     specials.flame_hits = 0;
                     // Fire burst AoE: damage all enemies within 40px
                     let burst_dmg = ev.damage * 0.5;
-                    for (mut enemy, etf) in enemy_query.iter_mut() {
-                        if etf.translation.truncate().distance(ev.enemy_pos) < 40.0 {
-                            enemy.health -= burst_dmg;
+                    for (enemy_entity, _pos) in spatial_grid.query_enemies_in_radius(ev.enemy_pos, 40.0) {
+                        if let Ok((mut enemy, etf)) = enemy_query.get_mut(enemy_entity) {
+                            if etf.translation.truncate().distance(ev.enemy_pos) < 40.0 {
+                                enemy.health -= burst_dmg;
+                            }
                         }
                     }
                     particle_events.send(SpawnParticlesEvent {
@@ -1813,7 +1985,7 @@ fn enemy_projectile_hit_player(
     mut player_query: Query<(&Transform, &mut Health, Option<&crate::death::RespawnInvulnerability>), With<Player>>,
     mut floating_text_events: EventWriter<FloatingTextRequest>,
     mut status_events: EventWriter<ApplyStatusEvent>,
-    mut screen_shake: ResMut<ScreenShake>,
+    mut effects: ResMut<CameraEffects>,
     player_entity_query: Query<Entity, With<Player>>,
     mut death_stats: ResMut<DeathStats>,
 ) {
@@ -1834,14 +2006,17 @@ fn enemy_projectile_hit_player(
                 death_stats.last_damage_source = "Enemy Projectile".to_string();
             }
 
+            // Red damage flash on player
+            commands.entity(player_entity).insert(DamageFlash { timer: 0.15 });
+
             floating_text_events.send(FloatingTextRequest {
-                text: format!("-{:.0}", proj.damage),
+                text: fast_damage_string(proj.damage, ""),
                 position: player_pos + Vec2::new(0.0, 12.0),
                 color: Color::srgb(1.0, 0.3, 0.3),
             });
 
-            screen_shake.timer = 0.1;
-            screen_shake.intensity = 2.0;
+            effects.shake.timer = 0.1;
+            effects.shake.intensity = 2.0;
 
             // IceWraith frost bolt applies Freeze (detect by projectile color heuristic:
             // frost bolts are bluish). We check damage == 7 as an identifier.
@@ -1864,8 +2039,9 @@ fn update_ice_spike_aoe(
     time: Res<Time>,
     mut aoe_query: Query<(Entity, &mut IceSpikeAoE, &mut Sprite)>,
     mut player_query: Query<(&Transform, &mut Health), With<Player>>,
+    player_entity_query: Query<Entity, With<Player>>,
     mut floating_text_events: EventWriter<FloatingTextRequest>,
-    mut screen_shake: ResMut<ScreenShake>,
+    mut effects: ResMut<CameraEffects>,
 ) {
     let dt = time.delta_secs();
     let Ok((player_tf, mut health)) = player_query.get_single_mut() else { return };
@@ -1883,13 +2059,17 @@ fn update_ice_spike_aoe(
             let dist = player_pos.distance(aoe.position);
             if dist <= aoe.radius {
                 health.current = (health.current - aoe.damage).max(0.0);
+                // Red damage flash on player
+                if let Ok(pe) = player_entity_query.get_single() {
+                    commands.entity(pe).insert(DamageFlash { timer: 0.15 });
+                }
                 floating_text_events.send(FloatingTextRequest {
-                    text: format!("-{:.0} ICE!", aoe.damage),
+                    text: fast_damage_string(aoe.damage, " ICE!"),
                     position: player_pos + Vec2::new(0.0, 12.0),
                     color: Color::srgb(0.5, 0.7, 1.0),
                 });
-                screen_shake.timer = 0.12;
-                screen_shake.intensity = 3.0;
+                effects.shake.timer = 0.12;
+                effects.shake.intensity = 3.0;
             }
             commands.entity(entity).despawn();
         }
@@ -1926,7 +2106,7 @@ fn update_burn_zones(
             // Throttle floating text to ~once per second
             if (zone.lifetime * 4.0).fract() < dt * 4.0 {
                 floating_text_events.send(FloatingTextRequest {
-                    text: format!("-{:.0} BURN", damage.ceil()),
+                    text: fast_damage_string(damage.ceil(), " BURN"),
                     position: player_pos + Vec2::new(0.0, 12.0),
                     color: Color::srgb(1.0, 0.4, 0.1),
                 });
@@ -1941,8 +2121,9 @@ fn update_dive_bombs(
     time: Res<Time>,
     mut bomb_query: Query<(Entity, &mut DiveBomb, &mut Sprite)>,
     mut player_query: Query<(&Transform, &mut Health), With<Player>>,
+    player_entity_query: Query<Entity, With<Player>>,
     mut floating_text_events: EventWriter<FloatingTextRequest>,
-    mut screen_shake: ResMut<ScreenShake>,
+    mut effects: ResMut<CameraEffects>,
 ) {
     let dt = time.delta_secs();
     let Ok((player_tf, mut health)) = player_query.get_single_mut() else { return };
@@ -1961,13 +2142,17 @@ fn update_dive_bombs(
                 let dist = player_pos.distance(bomb.target_pos);
                 if dist <= 16.0 {
                     health.current = (health.current - bomb.damage).max(0.0);
+                    // Red damage flash on player
+                    if let Ok(pe) = player_entity_query.get_single() {
+                        commands.entity(pe).insert(DamageFlash { timer: 0.15 });
+                    }
                     floating_text_events.send(FloatingTextRequest {
-                        text: format!("-{:.0} DIVE!", bomb.damage),
+                        text: fast_damage_string(bomb.damage, " DIVE!"),
                         position: player_pos + Vec2::new(0.0, 12.0),
                         color: Color::srgb(0.6, 0.2, 0.8),
                     });
-                    screen_shake.timer = 0.15;
-                    screen_shake.intensity = 4.0;
+                    effects.shake.timer = 0.15;
+                    effects.shake.intensity = 4.0;
                 }
                 // Flash white briefly
                 sprite.color = Color::srgba(1.0, 1.0, 1.0, 0.8);
