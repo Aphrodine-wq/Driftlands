@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use crate::hud::not_paused;
 use crate::player::{Health, Player};
+use crate::combat::Enemy;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -185,6 +186,39 @@ fn tick_status_effects(
     }
 }
 
+/// Ticks status effects on enemies. Enemies store health in `Enemy.health`
+/// (not the `Health` component), so they need their own tick system.
+fn tick_enemy_status_effects(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut ActiveStatusEffects, &mut Enemy)>,
+) {
+    let dt = time.delta_secs();
+
+    for (entity, mut active, mut enemy) in &mut query {
+        for inst in active.effects.iter_mut() {
+            inst.remaining_secs -= dt;
+            inst.tick_timer -= dt;
+
+            if inst.tick_timer <= 0.0 {
+                if let Some(dmg) = inst.effect_type.tick_damage(inst.stacks) {
+                    if dmg > 0.0 {
+                        enemy.health -= dmg;
+                    }
+                    // Negative dmg = healing; enemies don't regen from status effects
+                }
+                inst.tick_timer += inst.effect_type.tick_interval();
+            }
+        }
+
+        active.effects.retain(|e| e.remaining_secs > 0.0);
+
+        if active.effects.is_empty() {
+            commands.entity(entity).remove::<ActiveStatusEffects>();
+        }
+    }
+}
+
 /// Applies a subtle colour tint to sprites that have active status effects.
 ///
 /// The highest-priority effect determines the tint colour. The sprite colour
@@ -234,7 +268,7 @@ impl Plugin for StatusEffectsPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<ApplyStatusEvent>().add_systems(
             Update,
-            (apply_status_effects, tick_status_effects, status_visual_tint).run_if(not_paused),
+            (apply_status_effects, tick_status_effects, tick_enemy_status_effects, status_visual_tint).run_if(not_paused),
         );
     }
 }
