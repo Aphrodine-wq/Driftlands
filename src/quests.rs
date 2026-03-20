@@ -5,6 +5,7 @@ use crate::combat::ResearchPointEvent;
 use crate::daynight::DayNightCycle;
 use crate::npc::QuestGiver;
 use crate::player::Player;
+use crate::death::DeathStats;
 
 // ---------------------------------------------------------------------------
 // Events
@@ -358,9 +359,10 @@ fn track_quest_progress(
 
 fn toggle_quest_log(
     keyboard: Res<ButtonInput<KeyCode>>,
+    game_settings: Res<crate::settings::GameSettings>,
     mut quest_log: ResMut<QuestLog>,
 ) {
-    if keyboard.just_pressed(KeyCode::KeyJ) {
+    if keyboard.just_pressed(game_settings.keybinds.journal) {
         quest_log.is_open = !quest_log.is_open;
     }
 }
@@ -477,13 +479,14 @@ const DYNAMIC_REWARDS: &[&[(ItemType, u32)]] = &[
 /// if the log isn't full. Uses interaction proximity check.
 fn generate_dynamic_quests(
     keyboard: Res<ButtonInput<KeyCode>>,
+    game_settings: Res<crate::settings::GameSettings>,
     cycle: Res<DayNightCycle>,
     player_query: Query<&Transform, With<Player>>,
     quest_giver_query: Query<&Transform, With<QuestGiver>>,
     mut dynamic_log: ResMut<DynamicQuestLog>,
 ) {
     // Only generate on interaction key
-    if !keyboard.just_pressed(KeyCode::KeyE) {
+    if !keyboard.just_pressed(game_settings.keybinds.interact) {
         return;
     }
 
@@ -610,6 +613,42 @@ fn claim_dynamic_quest_rewards(
 // Plugin
 // ---------------------------------------------------------------------------
 
+/// Tracks previously seen kill/day counts to generate delta-based QuestProgressEvents.
+#[derive(Resource, Default)]
+struct QuestActivityTracker {
+    last_total_kills: u32,
+    last_day_count: u32,
+}
+
+/// Send KillEnemy events based on the delta in DeathStats.total_kills.
+/// This avoids adding an EventWriter to player_attack (already at param limit).
+fn dispatch_kill_quest_events(
+    death_stats: Res<DeathStats>,
+    mut tracker: ResMut<QuestActivityTracker>,
+    mut quest_events: EventWriter<QuestProgressEvent>,
+) {
+    let kills = death_stats.total_kills;
+    if kills > tracker.last_total_kills {
+        let delta = kills - tracker.last_total_kills;
+        quest_events.send(QuestProgressEvent { quest_type: QuestType::KillEnemy, amount: delta });
+        tracker.last_total_kills = kills;
+    }
+}
+
+/// Send SurviveNight events when the in-game day count increases.
+fn dispatch_survive_night_events(
+    cycle: Res<DayNightCycle>,
+    mut tracker: ResMut<QuestActivityTracker>,
+    mut quest_events: EventWriter<QuestProgressEvent>,
+) {
+    let day = cycle.day_count;
+    if day > tracker.last_day_count {
+        let delta = day - tracker.last_day_count;
+        quest_events.send(QuestProgressEvent { quest_type: QuestType::SurviveNight, amount: delta });
+        tracker.last_day_count = day;
+    }
+}
+
 pub struct QuestPlugin;
 
 impl Plugin for QuestPlugin {
@@ -617,9 +656,12 @@ impl Plugin for QuestPlugin {
         app.add_event::<QuestProgressEvent>()
             .insert_resource(QuestLog::new())
             .insert_resource(DynamicQuestLog::default())
+            .insert_resource(QuestActivityTracker::default())
             .add_systems(
                 Update,
                 (
+                    dispatch_kill_quest_events,
+                    dispatch_survive_night_events,
                     track_quest_progress,
                     toggle_quest_log,
                     claim_quest_rewards,

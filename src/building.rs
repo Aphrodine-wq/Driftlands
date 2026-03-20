@@ -6,6 +6,8 @@ use crate::world::chunk::{Chunk, CHUNK_SIZE};
 use crate::crafting::CraftingTier;
 use crate::audio::SoundEvent;
 use crate::particles::SpawnParticlesEvent;
+use crate::animation::{SpriteAnimation, SpriteAnimationKind};
+use crate::quests::{QuestProgressEvent, QuestType};
 
 pub struct BuildingPlugin;
 
@@ -445,20 +447,47 @@ impl BuildingType {
     }
 }
 
-/// Returns the appropriate sprite for a building type, using procedural textures where available.
+/// Returns the appropriate sprite for a building type, using real PNG sprites.
 pub fn building_sprite(bt: BuildingType, assets: &crate::assets::GameAssets) -> Sprite {
     let (texture, use_tint) = match bt {
-        BuildingType::WoodWall | BuildingType::WoodFence => (Some(assets.wood_wall.clone()), false),
+        BuildingType::WoodWall => (Some(assets.wood_wall.clone()), false),
+        BuildingType::WoodFence => (Some(assets.wood_fence.clone()), false),
         BuildingType::WoodFloor => (Some(assets.wood_floor.clone()), false),
         BuildingType::WoodDoor => (Some(assets.wood_door.clone()), false),
-        BuildingType::StoneWall | BuildingType::MetalWall => (Some(assets.stone_wall.clone()), true),
-        BuildingType::StoneDoor | BuildingType::MetalDoor => (Some(assets.wood_door.clone()), true),
+        BuildingType::WoodRoof => (Some(assets.roof_thatch.clone()), false),
+        BuildingType::WoodHalfWall => (Some(assets.wood_half_wall.clone()), false),
+        BuildingType::WoodWallWindow => (Some(assets.wood_wall_window.clone()), false),
+        BuildingType::WoodStairs => (Some(assets.wood_stairs.clone()), false),
+        BuildingType::StoneFloor => (Some(assets.stone_floor.clone()), false),
+        BuildingType::StoneWall => (Some(assets.stone_wall.clone()), false),
+        BuildingType::StoneDoor => (Some(assets.stone_door_building.clone()), false),
+        BuildingType::StoneRoof => (Some(assets.stone_roof.clone()), false),
+        BuildingType::StoneStairs => (Some(assets.stone_stairs.clone()), false),
+        BuildingType::MetalWall => (Some(assets.metal_wall.clone()), false),
+        BuildingType::MetalDoor => (Some(assets.metal_door.clone()), false),
+        BuildingType::BrickWall => (Some(assets.brick_wall.clone()), false),
+        BuildingType::ReinforcedStoneWall => (Some(assets.reinforced_wall.clone()), false),
         BuildingType::Campfire => (Some(assets.campfire.clone()), false),
         BuildingType::Workbench => (Some(assets.workbench.clone()), false),
-        BuildingType::Forge | BuildingType::AdvancedForge => (Some(assets.forge.clone()), true),
+        BuildingType::Forge => (Some(assets.forge.clone()), false),
+        BuildingType::AdvancedForge => (Some(assets.advanced_forge.clone()), false),
+        BuildingType::AncientWorkstation => (Some(assets.ancient_workstation.clone()), false),
         BuildingType::Chest => (Some(assets.chest_building.clone()), false),
         BuildingType::Bed => (Some(assets.bed.clone()), false),
-        _ => (None, false),
+        BuildingType::Ladder => (Some(assets.ladder.clone()), false),
+        BuildingType::EnchantingTable => (Some(assets.enchanting_table.clone()), false),
+        BuildingType::FishSmoker => (Some(assets.fish_smoker.clone()), false),
+        BuildingType::PetHouse => (Some(assets.pet_house.clone()), false),
+        BuildingType::DisplayCase => (Some(assets.display_case.clone()), false),
+        BuildingType::Lantern => (Some(assets.lantern.clone()), false),
+        BuildingType::Bookshelf => (Some(assets.bookshelf.clone()), false),
+        BuildingType::WeaponRack => (Some(assets.weapon_rack.clone()), false),
+        BuildingType::CookingPot => (Some(assets.cooking_pot.clone()), false),
+        BuildingType::RainCollector => (Some(assets.rain_collector.clone()), false),
+        BuildingType::TrophyMount => (Some(assets.trophy_mount.clone()), false),
+        BuildingType::AutoSmelter => (Some(assets.auto_smelter.clone()), false),
+        BuildingType::CropSprinkler => (Some(assets.crop_sprinkler.clone()), false),
+        BuildingType::AlarmBell => (Some(assets.alarm_bell.clone()), false),
     };
 
     let mut sprite = Sprite {
@@ -471,14 +500,26 @@ pub fn building_sprite(bt: BuildingType, assets: &crate::assets::GameAssets) -> 
     } else {
         sprite.color = bt.color();
     }
+
+    // Campfire: use a runtime-built texture atlas if available.
+    if matches!(bt, BuildingType::Campfire) {
+        if let (Some(atlas_image), Some(atlas_layout)) = (
+            assets.campfire_anim_atlas_image.as_ref(),
+            assets.campfire_anim_atlas_layout.as_ref(),
+        ) {
+            sprite.image = atlas_image.clone();
+            sprite.texture_atlas = Some(TextureAtlas { layout: atlas_layout.clone(), index: 0 });
+        }
+    }
     sprite
 }
 
 fn toggle_build_mode(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut building_state: ResMut<BuildingState>,
+    game_settings: Res<crate::settings::GameSettings>,
 ) {
-    if keyboard.just_pressed(KeyCode::KeyB) {
+    if keyboard.just_pressed(game_settings.keybinds.building) {
         building_state.active = !building_state.active;
     }
 }
@@ -575,6 +616,7 @@ fn place_building(
     mut sound_events: EventWriter<SoundEvent>,
     mut particle_events: EventWriter<SpawnParticlesEvent>,
     assets: Res<crate::assets::GameAssets>,
+    mut quest_events: EventWriter<QuestProgressEvent>,
 ) {
     if !building_state.active || !mouse.just_pressed(MouseButton::Right) {
         return;
@@ -598,6 +640,7 @@ fn place_building(
 
     inventory.remove_items(bt.required_item(), 1);
     sound_events.send(SoundEvent::Build);
+    quest_events.send(QuestProgressEvent { quest_type: QuestType::PlaceBuilding, amount: 1 });
 
     // Place success: dust/shimmer particles
     particle_events.send(SpawnParticlesEvent {
@@ -645,6 +688,18 @@ fn place_building(
             ));
         });
     }
+    // Campfire: attach looping fire animation
+    if matches!(bt, BuildingType::Campfire) {
+        let frames = assets.campfire_anim_frames.clone();
+        if !frames.is_empty() {
+            entity_commands.insert(SpriteAnimation::new(
+                SpriteAnimationKind::Campfire,
+                frames,
+                0.12,
+                true,
+            ));
+        }
+    }
     if matches!(bt, BuildingType::Chest) {
         entity_commands.insert(ChestStorage::new());
     }
@@ -665,8 +720,9 @@ fn door_interaction(
     chest_ui: Res<ChestUI>,
     player_query: Query<&Transform, With<Player>>,
     mut door_query: Query<(&Transform, &mut Door, &mut Sprite), Without<Player>>,
+    game_settings: Res<crate::settings::GameSettings>,
 ) {
-    if !keyboard.just_pressed(KeyCode::KeyE) {
+    if !keyboard.just_pressed(game_settings.keybinds.interact) {
         return;
     }
 
@@ -743,8 +799,9 @@ fn stair_ladder_use(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut player_query: Query<(Entity, &Transform, &mut CurrentFloor), With<Player>>,
     stair_query: Query<(&Transform, &StairsOrLadder), Without<Player>>,
+    game_settings: Res<crate::settings::GameSettings>,
 ) {
-    if !keyboard.just_pressed(KeyCode::KeyE) {
+    if !keyboard.just_pressed(game_settings.keybinds.interact) {
         return;
     }
 
@@ -827,10 +884,11 @@ fn chest_interaction(
     player_query: Query<&Transform, With<Player>>,
     chest_query: Query<(Entity, &Transform), With<ChestStorage>>,
     mut chest_ui: ResMut<ChestUI>,
+    game_settings: Res<crate::settings::GameSettings>,
 ) {
     // Close chest UI with E or Escape
     if chest_ui.is_open {
-        if keyboard.just_pressed(KeyCode::KeyE) || keyboard.just_pressed(KeyCode::Escape) {
+        if keyboard.just_pressed(game_settings.keybinds.interact) || keyboard.just_pressed(KeyCode::Escape) {
             chest_ui.is_open = false;
             chest_ui.target_entity = None;
             chest_ui.selected_slot = 0;
@@ -843,7 +901,7 @@ fn chest_interaction(
         return;
     }
 
-    if !keyboard.just_pressed(KeyCode::KeyE) {
+    if !keyboard.just_pressed(game_settings.keybinds.interact) {
         return;
     }
 

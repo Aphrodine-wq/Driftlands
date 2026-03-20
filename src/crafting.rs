@@ -3,6 +3,7 @@ use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
 use crate::techtree::TechTree;
 use crate::building::CraftingStation;
+use crate::quests::{QuestProgressEvent, QuestType};
 use crate::audio::SoundEvent;
 
 pub struct CraftingPlugin;
@@ -1332,6 +1333,7 @@ const STATION_RANGE: f32 = 64.0;
 
 fn handle_crafting_input(
     keyboard: Res<ButtonInput<KeyCode>>,
+    game_settings: Res<crate::settings::GameSettings>,
     mut crafting: ResMut<CraftingSystem>,
     mut inventory: ResMut<Inventory>,
     mut tech_tree: ResMut<TechTree>,
@@ -1339,8 +1341,9 @@ fn handle_crafting_input(
     player_query: Query<&Transform, With<Player>>,
     mut sound_events: EventWriter<SoundEvent>,
     mut particle_events: EventWriter<crate::particles::SpawnParticlesEvent>,
+    mut quest_events: EventWriter<QuestProgressEvent>,
 ) {
-    if keyboard.just_pressed(KeyCode::KeyC) {
+    if keyboard.just_pressed(game_settings.keybinds.crafting) {
         crafting.is_open = !crafting.is_open;
         crafting.selected_recipe = 0;
     }
@@ -1405,6 +1408,7 @@ fn handle_crafting_input(
     if keyboard.just_pressed(KeyCode::Enter) && !focused_locked {
         if crafting.craft(focused_recipe_idx, &mut inventory) {
             sound_events.send(SoundEvent::Craft);
+            quest_events.send(QuestProgressEvent { quest_type: QuestType::CraftItem, amount: 1 });
             if let Ok(player_tf) = player_query.get_single() {
                 particle_events.send(crate::particles::SpawnParticlesEvent {
                     position: player_tf.translation.truncate(),

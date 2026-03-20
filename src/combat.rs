@@ -12,6 +12,7 @@ use crate::npc::Invulnerable;
 use crate::building::{Building, BuildingType, Door};
 use crate::camera::CameraEffects;
 use crate::death::DeathStats;
+use crate::quests::{QuestProgressEvent, QuestType};
 use crate::particles::SpawnParticlesEvent;
 use crate::audio::SoundEvent;
 use crate::hud::FloatingTextRequest;
@@ -1304,6 +1305,7 @@ fn boss_death_loot(
     mut death_stats: ResMut<DeathStats>,
     mut sound_events: EventWriter<SoundEvent>,
     mut particle_events: EventWriter<SpawnParticlesEvent>,
+    mut quest_events: EventWriter<QuestProgressEvent>,
 ) {
     for (entity, tf, enemy, boss) in boss_query.iter() {
         if enemy.health <= 0.0 {
@@ -1315,6 +1317,8 @@ fn boss_death_loot(
             rp_events.send(ResearchPointEvent { amount: 20 });
             // Track kill in death stats
             death_stats.total_kills += 1;
+            // Quest progress: boss kill
+            quest_events.send(QuestProgressEvent { quest_type: QuestType::KillBoss, amount: 1 });
             // Sound: boss death
             sound_events.send(SoundEvent::Death);
             // Death particles in boss color

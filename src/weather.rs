@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use rand::Rng;
 use crate::daynight::DayNightCycle;
-use crate::hud::not_paused;
+use crate::hud::{not_paused, WeatherEffectsTimer};
 use crate::season::{Season, SeasonCycle};
 use crate::camera::GameCamera;
 use crate::player::{Player, Health};
@@ -9,13 +9,18 @@ use crate::building::{Building, BuildingType};
 use crate::combat::Enemy;
 use crate::world::{TILE_SIZE, chunk::{Chunk, CHUNK_SIZE}, tile::TileType};
 use crate::hud::FloatingTextRequest;
-use crate::camera::ScreenShake;
+use crate::camera::CameraEffects;
 
 pub struct WeatherPlugin;
+
+/// Frame counter used to skip weather particle spawning every other frame.
+#[derive(Resource, Default)]
+struct WeatherSpawnFrame(u32);
 
 impl Plugin for WeatherPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(WeatherSystem::default())
+            .insert_resource(WeatherSpawnFrame::default())
             .add_systems(Update, (
                 advance_weather,
                 spawn_weather_particles,
@@ -90,15 +95,15 @@ impl Weather {
         }
     }
 
-    /// Max simultaneous particles on screen.
+    /// Max simultaneous particles on screen (halved for performance).
     pub fn max_particles(&self) -> usize {
         match self {
             Weather::Clear => 0,
-            Weather::Rain => 120,
-            Weather::Snow => 80,
-            Weather::Storm => 200,
+            Weather::Rain => 60,
+            Weather::Snow => 40,
+            Weather::Storm => 100,
             Weather::Fog => 0,
-            Weather::Blizzard => 160,
+            Weather::Blizzard => 80,
         }
     }
 
@@ -180,7 +185,7 @@ impl Default for WeatherSystem {
             change_interval: 120.0, // roll every 2 real-time minutes
             last_day: 1,
             next_weather: None,
-            lightning_timer: 0.0,
+            lightning_timer: 10.0, // 10s intro delay before first strike
         }
     }
 }
@@ -242,7 +247,14 @@ fn spawn_weather_particles(
     weather: Res<WeatherSystem>,
     particle_query: Query<(), With<WeatherParticle>>,
     camera_query: Query<&Transform, With<GameCamera>>,
+    mut spawn_frame: ResMut<WeatherSpawnFrame>,
 ) {
+    // Only spawn weather particles every other frame
+    spawn_frame.0 = spawn_frame.0.wrapping_add(1);
+    if spawn_frame.0 % 2 != 0 {
+        return;
+    }
+
     if !weather.current.has_particles() {
         return;
     }
@@ -255,8 +267,8 @@ fn spawn_weather_particles(
         return;
     }
 
-    // Spawn a small batch each frame rather than all at once.
-    let to_spawn = (max - existing).min(4);
+    // Spawn max 2 per frame (down from 4)
+    let to_spawn = (max - existing).min(2);
     let mut rng = rand::thread_rng();
 
     let spread_x = 700.0_f32;
@@ -369,6 +381,7 @@ fn is_under_roof(
     false
 }
 
+/// Weather damage effects run 4x/sec (0.25s interval) instead of every frame.
 fn weather_gameplay_effects(
     weather: Res<WeatherSystem>,
     season: Res<SeasonCycle>,
@@ -376,14 +389,22 @@ fn weather_gameplay_effects(
     mut player_query: Query<(&Transform, &mut Health), With<Player>>,
     building_query: Query<(&Transform, &Building), (Without<Player>, Without<Enemy>)>,
     chunk_query: Query<&Chunk>,
+    mut effects_timer: ResMut<WeatherEffectsTimer>,
 ) {
+    effects_timer.0 += time.delta_secs();
+    if effects_timer.0 < 0.25 {
+        return;
+    }
+    let accumulated_dt = effects_timer.0;
+    effects_timer.0 = 0.0;
+
     let Ok((player_tf, mut health)) = player_query.get_single_mut() else { return };
 
     if weather.current == Weather::Storm {
         let under_roof = is_under_roof(player_tf.translation, &building_query);
         if !under_roof {
             let damage_per_sec = 1.0 / 15.0;
-            health.current = (health.current - damage_per_sec * time.delta_secs()).max(0.0);
+            health.current = (health.current - damage_per_sec * accumulated_dt).max(0.0);
         }
     }
 
@@ -392,7 +413,7 @@ fn weather_gameplay_effects(
         let under_roof = is_under_roof(player_tf.translation, &building_query);
         if !under_roof {
             let damage_per_sec = 3.0;
-            health.current = (health.current - damage_per_sec * time.delta_secs()).max(0.0);
+            health.current = (health.current - damage_per_sec * accumulated_dt).max(0.0);
         }
     }
 
@@ -412,7 +433,7 @@ fn weather_gameplay_effects(
                 let tile = chunk.get_tile(local_x, local_y);
                 if matches!(tile, TileType::Water | TileType::DeepWater) {
                     let damage_per_sec = 2.0;
-                    health.current = (health.current - damage_per_sec * time.delta_secs()).max(0.0);
+                    health.current = (health.current - damage_per_sec * accumulated_dt).max(0.0);
                 }
                 break;
             }
@@ -430,13 +451,13 @@ fn lightning_strike_system(
     mut strike_query: Query<(Entity, &mut LightningStrike, &Transform), Without<Player>>,
     mut player_health_query: Query<&mut Health, With<Player>>,
     mut floating_text_events: EventWriter<FloatingTextRequest>,
-    mut screen_shake: ResMut<ScreenShake>,
+    mut effects: ResMut<CameraEffects>,
 ) {
     let dt = time.delta_secs();
 
     // Only during Storm
     if weather.current != Weather::Storm {
-        weather.lightning_timer = 0.0;
+        weather.lightning_timer = 5.0; // reset to intro delay for next storm
         // Still tick existing strikes
         for (entity, mut strike, _tf) in strike_query.iter_mut() {
             strike.lifetime -= dt;
@@ -479,8 +500,8 @@ fn lightning_strike_system(
         weather.lightning_timer = rng.gen_range(30.0..60.0);
 
         // Screen shake for the strike
-        screen_shake.timer = 0.15;
-        screen_shake.intensity = 5.0;
+        effects.shake.timer = 0.15;
+        effects.shake.intensity = 5.0;
     }
 
     // Tick existing strikes and apply damage

@@ -5,6 +5,7 @@ use crate::hud::not_paused;
 use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
 use crate::daynight::{DayNightCycle, DayPhase};
+use crate::season::SeasonCycle;
 use crate::audio::SoundEvent;
 use crate::building::BuildingState;
 use crate::world::ChunkObject;
@@ -234,6 +235,7 @@ fn spawn_trader(
     player_query: Query<&Transform, With<Player>>,
     trader_query: Query<&Trader>,
     mut spawn_state: Local<TraderSpawnState>,
+    assets: Res<crate::assets::GameAssets>,
 ) {
     // Initialise interval lazily on first call
     if spawn_state.next_interval == 0 {
@@ -267,7 +269,7 @@ fn spawn_trader(
         Trader { offers, despawn_day },
         Knowledge::default(),
         Sprite {
-            color: Color::srgb(0.1, 0.75, 0.2),
+            image: assets.npc_wandering_trader.clone(),
             custom_size: Some(Vec2::new(12.0, 12.0)),
             ..default()
         },
@@ -297,6 +299,7 @@ fn despawn_trader(
 
 fn trader_interaction(
     keyboard: Res<ButtonInput<KeyCode>>,
+    game_settings: Res<crate::settings::GameSettings>,
     building_state: Res<BuildingState>,
     crafting: Res<crate::crafting::CraftingSystem>,
     player_query: Query<&Transform, With<Player>>,
@@ -308,7 +311,7 @@ fn trader_interaction(
         return;
     }
 
-    if !keyboard.just_pressed(KeyCode::KeyE) {
+    if !keyboard.just_pressed(game_settings.keybinds.interact) {
         return;
     }
 
@@ -428,7 +431,7 @@ pub struct HermitDialogueDisplay {
 
 /// Public helper to spawn a hermit at a world position.
 /// Called from `world/mod.rs` during chunk generation.
-pub fn spawn_hermit(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVec2) {
+pub fn spawn_hermit(commands: &mut Commands, assets: &crate::assets::GameAssets, x: f32, y: f32, chunk_pos: IVec2) {
     let lines = vec![
         "The old ones built their towers to touch the sky...",
         "I have wandered these lands for thirty years.",
@@ -446,7 +449,7 @@ pub fn spawn_hermit(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVec2) {
         Invulnerable,
         ChunkObject { chunk_pos },
         Sprite {
-            color: Color::srgb(0.7, 0.55, 0.3),
+            image: assets.npc_hermit.clone(),
             custom_size: Some(Vec2::new(10.0, 14.0)),
             ..default()
         },
@@ -456,6 +459,7 @@ pub fn spawn_hermit(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVec2) {
 
 fn hermit_interaction(
     keyboard: Res<ButtonInput<KeyCode>>,
+    game_settings: Res<crate::settings::GameSettings>,
     building_state: Res<BuildingState>,
     crafting: Res<crate::crafting::CraftingSystem>,
     trade_menu: Res<TradeMenu>,
@@ -477,7 +481,7 @@ fn hermit_interaction(
         return;
     }
 
-    if !keyboard.just_pressed(KeyCode::KeyE) {
+    if !keyboard.just_pressed(game_settings.keybinds.interact) {
         return;
     }
 
@@ -520,9 +524,10 @@ fn hermit_interaction(
 fn npc_schedule_behavior(
     time: Res<Time>,
     cycle: Res<DayNightCycle>,
+    season: Res<SeasonCycle>,
     mut npc_query: Query<(&mut Transform, &mut NpcSchedule)>,
 ) {
-    let is_night = matches!(cycle.phase(), DayPhase::Night);
+    let is_night = matches!(cycle.phase_with_season(season.current), DayPhase::Night);
     let dt = time.delta_secs();
 
     for (mut transform, mut schedule) in npc_query.iter_mut() {
@@ -567,6 +572,7 @@ fn npc_schedule_behavior(
 
 fn npc_interaction(
     keyboard: Res<ButtonInput<KeyCode>>,
+    game_settings: Res<crate::settings::GameSettings>,
     building_state: Res<BuildingState>,
     crafting: Res<crate::crafting::CraftingSystem>,
     trade_menu: Res<TradeMenu>,
@@ -589,7 +595,7 @@ fn npc_interaction(
         return;
     }
 
-    if !keyboard.just_pressed(KeyCode::KeyE) {
+    if !keyboard.just_pressed(game_settings.keybinds.interact) {
         return;
     }
 
@@ -642,7 +648,7 @@ fn npc_interaction(
 // ── Public NPC Spawn Helpers ─────────────────────────────────────────────────
 
 /// Spawn a Blacksmith NPC at a world position (used by structures module).
-pub fn spawn_blacksmith(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVec2) {
+pub fn spawn_blacksmith(commands: &mut Commands, assets: &crate::assets::GameAssets, x: f32, y: f32, chunk_pos: IVec2) {
     commands.spawn((
         Blacksmith::new(),
         Knowledge::default(),
@@ -655,7 +661,7 @@ pub fn spawn_blacksmith(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVec
         },
         ChunkObject { chunk_pos },
         Sprite {
-            color: Color::srgb(0.55, 0.35, 0.25),
+            image: assets.npc_blacksmith.clone(),
             custom_size: Some(Vec2::new(11.0, 14.0)),
             ..default()
         },
@@ -664,7 +670,7 @@ pub fn spawn_blacksmith(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVec
 }
 
 /// Spawn a Quest Giver NPC at a world position (used by structures module).
-pub fn spawn_quest_giver(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVec2) {
+pub fn spawn_quest_giver(commands: &mut Commands, assets: &crate::assets::GameAssets, x: f32, y: f32, chunk_pos: IVec2) {
     commands.spawn((
         QuestGiver::new(),
         Knowledge::default(),
@@ -677,7 +683,7 @@ pub fn spawn_quest_giver(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVe
         },
         ChunkObject { chunk_pos },
         Sprite {
-            color: Color::srgb(0.65, 0.55, 0.15),
+            image: assets.npc_quest_giver.clone(),
             custom_size: Some(Vec2::new(10.0, 14.0)),
             ..default()
         },
@@ -686,7 +692,7 @@ pub fn spawn_quest_giver(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVe
 }
 
 /// Spawn a Farmer NPC at a world position (used by structures module).
-pub fn spawn_farmer(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVec2) {
+pub fn spawn_farmer(commands: &mut Commands, assets: &crate::assets::GameAssets, x: f32, y: f32, chunk_pos: IVec2) {
     commands.spawn((
         Farmer::new(),
         Knowledge::default(),
@@ -699,7 +705,7 @@ pub fn spawn_farmer(commands: &mut Commands, x: f32, y: f32, chunk_pos: IVec2) {
         },
         ChunkObject { chunk_pos },
         Sprite {
-            color: Color::srgb(0.35, 0.60, 0.20),
+            image: assets.npc_farmer.clone(),
             custom_size: Some(Vec2::new(10.0, 14.0)),
             ..default()
         },
