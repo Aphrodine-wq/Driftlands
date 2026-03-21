@@ -38,10 +38,10 @@ impl WorldGenerator {
 
     /// Determine biome from temperature/moisture Whittaker diagram
     pub fn biome_at(&self, world_x: f64, world_y: f64) -> Biome {
-        let biome_scale = 0.00012; // Massive biome regions — takes real exploration to cross one
+        let biome_scale = 0.00006; // Epic biome regions — 2x wider in each axis (4x area), real expedition territory
         let temp = self.temperature.get([world_x * biome_scale, world_y * biome_scale]);
         let moist = self.moisture.get([world_x * biome_scale * 0.8, world_y * biome_scale * 0.8]);
-        let elev = self.elevation.get([world_x * 0.02, world_y * 0.02]);
+        let elev = self.elevation.get([world_x * 0.015, world_y * 0.015]);
 
         // High elevation overrides
         if elev > 0.55 {
@@ -83,7 +83,7 @@ impl WorldGenerator {
                 let world_x = (chunk_pos.x * CHUNK_SIZE as i32 + x as i32) as f64;
                 let world_y = (chunk_pos.y * CHUNK_SIZE as i32 + y as i32) as f64;
 
-                let scale = 0.02;
+                let scale = 0.015;
                 let detail_scale = 0.1;
 
                 let elevation = self.elevation.get([world_x * scale, world_y * scale]);

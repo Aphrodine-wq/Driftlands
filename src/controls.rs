@@ -84,13 +84,13 @@ fn update_controls_overlay(
     trade_menu: Res<TradeMenu>,
     chest_ui: Res<ChestUI>,
     experiment_slots: Res<ExperimentSlots>,
+    game_settings: Res<crate::settings::GameSettings>,
     mut panel_query: Query<&mut Node, With<ControlsOverlayPanel>>,
     mut text_query: Query<&mut Text, With<ControlsOverlayText>>,
 ) {
     let Ok(mut node) = panel_query.get_single_mut() else { return };
     let Ok(mut text) = text_query.get_single_mut() else { return };
 
-    // Hide when crafting/trade/chest/experiment menus are open
     let menus_open = crafting.is_open
         || trade_menu.is_open
         || chest_ui.is_open
@@ -106,41 +106,61 @@ fn update_controls_overlay(
 
     node.display = Display::Flex;
 
-    let lines = vec![
-        "=== CONTROLS (F1 to close) ===",
-        "",
-        "--- Movement ---",
-        "  WASD        Move",
-        "  +/-         Zoom In/Out",
-        "",
-        "--- Combat ---",
-        "  LMB         Attack / Gather",
-        "  R           Equip Armor/Shield",
-        "",
-        "--- Building ---",
-        "  B           Toggle Build Mode",
-        "  Q           Cycle Building Type",
-        "  RMB         Place Building",
-        "  E           Open/Close Door",
-        "",
-        "--- Crafting ---",
-        "  C           Open/Close Crafting",
-        "  Up/Down     Select Recipe",
-        "  Enter       Craft Selected",
-        "  X           Experiment Table",
-        "",
-        "--- Inventory ---",
-        "  I / Tab     Open/Close Inventory",
-        "  1-9         Select Hotbar Slot",
-        "  RMB         Use / Eat / Place Item",
-        "",
-        "--- Other ---",
-        "  E           Interact (NPC/Bed)",
-        "  F5          Save Game",
-        "  F9          Load Game",
-        "  Escape      Pause / Close Menu",
-        "  F1          Toggle This Overlay",
-    ];
+    let kb = &game_settings.keybinds;
+    let k = crate::settings::keycode_display;
 
-    **text = lines.join("\n");
+    let content = format!(
+        "=== CONTROLS (F1 to close) ===\n\
+         \n\
+         --- Movement ---\n\
+         \x20 {}/{}/{}/{}    Move\n\
+         \x20 +/-         Zoom In/Out\n\
+         \x20 F11         Toggle Fullscreen\n\
+         \n\
+         --- Combat ---\n\
+         \x20 LMB         Attack / Gather\n\
+         \x20 {}           Dodge Roll\n\
+         \x20 R           Equip Armor/Shield\n\
+         \n\
+         --- Building ---\n\
+         \x20 {}           Toggle Build Mode\n\
+         \x20 Q           Cycle Building Type\n\
+         \x20 RMB         Place Building\n\
+         \x20 {}           Open/Close Door\n\
+         \n\
+         --- Crafting ---\n\
+         \x20 {}           Open/Close Crafting\n\
+         \x20 Up/Down     Select Recipe\n\
+         \x20 Enter       Craft Selected\n\
+         \x20 X           Experiment Table\n\
+         \n\
+         --- Inventory ---\n\
+         \x20 {}           Open/Close Inventory\n\
+         \x20 1-9         Select Hotbar Slot\n\
+         \x20 RMB         Use / Eat / Place Item\n\
+         \n\
+         --- Info ---\n\
+         \x20 {}           Quest Log\n\
+         \x20 {}           Skills\n\
+         \n\
+         --- Other ---\n\
+         \x20 {}           Interact (NPC/Bed)\n\
+         \x20 {}          Save Slot (Selected)\n\
+         \x20 {}          Load Slot (Selected)\n\
+         \x20 Escape      Pause / Close Menu\n\
+         \x20 F1          Toggle This Overlay",
+        k(kb.move_up), k(kb.move_left), k(kb.move_down), k(kb.move_right),
+        k(kb.dodge),
+        k(kb.building),
+        k(kb.interact),
+        k(kb.crafting),
+        k(kb.inventory),
+        k(kb.journal),
+        k(kb.skills),
+        k(kb.interact),
+        k(kb.save),
+        k(kb.load),
+    );
+
+    **text = content;
 }

@@ -179,6 +179,7 @@ fn attempt_tame(
     mut pet_system: ResMut<PetSystem>,
     player_query: Query<&Transform, With<Player>>,
     enemy_query: Query<(Entity, &Transform, &Enemy)>,
+    assets: Res<crate::assets::GameAssets>,
 ) {
     if !mouse.just_pressed(MouseButton::Right) || building_state.active {
         return;
@@ -240,7 +241,13 @@ fn attempt_tame(
         // Despawn the enemy.
         commands.entity(enemy_entity).despawn_recursive();
 
-        // Spawn a pet entity.
+        // Spawn a pet entity with real sprite.
+        let pet_image = match pet_type {
+            PetType::Wolf => assets.pet_wolf.clone(),
+            PetType::Cat => assets.pet_cat.clone(),
+            PetType::Hawk => assets.pet_hawk.clone(),
+            PetType::Bear => assets.pet_bear.clone(),
+        };
         commands.spawn((
             Pet {
                 pet_type,
@@ -248,7 +255,7 @@ fn attempt_tame(
                 attack_cooldown: 0.0,
             },
             Sprite {
-                color: pet_type.color(),
+                image: pet_image,
                 custom_size: Some(pet_type.size()),
                 ..default()
             },

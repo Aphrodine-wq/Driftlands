@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use crate::building::BuildingState;
-use crate::hud::not_paused;
+use crate::hud::{not_paused, FarmGrowthFrame};
 use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
 use crate::season::{Season, SeasonCycle};
@@ -333,13 +333,21 @@ fn plant_seed(
 }
 
 /// Advance growth of all planted farm plots based on elapsed time and season.
+/// Throttled to run every 6 frames (~10x/sec at 60fps) — crop growth doesn't need per-frame precision.
 fn grow_crops(
     season: Res<SeasonCycle>,
     weather: Res<WeatherSystem>,
     time: Res<Time>,
     mut plot_query: Query<(&mut FarmPlot, &mut Sprite)>,
+    mut frame_counter: ResMut<FarmGrowthFrame>,
 ) {
-    let dt = time.delta_secs();
+    frame_counter.0 = frame_counter.0.wrapping_add(1);
+    if frame_counter.0 % 6 != 0 {
+        return;
+    }
+
+    // Multiply dt by 6 to compensate for only running every 6th frame
+    let dt = time.delta_secs() * 6.0;
     let drought = (season.current == Season::Summer && weather.current == Weather::Clear)
         .then_some(0.6)
         .unwrap_or(1.0);

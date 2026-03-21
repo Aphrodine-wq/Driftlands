@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 use serde::{Serialize, Deserialize};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{mpsc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::player::{Player, Health, Hunger, ArmorSlots, CurrentFloor};
 use crate::inventory::{Inventory, InventorySlot, ItemType};
@@ -23,18 +25,65 @@ use crate::skills::SkillLevels;
 
 pub struct SaveLoadPlugin;
 
+/// Which save slot the player is currently “targeting” for quick-save/quick-load and menu actions.
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct ActiveSaveSlot {
+    pub index: usize,
+}
+
+impl Default for ActiveSaveSlot {
+    fn default() -> Self {
+        Self { index: 0 }
+    }
+}
+
+/// Lightweight metadata used by the save-slot browser UI.
+#[derive(Clone, Debug)]
+pub struct SaveSlotMeta {
+    pub slot_index: usize,
+    pub exists: bool,
+    pub size_bytes: Option<u64>,
+    pub modified_unix: Option<u64>,
+}
+
+const SAVE_DIR: &str = "saves";
+pub const MAX_SAVE_SLOTS: usize = 10;
+
+fn legacy_save_path() -> PathBuf {
+    PathBuf::from(SAVE_DIR).join("world.bin")
+}
+
+fn slot_save_path(slot_index: usize) -> PathBuf {
+    PathBuf::from(SAVE_DIR).join(format!("slot_{slot_index}.bin"))
+}
+
 /// When Some, the load application system will apply it (avoids system param limit).
 #[derive(Resource, Default)]
 struct PendingLoad(Option<SaveData>);
 
 /// Holds expansion save data collected by pre_save_patch, read by handle_save_input.
-/// Keeps handle_save_input at 16 params by bundling extra data here.
-#[derive(Resource, Default)]
+/// Also bundles the background save channel to keep handle_save_input at 16 params.
+#[derive(Resource)]
 struct SavePatchData {
     pub quest_progress: Vec<(String, u32, bool, bool)>,
     pub active_pet: Option<PetData>,
     pub tutorial_shown_hints: Vec<String>,
     pub skill_levels: Vec<(String, u32, u32)>,
+    /// Channel for receiving background save thread results.
+    /// Wrapped in Mutex to satisfy Sync requirement for Bevy Resource.
+    pub save_rx: Mutex<Option<mpsc::Receiver<Result<(), String>>>>,
+}
+
+impl Default for SavePatchData {
+    fn default() -> Self {
+        Self {
+            quest_progress: Vec::new(),
+            active_pet: None,
+            tutorial_shown_hints: Vec::new(),
+            skill_levels: Vec::new(),
+            save_rx: Mutex::new(None),
+        }
+    }
 }
 
 impl Plugin for SaveLoadPlugin {
@@ -43,11 +92,17 @@ impl Plugin for SaveLoadPlugin {
             .insert_resource(LoadRequested::default())
             .insert_resource(PendingLoad::default())
             .insert_resource(SavePatchData::default())
+            .insert_resource(SaveTrigger::default())
+            .insert_resource(AutoSaveTimer::default())
+            .insert_resource(ActiveSaveSlot::default())
+            .add_systems(Startup, migrate_legacy_single_slot_save)
             .add_systems(
                 Update,
                 (
                     pre_save_patch,
-                    handle_save_input,
+                    check_manual_save,
+                    autosave_timer,
+                    handle_save_input.after(check_manual_save).after(autosave_timer),
                     handle_load_input,
                     apply_pending_load_1.after(handle_load_input),
                     apply_pending_load_2.after(apply_pending_load_1),
@@ -58,14 +113,13 @@ impl Plugin for SaveLoadPlugin {
             .add_systems(
                 Update,
                 (
+                    check_save_complete,
                     apply_pending_load_5.after(apply_pending_load_4),
                     update_save_message,
                 ),
             );
     }
 }
-
-const SAVE_PATH: &str = "saves/world.bin";
 
 #[derive(Resource, Default)]
 pub struct SaveMessage {
@@ -77,6 +131,86 @@ pub struct SaveMessage {
 #[derive(Resource, Default)]
 pub struct LoadRequested {
     pub requested: bool,
+    pub slot_index: usize,
+}
+
+/// Intermediate flag so both manual F5 and autosave can trigger the save system
+/// without adding extra params to handle_save_input (which is at the 16-param ceiling).
+#[derive(Resource, Default)]
+pub struct SaveTrigger {
+    pub requested: bool,
+    pub slot_index: usize,
+}
+
+/// Counts down and triggers an autosave periodically.
+#[derive(Resource)]
+pub struct AutoSaveTimer {
+    pub timer: f32,
+    pub interval: f32,
+}
+
+impl Default for AutoSaveTimer {
+    fn default() -> Self {
+        Self { timer: 300.0, interval: 300.0 } // 5 minutes
+    }
+}
+
+/// Returns per-slot metadata for UI.
+pub fn list_save_slots(max_slots: usize) -> Vec<SaveSlotMeta> {
+    (0..max_slots).map(|slot_index| slot_meta(slot_index)).collect()
+}
+
+pub fn slot_meta(slot_index: usize) -> SaveSlotMeta {
+    let path = slot_save_path(slot_index);
+    if let Ok(meta) = fs::metadata(&path) {
+        let size_bytes = Some(meta.len());
+        let modified_unix = meta.modified().ok().and_then(to_unix_seconds);
+        SaveSlotMeta {
+            slot_index,
+            exists: true,
+            size_bytes,
+            modified_unix,
+        }
+    } else {
+        SaveSlotMeta {
+            slot_index,
+            exists: false,
+            size_bytes: None,
+            modified_unix: None,
+        }
+    }
+}
+
+fn to_unix_seconds(t: SystemTime) -> Option<u64> {
+    t.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs())
+}
+
+pub fn delete_save_slot(slot_index: usize) -> Result<(), String> {
+    let path = slot_save_path(slot_index);
+    if !path.exists() {
+        return Ok(());
+    }
+    fs::remove_file(&path).map_err(|e| format!("Failed to delete slot {slot_index}: {e}"))?;
+    Ok(())
+}
+
+fn migrate_legacy_single_slot_save() {
+    // First launch / upgrade path:
+    // - If `saves/world.bin` exists but `saves/slot_0.bin` doesn't, import it.
+    // - This keeps existing saves working without requiring users to do anything manually.
+    if !fs::metadata(SAVE_DIR).is_ok() {
+        let _ = fs::create_dir_all(SAVE_DIR);
+    }
+
+    let legacy = legacy_save_path();
+    let slot0 = slot_save_path(0);
+    if legacy.exists() && !slot0.exists() {
+        if let Err(e) = fs::copy(&legacy, &slot0) {
+            warn!("Save migration failed: {e}");
+        } else {
+            info!("Imported legacy save into slot 0");
+        }
+    }
 }
 
 // --- Serializable State ---
@@ -341,8 +475,44 @@ fn pre_save_patch(
     patch.skill_levels = skill_levels.to_save_data();
 }
 
-fn handle_save_input(
+/// Small system that detects F5 and sets the SaveTrigger flag.
+fn check_manual_save(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mut trigger: ResMut<SaveTrigger>,
+    active_slot: Res<ActiveSaveSlot>,
+) {
+    if keyboard.just_pressed(KeyCode::F5) {
+        trigger.requested = true;
+        trigger.slot_index = active_slot.index;
+    }
+}
+
+/// Counts down the autosave timer and sets the SaveTrigger flag when it expires.
+fn autosave_timer(
+    time: Res<Time>,
+    pause: Res<crate::hud::PauseState>,
+    menu: Res<crate::mainmenu::MainMenuActive>,
+    mut timer: ResMut<AutoSaveTimer>,
+    mut trigger: ResMut<SaveTrigger>,
+    mut save_msg: ResMut<SaveMessage>,
+    active_slot: Res<ActiveSaveSlot>,
+) {
+    // Don't autosave while paused or in main menu
+    if pause.paused || menu.active {
+        return;
+    }
+    timer.timer -= time.delta_secs();
+    if timer.timer <= 0.0 {
+        timer.timer = timer.interval;
+        trigger.requested = true;
+        trigger.slot_index = active_slot.index;
+        save_msg.text = "Autosaving...".to_string();
+        save_msg.timer = 5.0;
+    }
+}
+
+fn handle_save_input(
+    mut save_trigger: ResMut<SaveTrigger>,
     player_query: Query<(&Transform, &Health, &Hunger, &CurrentFloor), With<Player>>,
     inventory: Res<Inventory>,
     chunk_query: Query<&Chunk>,
@@ -359,7 +529,14 @@ fn handle_save_input(
     farm_query: Query<(&FarmPlot, &Transform), Without<Player>>,
     save_patch: Res<SavePatchData>,
 ) {
-    if !keyboard.just_pressed(KeyCode::F5) {
+    if !save_trigger.requested {
+        return;
+    }
+    save_trigger.requested = false;
+
+    let slot_index = save_trigger.slot_index;
+    if slot_index >= MAX_SAVE_SLOTS {
+        warn!("Ignoring save request for invalid slot index {slot_index}");
         return;
     }
 
@@ -455,26 +632,70 @@ fn handle_save_input(
         skill_levels: save_patch.skill_levels.clone(),
     };
 
-    // Create directory
-    if let Err(e) = fs::create_dir_all("saves") {
+    // Prevent double-save if a background save is already in progress
+    {
+        let lock = save_patch.save_rx.lock().unwrap();
+        if lock.is_some() {
+            save_msg.text = "Save already in progress...".to_string();
+            save_msg.timer = 1.0;
+            return;
+        }
+    }
+
+    // Create directory synchronously (fast, needed before thread)
+    if let Err(e) = fs::create_dir_all(SAVE_DIR) {
         save_msg.text = format!("Save failed: {}", e);
         save_msg.timer = 2.0;
         return;
     }
 
-    match bincode::serialize(&save_data) {
-        Ok(bytes) => {
-            if let Err(e) = fs::write(SAVE_PATH, bytes) {
-                save_msg.text = format!("Save failed: {}", e);
-            } else {
-                save_msg.text = "Game Saved!".to_string();
+    let save_path = slot_save_path(slot_index);
+
+    // Serialize and write on a background thread to avoid stalling the main thread
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let result = match bincode::serialize(&save_data) {
+            Ok(bytes) => {
+                fs::write(&save_path, bytes)
+                    .map_err(|e| format!("Save failed: {}", e))
             }
+            Err(e) => Err(format!("Save failed: {}", e)),
+        };
+        let _ = tx.send(result);
+    });
+
+    *save_patch.save_rx.lock().unwrap() = Some(rx);
+    save_msg.text = "Saving...".to_string();
+    save_msg.timer = 5.0; // Will be overridden when save completes
+}
+
+/// Polls the background save thread for completion and updates the save message.
+fn check_save_complete(
+    save_patch: Res<SavePatchData>,
+    mut save_msg: ResMut<SaveMessage>,
+) {
+    let mut lock = save_patch.save_rx.lock().unwrap();
+    let Some(ref rx) = *lock else { return };
+    match rx.try_recv() {
+        Ok(Ok(())) => {
+            save_msg.text = "Game Saved!".to_string();
+            save_msg.timer = 2.0;
+            *lock = None;
         }
-        Err(e) => {
-            save_msg.text = format!("Save failed: {}", e);
+        Ok(Err(err_msg)) => {
+            save_msg.text = err_msg;
+            save_msg.timer = 2.0;
+            *lock = None;
+        }
+        Err(mpsc::TryRecvError::Empty) => {
+            // Still saving — do nothing
+        }
+        Err(mpsc::TryRecvError::Disconnected) => {
+            save_msg.text = "Save failed: thread crashed".to_string();
+            save_msg.timer = 2.0;
+            *lock = None;
         }
     }
-    save_msg.timer = 2.0;
 }
 
 /// Parse an ItemType from its Debug string representation (e.g. "IronHelmet" -> ItemType::IronHelmet).
@@ -496,23 +717,36 @@ fn parse_armor_item(s: &str) -> Option<ItemType> {
 
 fn handle_load_input(
     keyboard: Res<ButtonInput<KeyCode>>,
+    game_settings: Res<crate::settings::GameSettings>,
+    active_slot: Res<ActiveSaveSlot>,
     mut save_msg: ResMut<SaveMessage>,
     mut load_requested: ResMut<LoadRequested>,
     mut pending_load: ResMut<PendingLoad>,
 ) {
-    if load_requested.requested {
+    let slot_index = if load_requested.requested {
         load_requested.requested = false;
-    } else if !keyboard.just_pressed(KeyCode::F9) {
-        return;
-    }
+        load_requested.slot_index
+    } else {
+        if !keyboard.just_pressed(game_settings.keybinds.load) {
+            return;
+        }
+        active_slot.index
+    };
 
-    if !Path::new(SAVE_PATH).exists() {
-        save_msg.text = "No save found".to_string();
+    if slot_index >= MAX_SAVE_SLOTS {
+        save_msg.text = "Invalid save slot".to_string();
         save_msg.timer = 2.0;
         return;
     }
 
-    let bytes = match fs::read(SAVE_PATH) {
+    let path = slot_save_path(slot_index);
+    if !path.exists() {
+        save_msg.text = format!("No save found in slot {}", slot_index + 1);
+        save_msg.timer = 2.0;
+        return;
+    }
+
+    let bytes = match fs::read(&path) {
         Ok(b) => b,
         Err(e) => {
             save_msg.text = format!("Load failed: {}", e);
@@ -759,6 +993,7 @@ fn apply_pending_load_5(
     mut pet_system: ResMut<PetSystem>,
     existing_pets: Query<Entity, With<Pet>>,
     mut skill_levels: ResMut<SkillLevels>,
+    assets: Res<crate::assets::GameAssets>,
 ) {
     let Some(save_data) = pending.0.take() else {
         return;
@@ -791,6 +1026,12 @@ fn apply_pending_load_5(
         };
 
         if let Some(pt) = pet_type {
+            let pet_image = match pt {
+                PetType::Wolf => assets.pet_wolf.clone(),
+                PetType::Cat => assets.pet_cat.clone(),
+                PetType::Hawk => assets.pet_hawk.clone(),
+                PetType::Bear => assets.pet_bear.clone(),
+            };
             commands.spawn((
                 Pet {
                     pet_type: pt,
@@ -798,7 +1039,7 @@ fn apply_pending_load_5(
                     attack_cooldown: 0.0,
                 },
                 Sprite {
-                    color: pt.color(),
+                    image: pet_image,
                     custom_size: Some(pt.size()),
                     ..default()
                 },

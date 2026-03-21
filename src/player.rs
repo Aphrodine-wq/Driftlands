@@ -19,6 +19,8 @@ impl Plugin for PlayerPlugin {
                 eat_food,
                 buff_tick,
                 equip_armor,
+                update_damage_flash,
+                update_attack_lunge,
             ).run_if(not_paused));
     }
 }
@@ -31,6 +33,21 @@ pub struct CurrentFloor(pub u8);
 pub struct Player {
     pub speed: f32,
     pub walk_timer: f32,
+    pub velocity: Vec2,
+    /// Tracks the current Y offset applied by the walk hop so it can be reversed.
+    pub walk_bob_offset: f32,
+}
+
+/// Flashes the player sprite red when they take damage.
+#[derive(Component)]
+pub struct DamageFlash {
+    pub timer: f32,
+}
+
+/// Briefly scales the player sprite up on melee attack for a lunge effect.
+#[derive(Component)]
+pub struct AttackLunge {
+    pub timer: f32,
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
@@ -108,11 +125,43 @@ pub struct ActiveBuff {
 }
 
 pub const PLAYER_SPEED: f32 = 150.0;
-const PLAYER_SIZE: f32 = 14.0;
+const PLAYER_SIZE: f32 = 20.0;
 
-fn spawn_player(mut commands: Commands, assets: Res<crate::assets::GameAssets>) {
+// Acceleration / deceleration constants for smooth movement
+const ACCEL: f32 = 800.0;   // pixels/sec^2 — reach max speed in ~0.19s
+const DECEL: f32 = 1200.0;  // friction when no input — stop in ~0.13s
+
+fn spawn_player(
+    mut commands: Commands,
+    assets: Res<crate::assets::GameAssets>,
+    world_state: Res<crate::world::WorldState>,
+) {
+    // Find a walkable, non-water spawn point near the default position
+    let gen = &world_state.generator;
+    let mut spawn_x = TILE_SIZE * 16.0;
+    let mut spawn_y = TILE_SIZE * 16.0;
+
+    // Search in expanding rings for a valid spawn tile
+    'search: for radius in 0i32..20 {
+        for dx in -radius..=radius {
+            for dy in -radius..=radius {
+                if dx.abs() != radius && dy.abs() != radius { continue; }
+                let wx = (16 + dx) as f64;
+                let wy = (16 + dy) as f64;
+                let biome = gen.biome_at(wx, wy);
+                // Avoid spawning in water-heavy biomes at the exact tile
+                let is_water_biome = matches!(biome, crate::world::generation::Biome::Coastal | crate::world::generation::Biome::Swamp);
+                if !is_water_biome || radius > 5 {
+                    spawn_x = wx as f32 * TILE_SIZE;
+                    spawn_y = wy as f32 * TILE_SIZE;
+                    break 'search;
+                }
+            }
+        }
+    }
+
     commands.spawn((
-        Player { speed: PLAYER_SPEED, walk_timer: 0.0 },
+        Player { speed: PLAYER_SPEED, walk_timer: 0.0, velocity: Vec2::ZERO, walk_bob_offset: 0.0 },
         CurrentFloor(0),
         PlayerFacing::Down,
         Health::new(100.0),
@@ -122,43 +171,61 @@ fn spawn_player(mut commands: Commands, assets: Res<crate::assets::GameAssets>) 
             custom_size: Some(Vec2::new(PLAYER_SIZE, PLAYER_SIZE)),
             ..default()
         },
-        Transform::from_xyz(
-            TILE_SIZE * 16.0,
-            TILE_SIZE * 16.0,
-            10.0,
-        ),
+        Transform::from_xyz(spawn_x, spawn_y, 10.0),
     ));
 }
 
 fn player_movement(
-    mut query: Query<(&mut Player, &Hunger, &mut Transform, &mut PlayerFacing, &mut Sprite)>,
+    mut query: Query<(&mut Player, &Hunger, &mut Transform, &mut PlayerFacing, &mut Sprite, Option<&DamageFlash>)>,
     buffs_query: Query<&ActiveBuff>,
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     chunk_query: Query<&Chunk>,
     building_query: Query<(&Transform, &Building, Option<&Door>), Without<Player>>,
+    game_settings: Res<crate::settings::GameSettings>,
 ) {
-    let Ok((mut player, hunger, mut transform, mut facing, mut sprite)) = query.get_single_mut() else { return };
+    let Ok((mut player, hunger, mut transform, mut facing, mut sprite, damage_flash)) = query.get_single_mut() else { return };
+    let dt = time.delta_secs();
 
     let mut direction = Vec2::ZERO;
 
-    if keyboard.pressed(KeyCode::KeyW) || keyboard.pressed(KeyCode::ArrowUp) {
+    if keyboard.pressed(game_settings.keybinds.move_up) || keyboard.pressed(KeyCode::ArrowUp) {
         direction.y += 1.0;
     }
-    if keyboard.pressed(KeyCode::KeyS) || keyboard.pressed(KeyCode::ArrowDown) {
+    if keyboard.pressed(game_settings.keybinds.move_down) || keyboard.pressed(KeyCode::ArrowDown) {
         direction.y -= 1.0;
     }
-    if keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft) {
+    if keyboard.pressed(game_settings.keybinds.move_left) || keyboard.pressed(KeyCode::ArrowLeft) {
         direction.x -= 1.0;
     }
-    if keyboard.pressed(KeyCode::KeyD) || keyboard.pressed(KeyCode::ArrowRight) {
+    if keyboard.pressed(game_settings.keybinds.move_right) || keyboard.pressed(KeyCode::ArrowRight) {
         direction.x += 1.0;
+    }
+
+    // Compute max speed with buffs/hunger
+    let hunger_multiplier = if hunger.is_slow() { 0.7 } else { 1.0 };
+    let speed_buff = buffs_query.iter()
+        .find(|b| b.buff_type == BuffType::Speed)
+        .map(|b| b.magnitude)
+        .unwrap_or(1.0);
+    // Swimming: 50% speed in water, visual tint
+    let in_water = is_position_water(transform.translation.x, transform.translation.y, &chunk_query);
+    let swim_mult = if in_water { 0.5 } else { 1.0 };
+    let max_speed = player.speed * hunger_multiplier * speed_buff * swim_mult;
+
+    // Swim visual: blue tint when in water (skip if damage flash is active)
+    if damage_flash.is_none() {
+        if in_water {
+            sprite.color = Color::srgba(0.7, 0.8, 1.0, 0.85);
+        } else {
+            sprite.color = Color::WHITE;
+        }
     }
 
     if direction != Vec2::ZERO {
         direction = direction.normalize();
 
-        // Determine facing from the largest axis of movement
+        // Determine facing from the largest axis of input
         if direction.x.abs() >= direction.y.abs() {
             if direction.x > 0.0 {
                 *facing = PlayerFacing::Right;
@@ -173,42 +240,72 @@ fn player_movement(
             *facing = PlayerFacing::Down;
         }
 
-        let hunger_multiplier = if hunger.is_slow() { 0.7 } else { 1.0 };
+        // Accelerate toward input direction
+        player.velocity += direction * ACCEL * dt;
+        // Clamp to max speed
+        let speed_sq = player.velocity.length_squared();
+        if speed_sq > max_speed * max_speed {
+            player.velocity = player.velocity.normalize() * max_speed;
+        }
+    } else {
+        // Decelerate toward zero (friction)
+        let current_speed = player.velocity.length();
+        if current_speed > 0.0 {
+            let reduction = DECEL * dt;
+            if reduction >= current_speed {
+                player.velocity = Vec2::ZERO;
+            } else {
+                let dir = player.velocity.normalize();
+                player.velocity -= dir * reduction;
+            }
+        }
+    }
 
-        let speed_buff = buffs_query.iter()
-            .find(|b| b.buff_type == BuffType::Speed)
-            .map(|b| b.magnitude)
-            .unwrap_or(1.0);
+    // Apply velocity with per-axis collision
+    let delta = player.velocity * dt;
 
-        let speed = player.speed * hunger_multiplier * speed_buff;
-        let delta = direction * speed * time.delta_secs();
-
-        // Check X movement
+    if delta.x != 0.0 {
         let target_x = transform.translation.x + delta.x;
         if is_position_walkable(target_x, transform.translation.y, &chunk_query)
             && !is_blocked_by_building(target_x, transform.translation.y, &building_query)
         {
             transform.translation.x = target_x;
+        } else {
+            // Zero out X velocity on collision
+            player.velocity.x = 0.0;
         }
+    }
 
-        // Check Y movement independently (allows sliding along walls)
+    if delta.y != 0.0 {
         let target_y = transform.translation.y + delta.y;
         if is_position_walkable(transform.translation.x, target_y, &chunk_query)
             && !is_blocked_by_building(transform.translation.x, target_y, &building_query)
         {
             transform.translation.y = target_y;
+        } else {
+            // Zero out Y velocity on collision
+            player.velocity.y = 0.0;
         }
+    }
 
-        // Walk bob: squash/stretch sprite for movement feel (no position drift)
-        player.walk_timer += time.delta_secs();
+    // Walk bob: pronounced squash/stretch + hop when moving
+    let is_moving = player.velocity.length_squared() > 1.0;
+    // Remove previous hop offset so position stays correct
+    transform.translation.y -= player.walk_bob_offset;
+    if is_moving {
+        player.walk_timer += dt;
         let bob = (player.walk_timer * 10.0 * std::f32::consts::PI).sin();
         sprite.custom_size = Some(Vec2::new(
-            PLAYER_SIZE + bob * 0.8,
-            PLAYER_SIZE - bob * 0.8,
+            PLAYER_SIZE + bob * 1.5,
+            PLAYER_SIZE - bob * 1.5,
         ));
+        // Hop effect: visually bounce the sprite upward
+        let hop = bob.abs() * 0.8;
+        player.walk_bob_offset = hop;
+        transform.translation.y += hop;
     } else {
-        // Reset walk timer and restore sprite when not moving
         player.walk_timer = 0.0;
+        player.walk_bob_offset = 0.0;
         sprite.custom_size = Some(Vec2::new(PLAYER_SIZE, PLAYER_SIZE));
     }
 }
@@ -229,12 +326,29 @@ fn is_position_walkable(x: f32, y: f32, chunk_query: &Query<&Chunk>) -> bool {
     true // Allow movement if chunk not loaded
 }
 
+/// Returns true if the given position is on a water tile.
+fn is_position_water(x: f32, y: f32, chunk_query: &Query<&Chunk>) -> bool {
+    let chunk_x = (x / CHUNK_WORLD_SIZE).floor() as i32;
+    let chunk_y = (y / CHUNK_WORLD_SIZE).floor() as i32;
+
+    let tile_x = ((x / TILE_SIZE).floor() as i32 - chunk_x * CHUNK_SIZE as i32).clamp(0, CHUNK_SIZE as i32 - 1) as usize;
+    let tile_y = ((y / TILE_SIZE).floor() as i32 - chunk_y * CHUNK_SIZE as i32).clamp(0, CHUNK_SIZE as i32 - 1) as usize;
+
+    for chunk in chunk_query.iter() {
+        if chunk.position.x == chunk_x && chunk.position.y == chunk_y {
+            return chunk.get_tile(tile_x, tile_y).is_water();
+        }
+    }
+
+    false
+}
+
 fn is_blocked_by_building(
     x: f32,
     y: f32,
     building_query: &Query<(&Transform, &Building, Option<&Door>), Without<Player>>,
 ) -> bool {
-    let player_half = 6.0; // Half of PLAYER_SIZE (12/2)
+    let player_half = 8.0; // Half of collision box (~80% of PLAYER_SIZE 20)
     for (tf, building, door) in building_query.iter() {
         // Only walls and closed doors block movement
         let blocks = match building.building_type {
@@ -530,6 +644,50 @@ fn equip_armor(
                 inventory.add_item(old, 1);
             }
             armor.shield = Some(item);
+        }
+    }
+}
+
+/// Ticks the DamageFlash timer and tints the player sprite red while active.
+fn update_damage_flash(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &Transform, &mut DamageFlash, &mut Sprite), With<Player>>,
+    chunk_query: Query<&Chunk>,
+) {
+    for (entity, tf, mut flash, mut sprite) in query.iter_mut() {
+        flash.timer -= time.delta_secs();
+        if flash.timer > 0.0 {
+            // Red tint while flashing
+            sprite.color = Color::srgba(1.0, 0.3, 0.3, 1.0);
+        } else {
+            // Restore color: respect water tint if player is in water
+            let in_water = is_position_water(tf.translation.x, tf.translation.y, &chunk_query);
+            if in_water {
+                sprite.color = Color::srgba(0.7, 0.8, 1.0, 0.85);
+            } else {
+                sprite.color = Color::WHITE;
+            }
+            commands.entity(entity).remove::<DamageFlash>();
+        }
+    }
+}
+
+/// Ticks the AttackLunge timer and scales the player sprite up briefly.
+fn update_attack_lunge(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut AttackLunge, &mut Sprite), With<Player>>,
+) {
+    for (entity, mut lunge, mut sprite) in query.iter_mut() {
+        lunge.timer -= time.delta_secs();
+        if lunge.timer > 0.0 {
+            // Scale up by 10%
+            sprite.custom_size = Some(Vec2::new(PLAYER_SIZE * 1.1, PLAYER_SIZE * 1.1));
+        } else {
+            // Reset to normal size (walk bob will override next frame if moving)
+            sprite.custom_size = Some(Vec2::new(PLAYER_SIZE, PLAYER_SIZE));
+            commands.entity(entity).remove::<AttackLunge>();
         }
     }
 }

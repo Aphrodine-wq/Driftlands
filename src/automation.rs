@@ -2,8 +2,8 @@ use bevy::prelude::*;
 use crate::building::{Building, BuildingType, ChestStorage};
 use crate::inventory::{InventorySlot, ItemType};
 use crate::farming::FarmPlot;
-use crate::combat::Enemy;
 use crate::hud::FloatingTextRequest;
+use crate::spatial::SpatialGrid;
 
 pub struct AutomationPlugin;
 
@@ -62,6 +62,7 @@ fn auto_smelter_tick(
     mut smelter_query: Query<(&Transform, &mut AutoSmelter)>,
     forge_query: Query<(&Transform, &Building), Without<AutoSmelter>>,
     mut chest_query: Query<(&Transform, &mut ChestStorage), Without<AutoSmelter>>,
+    grid: Res<SpatialGrid>,
 ) {
     let dt = time.delta_secs();
 
@@ -74,21 +75,20 @@ fn auto_smelter_tick(
 
         let smelter_pos = smelter_tf.translation.truncate();
 
-        // Check if there is a Forge within range (64px)
-        let near_forge = forge_query.iter().any(|(tf, building)| {
-            matches!(building.building_type, BuildingType::Forge | BuildingType::AdvancedForge)
-                && smelter_pos.distance(tf.translation.truncate()) <= 64.0
+        // Use spatial grid to find nearby buildings, then filter for forges
+        let nearby_buildings = grid.query_buildings_in_radius(smelter_pos, 64.0);
+        let near_forge = nearby_buildings.iter().any(|&(entity, _)| {
+            forge_query.get(entity).map(|(_, building)| {
+                matches!(building.building_type, BuildingType::Forge | BuildingType::AdvancedForge)
+            }).unwrap_or(false)
         });
         if !near_forge {
             continue;
         }
 
-        // Find nearest chest within range (64px) that has ore + coal, and smelt
-        for (tf, mut chest) in chest_query.iter_mut() {
-            let dist = smelter_pos.distance(tf.translation.truncate());
-            if dist > 64.0 {
-                continue;
-            }
+        // Use spatial grid to find nearby buildings, then check chests among them
+        for &(chest_entity, _) in &nearby_buildings {
+            let Ok((_, mut chest)) = chest_query.get_mut(chest_entity) else { continue };
 
             // Check if chest has IronOre and Coal
             let has_ore = chest.slots.iter().any(|s| {
@@ -165,6 +165,7 @@ fn crop_sprinkler_tick(
     time: Res<Time>,
     sprinkler_query: Query<&Transform, With<CropSprinkler>>,
     mut farm_query: Query<(&Transform, &mut FarmPlot), Without<CropSprinkler>>,
+    grid: Res<SpatialGrid>,
 ) {
     let dt = time.delta_secs();
     let boost = dt * SPRINKLER_BOOST;
@@ -172,12 +173,13 @@ fn crop_sprinkler_tick(
     for sprinkler_tf in sprinkler_query.iter() {
         let sprinkler_pos = sprinkler_tf.translation.truncate();
 
-        for (farm_tf, mut plot) in farm_query.iter_mut() {
-            if plot.crop.is_none() || plot.growth >= 1.0 {
-                continue;
-            }
-            let dist = sprinkler_pos.distance(farm_tf.translation.truncate());
-            if dist <= SPRINKLER_RADIUS {
+        // Use spatial grid to find nearby farms
+        let nearby_farms = grid.query_farms_in_radius(sprinkler_pos, SPRINKLER_RADIUS);
+        for (farm_entity, _) in nearby_farms {
+            if let Ok((_, mut plot)) = farm_query.get_mut(farm_entity) {
+                if plot.crop.is_none() || plot.growth >= 1.0 {
+                    continue;
+                }
                 // Apply 25% growth boost (additive to normal growth each second)
                 plot.growth = (plot.growth + boost * (1.0 / 120.0)).min(1.0);
             }
@@ -189,8 +191,8 @@ fn crop_sprinkler_tick(
 fn alarm_bell_tick(
     time: Res<Time>,
     mut bell_query: Query<(&Transform, &mut AlarmBell)>,
-    enemy_query: Query<&Transform, With<Enemy>>,
     mut text_events: EventWriter<FloatingTextRequest>,
+    grid: Res<SpatialGrid>,
 ) {
     let dt = time.delta_secs();
 
@@ -203,9 +205,8 @@ fn alarm_bell_tick(
 
         let bell_pos = bell_tf.translation.truncate();
 
-        let enemy_nearby = enemy_query.iter().any(|etf| {
-            bell_pos.distance(etf.translation.truncate()) <= ALARM_RADIUS
-        });
+        // Use spatial grid instead of iterating all enemies
+        let enemy_nearby = !grid.query_enemies_in_radius(bell_pos, ALARM_RADIUS).is_empty();
 
         if enemy_nearby {
             text_events.send(FloatingTextRequest {

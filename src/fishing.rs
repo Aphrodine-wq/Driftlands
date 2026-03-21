@@ -305,6 +305,7 @@ fn fishing_bite(
 fn fishing_hook_window(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
+    game_settings: Res<crate::settings::GameSettings>,
     mut fishing: ResMut<FishingState>,
 ) {
     if fishing.phase != FishingPhase::Hooked {
@@ -313,7 +314,7 @@ fn fishing_hook_window(
 
     fishing.hook_window -= time.delta_secs();
 
-    if keyboard.just_pressed(KeyCode::KeyE) {
+    if keyboard.just_pressed(game_settings.keybinds.interact) {
         fishing.reel_progress = 0.0;
         fishing.phase = FishingPhase::Reeling;
         return;

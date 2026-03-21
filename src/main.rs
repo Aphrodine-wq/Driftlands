@@ -36,6 +36,11 @@ mod quests;
 mod structures;
 mod skills;
 mod automation;
+mod spatial;
+mod animation;
+mod settings;
+mod saveslots;
+mod debug_perf;
 
 use bevy::prelude::*;
 
@@ -87,8 +92,10 @@ fn main() {
             mainmenu::MainMenuPlugin,
             tutorial::TutorialPlugin,
             controls::ControlsPlugin,
+            saveslots::SaveSlotBrowserPlugin,
         ))
         .add_plugins((
+            spatial::SpatialPlugin,
             status_effects::StatusEffectsPlugin,
             fishing::FishingPlugin,
             enchanting::EnchantingPlugin,
@@ -97,6 +104,9 @@ fn main() {
             structures::StructuresPlugin,
             skills::SkillsPlugin,
             automation::AutomationPlugin,
+            animation::AnimationPlugin,
+            settings::SettingsPlugin,
         ))
+        .add_plugins(debug_perf::DebugPerfPlugin)
         .run();
 }

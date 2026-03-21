@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use crate::player::{Player, PlayerFacing};
 use crate::camera::GameCamera;
 use crate::world::chunk::{Chunk, CHUNK_SIZE};
@@ -16,13 +16,17 @@ impl Plugin for MinimapPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ExploredChunks::default())
             .insert_resource(MinimapState::default())
+            .insert_resource(MinimapDirty::default())
             .add_systems(Startup, spawn_minimap)
-            .add_systems(Update, (update_explored_chunks, update_minimap, toggle_minimap));
+            .add_systems(Update, (update_explored_chunks, mark_minimap_dirty, update_minimap, toggle_minimap));
     }
 }
 
 const MINIMAP_SIZE: usize = 120;
 const MINIMAP_SCALE: f32 = 4.0; // Each minimap pixel = 4 world pixels
+
+/// Frame-skip: only redraw every N frames when dirty (~6 redraws/sec at 60fps)
+const MINIMAP_FRAME_SKIP: u32 = 10;
 
 #[derive(Component)]
 pub struct Minimap;
@@ -45,6 +49,35 @@ impl Default for MinimapState {
     }
 }
 
+/// Tracks whether the minimap image needs to be regenerated.
+/// Dirty when: player moves to new chunk, chunks load/unload, minimap toggled.
+#[derive(Resource)]
+pub struct MinimapDirty {
+    pub dirty: bool,
+    /// Frame counter for frame-skip logic.
+    pub frame_counter: u32,
+    /// Track the player's last chunk position to detect chunk transitions.
+    pub last_player_chunk: IVec2,
+    /// Track chunk count to detect loads/unloads.
+    pub last_chunk_count: usize,
+    /// Track visibility state to detect toggles.
+    pub last_visible: bool,
+    pub last_fullscreen: bool,
+}
+
+impl Default for MinimapDirty {
+    fn default() -> Self {
+        Self {
+            dirty: true, // Force initial draw
+            frame_counter: 0,
+            last_player_chunk: IVec2::new(i32::MIN, i32::MIN),
+            last_chunk_count: 0,
+            last_visible: true,
+            last_fullscreen: false,
+        }
+    }
+}
+
 #[derive(Resource, Default)]
 pub struct ExploredChunks {
     pub chunks: HashSet<IVec2>,
@@ -63,6 +96,43 @@ fn update_explored_chunks(
         for dx in -2..=2 {
             explored.chunks.insert(IVec2::new(player_chunk_x + dx, player_chunk_y + dy));
         }
+    }
+}
+
+/// Detect conditions that require a minimap redraw and set the dirty flag.
+fn mark_minimap_dirty(
+    player_query: Query<&Transform, With<Player>>,
+    chunk_query: Query<&Chunk>,
+    minimap_state: Res<MinimapState>,
+    mut dirty: ResMut<MinimapDirty>,
+) {
+    let Ok(player_tf) = player_query.get_single() else { return };
+
+    let player_chunk = IVec2::new(
+        (player_tf.translation.x / CHUNK_WORLD_SIZE).floor() as i32,
+        (player_tf.translation.y / CHUNK_WORLD_SIZE).floor() as i32,
+    );
+    let chunk_count = chunk_query.iter().count();
+
+    // Player moved to a new chunk
+    if player_chunk != dirty.last_player_chunk {
+        dirty.dirty = true;
+        dirty.last_player_chunk = player_chunk;
+    }
+
+    // Chunks loaded or unloaded
+    if chunk_count != dirty.last_chunk_count {
+        dirty.dirty = true;
+        dirty.last_chunk_count = chunk_count;
+    }
+
+    // Minimap visibility toggled
+    if minimap_state.minimap_visible != dirty.last_visible
+        || minimap_state.fullscreen_open != dirty.last_fullscreen
+    {
+        dirty.dirty = true;
+        dirty.last_visible = minimap_state.minimap_visible;
+        dirty.last_fullscreen = minimap_state.fullscreen_open;
     }
 }
 
@@ -110,6 +180,7 @@ fn update_minimap(
     trader_query: Query<&Transform, (With<Trader>, Without<Player>, Without<GameCamera>, Without<Minimap>, Without<DungeonEntrance>)>,
     spawn_point: Res<SpawnPoint>,
     death_stats: Res<DeathStats>,
+    mut dirty: ResMut<MinimapDirty>,
 ) {
     let Ok((player_tf, player_facing)) = player_query.get_single() else { return };
     let Ok(cam_tf) = camera_query.get_single() else { return };
@@ -123,6 +194,34 @@ fn update_minimap(
     minimap_tf.translation.y = cam_tf.translation.y + 280.0 * zoom;
     // Scale minimap inversely with zoom so it stays the same screen size
     let minimap_display_scale = zoom * 1.3; // slightly larger than 1:1
+
+    // US-040: Hide minimap if toggled off (always update transform, even when skipping redraw)
+    let state = minimap_state.into_inner();
+    if !state.minimap_visible && !state.fullscreen_open {
+        minimap_tf.scale = Vec3::ZERO;
+        return; // Hidden — no point redrawing
+    } else if state.fullscreen_open {
+        // Fullscreen map: scale up and center on camera
+        minimap_tf.translation.x = cam_tf.translation.x;
+        minimap_tf.translation.y = cam_tf.translation.y;
+        minimap_tf.scale = Vec3::splat(3.0 * zoom);
+    } else {
+        minimap_tf.scale = Vec3::splat(minimap_display_scale);
+    }
+
+    // --- Dirty + frame-skip gate ---
+    // Only redraw if dirty, and even then only every MINIMAP_FRAME_SKIP frames.
+    if !dirty.dirty {
+        return;
+    }
+    dirty.frame_counter += 1;
+    if dirty.frame_counter < MINIMAP_FRAME_SKIP {
+        return;
+    }
+    dirty.frame_counter = 0;
+    dirty.dirty = false;
+
+    // --- Full redraw from here ---
 
     // Update the minimap image
     let image_handle = &sprite.image;
@@ -138,6 +237,12 @@ fn update_minimap(
         pixel[2] = 30;
         pixel[3] = 255;
     }
+
+    // Build a HashMap of loaded chunks for O(1) lookup instead of iterating all chunks per pixel
+    let chunk_map: HashMap<IVec2, &Chunk> = chunk_query
+        .iter()
+        .map(|chunk| (chunk.position, chunk))
+        .collect();
 
     // For each pixel in the minimap, determine the world tile and get its color
     let half = MINIMAP_SIZE as f32 / 2.0;
@@ -162,19 +267,16 @@ fn update_minimap(
             let tile_x = ((world_x / TILE_SIZE).floor() as i32 - chunk_x * CHUNK_SIZE as i32).clamp(0, CHUNK_SIZE as i32 - 1) as usize;
             let tile_y = ((world_y / TILE_SIZE).floor() as i32 - chunk_y * CHUNK_SIZE as i32).clamp(0, CHUNK_SIZE as i32 - 1) as usize;
 
-            // Find the chunk
-            for chunk in chunk_query.iter() {
-                if chunk.position.x == chunk_x && chunk.position.y == chunk_y {
-                    let tile = chunk.get_tile(tile_x, tile_y);
-                    let color = tile.color();
-                    let idx = (my * MINIMAP_SIZE + mx) * 4;
-                    if idx + 3 < image.data.len() {
-                        image.data[idx] = color[0];
-                        image.data[idx + 1] = color[1];
-                        image.data[idx + 2] = color[2];
-                        image.data[idx + 3] = 255;
-                    }
-                    break;
+            // O(1) chunk lookup via HashMap
+            if let Some(chunk) = chunk_map.get(&IVec2::new(chunk_x, chunk_y)) {
+                let tile = chunk.get_tile(tile_x, tile_y);
+                let color = tile.color();
+                let idx = (my * MINIMAP_SIZE + mx) * 4;
+                if idx + 3 < image.data.len() {
+                    image.data[idx] = color[0];
+                    image.data[idx + 1] = color[1];
+                    image.data[idx + 2] = color[2];
+                    image.data[idx + 3] = 255;
                 }
             }
         }
@@ -293,19 +395,6 @@ fn update_minimap(
         set_pixel(&mut image.data, i, 1, border_color);
         set_pixel(&mut image.data, i, size as i32 - 2, border_color);
         set_pixel(&mut image.data, i, size as i32 - 1, border_color);
-    }
-
-    // US-040: Hide minimap if toggled off
-    let state = minimap_state.into_inner();
-    if !state.minimap_visible && !state.fullscreen_open {
-        minimap_tf.scale = Vec3::ZERO;
-    } else if state.fullscreen_open {
-        // Fullscreen map: scale up and center on camera
-        minimap_tf.translation.x = cam_tf.translation.x;
-        minimap_tf.translation.y = cam_tf.translation.y;
-        minimap_tf.scale = Vec3::splat(3.0 * zoom);
-    } else {
-        minimap_tf.scale = Vec3::splat(minimap_display_scale);
     }
 }
 

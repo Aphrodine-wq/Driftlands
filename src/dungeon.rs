@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use rand::Rng;
 use crate::hud::not_paused;
 use crate::player::Player;
-use crate::combat::{Enemy, EnemyType, EnemyState, Boss};
+use crate::combat::{Enemy, EnemyType, EnemyState, Boss, spawn_health_bar_children};
 use crate::inventory::ItemType;
 use crate::world::generation::{WorldGenerator, Biome};
 use crate::gathering::spawn_dropped_item;
@@ -519,7 +519,7 @@ fn spawn_dungeon_enemy(commands: &mut Commands, pos: Vec2, enemy_type: EnemyType
         rng.gen_range(-1.0f32..1.0),
     ).normalize_or_zero();
 
-    commands.spawn((
+    let entity = commands.spawn((
         DungeonEnemy,
         Enemy {
             enemy_type,
@@ -545,7 +545,8 @@ fn spawn_dungeon_enemy(commands: &mut Commands, pos: Vec2, enemy_type: EnemyType
             ..default()
         },
         Transform::from_xyz(pos.x, pos.y, 5.0),
-    ));
+    )).id();
+    spawn_health_bar_children(commands, entity, size.y);
 }
 
 /// Spawns the dungeon boss in the last room.
@@ -637,7 +638,7 @@ fn spawn_dungeon_boss(commands: &mut Commands, pos: Vec2, biome: Biome) {
         rng.gen_range(-1.0f32..1.0),
     ).normalize_or_zero();
 
-    commands.spawn((
+    let entity = commands.spawn((
         DungeonEnemy,
         Enemy {
             enemy_type: boss_type,
@@ -669,7 +670,8 @@ fn spawn_dungeon_boss(commands: &mut Commands, pos: Vec2, biome: Biome) {
             ..default()
         },
         Transform::from_xyz(pos.x, pos.y, 5.0),
-    ));
+    )).id();
+    spawn_health_bar_children(commands, entity, size.y);
 }
 
 fn spawn_dungeon_exit(commands: &mut Commands, pos: Vec2, surface_pos: Vec2) {
@@ -748,11 +750,12 @@ pub fn cave_spider_random_drop(rng: &mut impl Rng) -> Option<(ItemType, u32)> {
 fn dungeon_chest_interaction(
     mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
+    game_settings: Res<crate::settings::GameSettings>,
     player_query: Query<&Transform, With<Player>>,
     mut chest_query: Query<(Entity, &mut DungeonChest, &Transform), Without<Player>>,
     mut sound_events: EventWriter<SoundEvent>,
 ) {
-    if !keyboard.just_pressed(KeyCode::KeyE) {
+    if !keyboard.just_pressed(game_settings.keybinds.interact) {
         return;
     }
 

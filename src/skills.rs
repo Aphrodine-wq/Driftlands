@@ -235,9 +235,10 @@ fn process_skill_xp(
 
 fn toggle_skill_panel(
     keyboard: Res<ButtonInput<KeyCode>>,
+    game_settings: Res<crate::settings::GameSettings>,
     mut skill_levels: ResMut<SkillLevels>,
 ) {
-    if keyboard.just_pressed(KeyCode::KeyK) {
+    if keyboard.just_pressed(game_settings.keybinds.skills) {
         skill_levels.skills_open = !skill_levels.skills_open;
     }
 }

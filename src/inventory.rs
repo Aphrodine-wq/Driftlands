@@ -618,9 +618,10 @@ fn setup_inventory(mut commands: Commands) {
 
 fn toggle_inventory(
     keyboard: Res<ButtonInput<KeyCode>>,
+    game_settings: Res<crate::settings::GameSettings>,
     mut inventory: ResMut<Inventory>,
 ) {
-    if keyboard.just_pressed(KeyCode::Tab) || keyboard.just_pressed(KeyCode::KeyI) {
+    if keyboard.just_pressed(game_settings.keybinds.inventory) || keyboard.just_pressed(KeyCode::KeyI) {
         inventory.is_open = !inventory.is_open;
     }
 }

@@ -7,7 +7,7 @@ use crate::npc::{self, Invulnerable, Knowledge};
 use crate::world::generation::{Biome, WorldGenerator};
 use crate::world::chunk::Chunk;
 use crate::world::{ChunkObject, WorldState, CHUNK_WORLD_SIZE};
-use crate::combat::{Enemy, EnemyType, EnemyState};
+use crate::combat::{Enemy, EnemyType, EnemyState, spawn_health_bar_children};
 
 pub struct StructuresPlugin;
 
@@ -110,6 +110,7 @@ fn check_chunk_structures(
     world_state: Res<WorldState>,
     chunk_query: Query<&Chunk>,
     mut spawned: ResMut<SpawnedStructures>,
+    assets: Res<crate::assets::GameAssets>,
 ) {
     // Iterate all loaded chunks and process any that haven't been handled yet.
     for chunk in chunk_query.iter() {
@@ -132,13 +133,13 @@ fn check_chunk_structures(
         if matches!(biome, Biome::Forest | Biome::Mountain)
             && (struct_hash % 20) == 0
         {
-            spawn_abandoned_village(&mut commands, chunk_pos, seed, biome);
+            spawn_abandoned_village(&mut commands, &assets, chunk_pos, seed, biome);
         }
         // Mine Shaft: Mountain/CrystalCave, 1 in 30 chunks
         else if matches!(biome, Biome::Mountain | Biome::CrystalCave)
             && (WorldGenerator::position_hash(chunk_pos.x, chunk_pos.y, seed.wrapping_add(10001)) % 30) == 0
         {
-            spawn_mine_shaft(&mut commands, chunk_pos, seed);
+            spawn_mine_shaft(&mut commands, &assets, chunk_pos, seed);
         }
         // Trader Outpost: any biome, 1 in 50 chunks
         else if (WorldGenerator::position_hash(chunk_pos.x, chunk_pos.y, seed.wrapping_add(10002)) % 50) == 0
@@ -201,7 +202,7 @@ fn structure_offset(chunk_pos: IVec2, seed: u32) -> Vec2 {
     Vec2::new(ox, oy)
 }
 
-fn spawn_abandoned_village(commands: &mut Commands, chunk_pos: IVec2, seed: u32, biome: Biome) {
+fn spawn_abandoned_village(commands: &mut Commands, assets: &crate::assets::GameAssets, chunk_pos: IVec2, seed: u32, biome: Biome) {
     let center = chunk_center(chunk_pos) + structure_offset(chunk_pos, seed);
 
     // 4 RuinWall entities in a rough square
@@ -250,16 +251,16 @@ fn spawn_abandoned_village(commands: &mut Commands, chunk_pos: IVec2, seed: u32,
     }
 
     // Spawn a Quest Giver NPC in the village center
-    npc::spawn_quest_giver(commands, center.x, center.y, chunk_pos);
+    npc::spawn_quest_giver(commands, assets, center.x, center.y, chunk_pos);
 
     // Forest villages also get a Farmer NPC
     if biome == Biome::Forest {
         let farmer_pos = center + Vec2::new(0.0, -20.0);
-        npc::spawn_farmer(commands, farmer_pos.x, farmer_pos.y, chunk_pos);
+        npc::spawn_farmer(commands, assets, farmer_pos.x, farmer_pos.y, chunk_pos);
     }
 }
 
-fn spawn_mine_shaft(commands: &mut Commands, chunk_pos: IVec2, seed: u32) {
+fn spawn_mine_shaft(commands: &mut Commands, assets: &crate::assets::GameAssets, chunk_pos: IVec2, seed: u32) {
     let center = chunk_center(chunk_pos) + structure_offset(chunk_pos, seed);
 
     // Mine entrance marker
@@ -297,7 +298,7 @@ fn spawn_mine_shaft(commands: &mut Commands, chunk_pos: IVec2, seed: u32) {
 
     // Blacksmith NPC near the mine entrance
     let bs_pos = center + Vec2::new(-14.0, 0.0);
-    npc::spawn_blacksmith(commands, bs_pos.x, bs_pos.y, chunk_pos);
+    npc::spawn_blacksmith(commands, assets, bs_pos.x, bs_pos.y, chunk_pos);
 }
 
 fn spawn_trader_outpost(commands: &mut Commands, chunk_pos: IVec2, seed: u32) {
@@ -379,7 +380,7 @@ fn spawn_camp_enemy(commands: &mut Commands, pos: Vec2, enemy_type: EnemyType, c
     };
     let scaled_hp = health * hp_mult;
 
-    commands.spawn((
+    let entity = commands.spawn((
         Enemy {
             enemy_type,
             health: scaled_hp,
@@ -405,7 +406,8 @@ fn spawn_camp_enemy(commands: &mut Commands, pos: Vec2, enemy_type: EnemyType, c
             ..default()
         },
         Transform::from_xyz(pos.x, pos.y, 5.0),
-    ));
+    )).id();
+    spawn_health_bar_children(commands, entity, size.y);
 }
 
 /// Wolf Den: 3-4 wolves + bone pile loot in Forest/Mountain biomes.

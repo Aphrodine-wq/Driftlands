@@ -101,38 +101,35 @@ fn check_tutorial_triggers(
     inventory: Res<crate::inventory::Inventory>,
     cycle: Res<crate::daynight::DayNightCycle>,
     building_query: Query<&crate::building::Building>,
+    game_settings: Res<crate::settings::GameSettings>,
 ) {
+    let kb = &game_settings.keybinds;
+    let key = crate::settings::keycode_display;
+
     // 1. Spawn hint: show on first frame of gameplay
     if !tutorial.spawn_hint_queued {
         tutorial.spawn_hint_queued = true;
-        try_show_hint(
-            &mut tutorial,
-            "spawn",
-            "WASD to move, hold LMB near trees to gather",
-            8.0,
+        let msg = format!(
+            "{}/{}/{}/{} to move, hold LMB near trees to gather",
+            key(kb.move_up), key(kb.move_left), key(kb.move_down), key(kb.move_right),
         );
+        try_show_hint(&mut tutorial, "spawn", &msg, 8.0);
     }
 
-    // 2. After first gather: detect by checking if player has any gathered items.
-    //    The simplest signal is that the inventory has gained items since spawn.
-    //    We track this via seen_pickup: once inventory has any item, trigger.
+    // 2. After first gather
     if !tutorial.seen_pickup {
         let has_items = inventory.slots.iter().any(|s| s.is_some());
         if has_items {
             tutorial.seen_pickup = true;
-            try_show_hint(
-                &mut tutorial,
-                "first_gather",
-                "Press C to open crafting. Try making a Workbench!",
-                8.0,
+            let msg = format!(
+                "Press {} to open crafting. Try making a Workbench!",
+                key(kb.crafting),
             );
+            try_show_hint(&mut tutorial, "first_gather", &msg, 8.0);
         }
     }
 
-    // 3. After first craft: detect by checking if crafting menu has been used.
-    //    We can detect this indirectly: if the player has crafted items (items that
-    //    only come from crafting, like WoodPlank, Stick x4, Rope, etc.).
-    //    Simplest: check if player has any crafted item (Stick, WoodPlank, Rope, Workbench, etc.)
+    // 3. After first craft
     if !tutorial.seen_craft && tutorial.seen_pickup {
         let crafted_items = [
             crate::inventory::ItemType::WoodPlank,
@@ -148,12 +145,11 @@ fn check_tutorial_triggers(
         let has_crafted = crafted_items.iter().any(|item| inventory.count_items(*item) > 0);
         if has_crafted {
             tutorial.seen_craft = true;
-            try_show_hint(
-                &mut tutorial,
-                "first_craft",
-                "Press B to enter build mode. Q to cycle, RMB to place.",
-                8.0,
+            let msg = format!(
+                "Press {} to enter build mode. Q to cycle, RMB to place.",
+                key(kb.building),
             );
+            try_show_hint(&mut tutorial, "first_craft", &msg, 8.0);
         }
     }
 
@@ -190,6 +186,7 @@ fn check_combat_tutorial_triggers(
     boss_query: Query<&crate::combat::Boss>,
     player_query: Query<&Transform, With<crate::player::Player>>,
     inventory: Res<crate::inventory::Inventory>,
+    game_settings: Res<crate::settings::GameSettings>,
 ) {
     // 1. first_combat — triggered when player first attacks an enemy (kills tracked > 0)
     if !tutorial.seen_combat && death_stats.total_kills > 0 {
@@ -256,7 +253,8 @@ fn check_combat_tutorial_triggers(
             try_show_hint(
                 &mut tutorial,
                 "first_quest_complete",
-                "Quest complete! Open the Quest Log [J] to claim rewards.",
+                &format!("Quest complete! Open the Quest Log [{}] to claim rewards.",
+                    crate::settings::keycode_display(game_settings.keybinds.journal)),
                 8.0,
             );
         }

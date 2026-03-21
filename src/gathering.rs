@@ -6,11 +6,12 @@ use crate::world::{WorldObject, WorldObjectType, WorldState};
 use crate::inventory::{Inventory, ItemType};
 use crate::player::Player;
 use crate::building::BuildingState;
-use crate::combat::Enemy;
+use crate::spatial::SpatialGrid;
 use crate::particles::SpawnParticlesEvent;
 use crate::world::generation::WorldGenerator;
 use crate::audio::SoundEvent;
 use crate::hud::FloatingTextRequest;
+use crate::skills::{SkillXpEvent, SkillType};
 
 pub struct GatheringPlugin;
 
@@ -114,13 +115,14 @@ fn gather_resources(
     building_state: Res<BuildingState>,
     player_query: Query<&Transform, With<Player>>,
     mut objects_query: Query<(Entity, &Transform, &mut WorldObject)>,
-    enemy_query: Query<&Transform, With<Enemy>>,
     mut inventory: ResMut<Inventory>,
     world_state: Res<WorldState>,
     time: Res<Time>,
     mut gathering_state: ResMut<GatheringState>,
+    spatial_grid: Res<SpatialGrid>,
     mut particle_events: EventWriter<SpawnParticlesEvent>,
     mut sound_events: EventWriter<SoundEvent>,
+    mut skill_xp_events: EventWriter<SkillXpEvent>,
 ) {
     // Default: not gathering anything this frame
     gathering_state.target = None;
@@ -133,20 +135,16 @@ fn gather_resources(
     let player_pos = player_transform.translation.truncate();
 
     // Don't gather if an enemy is within attack range (combat takes priority)
-    for enemy_tf in enemy_query.iter() {
-        if player_pos.distance(enemy_tf.translation.truncate()) <= 40.0 {
-            return;
-        }
+    if !spatial_grid.query_enemies_in_radius(player_pos, 40.0).is_empty() {
+        return;
     }
 
     // Find nearest object in range
     let mut nearest: Option<(Entity, f32)> = None;
-    for (entity, transform, _) in objects_query.iter() {
-        let dist = player_pos.distance(transform.translation.truncate());
-        if dist <= GATHER_RANGE {
-            if nearest.is_none() || dist < nearest.unwrap().1 {
-                nearest = Some((entity, dist));
-            }
+    for (entity, obj_pos) in spatial_grid.query_world_objects_in_radius(player_pos, GATHER_RANGE) {
+        let dist = player_pos.distance(obj_pos);
+        if nearest.is_none() || dist < nearest.unwrap().1 {
+            nearest = Some((entity, dist));
         }
     }
 
@@ -183,6 +181,9 @@ fn gather_resources(
 
         if object.health <= 0.0 {
             gathering_state.target = None;
+
+            // Award Gathering XP when a resource node is fully harvested.
+            skill_xp_events.send(SkillXpEvent { skill: SkillType::Gathering, amount: 10 });
 
             let destroy_sound = match object.object_type {
                 WorldObjectType::OakTree | WorldObjectType::PineTree => SoundEvent::TreeFall,
@@ -484,10 +485,11 @@ fn pickup_dropped_items(
 
         let dist = item_pos.distance(player_pos);
 
-        // Attract toward player if within 48px
-        if dist <= 48.0 && dist > 8.0 {
+        // Attract toward player if within 64px (accelerates as it gets closer)
+        if dist <= 64.0 && dist > 8.0 {
             let dir = (player_pos - item_pos).normalize_or_zero();
-            let move_amount = dir * 200.0 * dt;
+            let speed = 150.0 + 250.0 * (1.0 - dist / 64.0); // faster when closer
+            let move_amount = dir * speed * dt;
             tf.translation.x += move_amount.x;
             dropped.base_y += move_amount.y;
         }

@@ -5,23 +5,28 @@ use bevy::input::mouse::MouseWheel;
 use rand::Rng;
 use crate::player::Player;
 
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct ScreenShake {
     pub timer: f32,
     pub intensity: f32,
 }
 
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct HitStop {
     pub timer: f32,
+}
+
+#[derive(Resource, Default)]
+pub struct CameraEffects {
+    pub shake: ScreenShake,
+    pub hit_stop: HitStop,
 }
 
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ScreenShake>()
-            .init_resource::<HitStop>()
+        app.init_resource::<CameraEffects>()
             .add_systems(Startup, spawn_camera)
             .add_systems(Update, (camera_follow, camera_zoom, tick_hit_stop));
     }
@@ -32,10 +37,10 @@ pub struct GameCamera {
     pub zoom_level: f32,
 }
 
-const MIN_ZOOM: f32 = 0.5;
-const MAX_ZOOM: f32 = 3.0;
-const CAMERA_LERP_SPEED: f32 = 5.0;
-const DEAD_ZONE: f32 = 32.0;
+const MIN_ZOOM: f32 = 0.8;
+const MAX_ZOOM: f32 = 4.0;
+const CAMERA_LERP_SPEED: f32 = 8.0;
+const DEAD_ZONE: f32 = 8.0;
 const TELEPORT_THRESHOLD: f32 = 500.0;
 
 fn spawn_camera(mut commands: Commands) {
@@ -48,7 +53,7 @@ fn spawn_camera(mut commands: Commands) {
         },
         Tonemapping::TonyMcMapface,
         Bloom::default(),
-        GameCamera { zoom_level: 0.45 },
+        GameCamera { zoom_level: 1.2 },
         Transform::from_xyz(0.0, 0.0, 1000.0),
     ));
 }
@@ -57,7 +62,8 @@ fn camera_follow(
     player_query: Query<&Transform, (With<Player>, Without<GameCamera>)>,
     mut camera_query: Query<&mut Transform, With<GameCamera>>,
     time: Res<Time>,
-    mut shake: ResMut<ScreenShake>,
+    mut effects: ResMut<CameraEffects>,
+    settings: Res<crate::settings::GameSettings>,
 ) {
     let Ok(player_tf) = player_query.get_single() else { return };
     let Ok(mut cam_tf) = camera_query.get_single_mut() else { return };
@@ -80,17 +86,19 @@ fn camera_follow(
     }
     // If distance < DEAD_ZONE, don't move camera (dead zone)
 
-    // Apply screen shake offset AFTER the lerp
-    if shake.timer > 0.0 {
-        let mut rng = rand::thread_rng();
-        let offset_x = rng.gen_range(-shake.intensity..shake.intensity);
-        let offset_y = rng.gen_range(-shake.intensity..shake.intensity);
-        cam_tf.translation.x += offset_x;
-        cam_tf.translation.y += offset_y;
-        shake.timer -= time.delta_secs();
-        if shake.timer <= 0.0 {
-            shake.timer = 0.0;
-            shake.intensity = 0.0;
+    // Apply screen shake offset AFTER the lerp (respects settings toggle)
+    if effects.shake.timer > 0.0 {
+        if settings.screen_shake {
+            let mut rng = rand::thread_rng();
+            let offset_x = rng.gen_range(-effects.shake.intensity..effects.shake.intensity);
+            let offset_y = rng.gen_range(-effects.shake.intensity..effects.shake.intensity);
+            cam_tf.translation.x += offset_x;
+            cam_tf.translation.y += offset_y;
+        }
+        effects.shake.timer -= time.delta_secs();
+        if effects.shake.timer <= 0.0 {
+            effects.shake.timer = 0.0;
+            effects.shake.intensity = 0.0;
         }
     }
 }
@@ -120,12 +128,12 @@ fn camera_zoom(
 
 fn tick_hit_stop(
     time: Res<Time>,
-    mut hit_stop: ResMut<HitStop>,
+    mut effects: ResMut<CameraEffects>,
 ) {
-    if hit_stop.timer > 0.0 {
-        hit_stop.timer -= time.delta_secs();
-        if hit_stop.timer < 0.0 {
-            hit_stop.timer = 0.0;
+    if effects.hit_stop.timer > 0.0 {
+        effects.hit_stop.timer -= time.delta_secs();
+        if effects.hit_stop.timer < 0.0 {
+            effects.hit_stop.timer = 0.0;
         }
     }
 }

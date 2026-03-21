@@ -4,7 +4,7 @@ use crate::inventory::{Inventory, InventorySlot};
 use crate::world::TILE_SIZE;
 use crate::building::{Building, BuildingType};
 use crate::daynight::DayNightCycle;
-use crate::camera::ScreenShake;
+use crate::camera::CameraEffects;
 use crate::particles::SpawnParticlesEvent;
 use crate::audio::SoundEvent;
 
@@ -88,7 +88,7 @@ fn check_player_death(
     mut inventory: ResMut<Inventory>,
     mut death_screen: ResMut<DeathScreen>,
     mut death_stats: ResMut<DeathStats>,
-    mut screen_shake: ResMut<ScreenShake>,
+    mut effects: ResMut<CameraEffects>,
     mut particle_events: EventWriter<SpawnParticlesEvent>,
     mut sound_events: EventWriter<SoundEvent>,
     cycle: Res<DayNightCycle>,
@@ -133,8 +133,8 @@ fn check_player_death(
     health.current = 0.0;
 
     // Death moment polish: screen shake, particles, sound
-    screen_shake.timer = 0.3;
-    screen_shake.intensity = 5.0;
+    effects.shake.timer = 0.3;
+    effects.shake.intensity = 5.0;
     particle_events.send(SpawnParticlesEvent {
         position: death_pos.truncate(),
         color: Color::srgb(0.7, 0.1, 0.1),
@@ -395,11 +395,12 @@ fn recover_death_marker(
 
 fn set_bed_spawn(
     keyboard: Res<ButtonInput<KeyCode>>,
+    game_settings: Res<crate::settings::GameSettings>,
     player_query: Query<&Transform, With<Player>>,
     bed_query: Query<(&Transform, &Building), Without<Player>>,
     mut spawn_point: ResMut<SpawnPoint>,
 ) {
-    if !keyboard.just_pressed(KeyCode::KeyE) { return; }
+    if !keyboard.just_pressed(game_settings.keybinds.interact) { return; }
     let Ok(player_tf) = player_query.get_single() else { return };
     let player_pos = player_tf.translation.truncate();
 

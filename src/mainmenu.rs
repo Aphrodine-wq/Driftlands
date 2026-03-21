@@ -1,5 +1,7 @@
 use bevy::prelude::*;
-use crate::saveload::LoadRequested;
+use bevy::ui::Interaction;
+use bevy::input::gamepad::GamepadButton;
+use crate::audio::SoundEvent;
 
 pub struct MainMenuPlugin;
 
@@ -28,7 +30,7 @@ struct MenuSelection {
 
 impl Default for MenuSelection {
     fn default() -> Self {
-        Self { index: 0, count: 3 }
+        Self { index: 0, count: 4 }
     }
 }
 
@@ -123,7 +125,8 @@ fn spawn_main_menu(mut commands: Commands) {
             .with_children(|buttons| {
                 spawn_menu_button(buttons, "New Game", 0);
                 spawn_menu_button(buttons, "Continue", 1);
-                spawn_menu_button(buttons, "Quit", 2);
+                spawn_menu_button(buttons, "Settings", 2);
+                spawn_menu_button(buttons, "Quit", 3);
             });
 
             // Controls hint
@@ -159,6 +162,7 @@ fn spawn_main_menu(mut commands: Commands) {
 fn spawn_menu_button(parent: &mut ChildBuilder, label: &str, index: usize) {
     parent.spawn((
         MenuButton { index },
+        Button,
         Node {
             width: Val::Px(260.0),
             height: Val::Px(46.0),
@@ -199,11 +203,17 @@ fn update_menu_visuals(
 
 fn handle_main_menu_input(
     keyboard: Res<ButtonInput<KeyCode>>,
+    gamepad_buttons: Res<ButtonInput<GamepadButton>>,
     mut menu: ResMut<MainMenuActive>,
     mut selection: ResMut<MenuSelection>,
     mut menu_ui_query: Query<&mut Visibility, With<MainMenuUI>>,
     mut exit_writer: EventWriter<AppExit>,
-    mut load_requested: ResMut<LoadRequested>,
+    active_slot: Res<crate::saveload::ActiveSaveSlot>,
+    mut save_slot_browser_state: ResMut<crate::saveslots::SaveSlotBrowserState>,
+    menu_button_query: Query<(&MenuButton, &Interaction)>,
+    mut settings_state: ResMut<crate::settings::SettingsMenuState>,
+    mut settings_panel_query: Query<&mut Node, With<crate::settings::SettingsPanel>>,
+    mut sound_events: EventWriter<SoundEvent>,
 ) {
     if !menu.active {
         for mut vis in menu_ui_query.iter_mut() {
@@ -216,33 +226,87 @@ fn handle_main_menu_input(
         *vis = Visibility::Visible;
     }
 
+    // When the save-slot browser is open, ignore the underlying menu.
+    if save_slot_browser_state.open {
+        return;
+    }
+    if settings_state.is_open {
+        return;
+    }
+
+    // Mouse click selects and activates immediately.
+    let mut mouse_activated = false;
+    for (btn, interaction) in menu_button_query.iter() {
+        if *interaction == Interaction::Pressed {
+            selection.index = btn.index;
+            mouse_activated = true;
+            break;
+        }
+    }
+
     // Navigation
-    if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+    if keyboard.just_pressed(KeyCode::ArrowUp)
+        || keyboard.just_pressed(KeyCode::KeyW)
+        || gamepad_buttons.just_pressed(GamepadButton::DPadUp)
+    {
         if selection.index > 0 {
             selection.index -= 1;
         } else {
             selection.index = selection.count - 1;
         }
     }
-    if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+    if keyboard.just_pressed(KeyCode::ArrowDown)
+        || keyboard.just_pressed(KeyCode::KeyS)
+        || gamepad_buttons.just_pressed(GamepadButton::DPadDown)
+    {
         selection.index = (selection.index + 1) % selection.count;
     }
 
     // Selection via Enter or direct key
-    let activated = keyboard.just_pressed(KeyCode::Enter)
-        || keyboard.just_pressed(KeyCode::Space);
+    let activated = mouse_activated
+        || keyboard.just_pressed(KeyCode::Enter)
+        || keyboard.just_pressed(KeyCode::Space)
+        || gamepad_buttons.just_pressed(GamepadButton::South);
 
     if activated {
         match selection.index {
-            0 => menu.active = false,                                    // New Game
-            1 => { menu.active = false; load_requested.requested = true; } // Continue
-            2 => { exit_writer.send(AppExit::Success); }                  // Quit
+            0 => {
+                sound_events.send(SoundEvent::MenuOpen);
+                menu.active = false
+            } // New Game
+            1 => {
+                sound_events.send(SoundEvent::MenuOpen);
+                save_slot_browser_state.open = true;
+                save_slot_browser_state.context = crate::saveslots::SaveSlotBrowserContext::MainContinue;
+                save_slot_browser_state.selected_focus = active_slot.index;
+                save_slot_browser_state.confirm_delete = false;
+                save_slot_browser_state.delete_target_slot = active_slot.index;
+            } // Continue
+            2 => {
+                sound_events.send(SoundEvent::MenuOpen);
+                // Settings
+                settings_state.is_open = true;
+                settings_state.selected = 0;
+                if let Ok(mut node) = settings_panel_query.get_single_mut() {
+                    node.display = Display::Flex;
+                }
+            }
+            3 => {
+                sound_events.send(SoundEvent::MenuOpen);
+                exit_writer.send(AppExit::Success);
+            } // Quit
             _ => {}
         }
     }
 
     // Direct keyboard shortcuts still work
     if keyboard.just_pressed(KeyCode::KeyN) { menu.active = false; }
-    if keyboard.just_pressed(KeyCode::KeyL) { menu.active = false; load_requested.requested = true; }
+    if keyboard.just_pressed(KeyCode::KeyL) {
+        save_slot_browser_state.open = true;
+        save_slot_browser_state.context = crate::saveslots::SaveSlotBrowserContext::MainContinue;
+        save_slot_browser_state.selected_focus = active_slot.index;
+        save_slot_browser_state.confirm_delete = false;
+        save_slot_browser_state.delete_target_slot = active_slot.index;
+    }
     if keyboard.just_pressed(KeyCode::KeyQ) { exit_writer.send(AppExit::Success); }
 }
