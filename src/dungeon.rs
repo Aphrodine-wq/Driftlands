@@ -555,7 +555,7 @@ fn spawn_dungeon_enemy(commands: &mut Commands, pos: Vec2, enemy_type: EnemyType
 /// matching loot table.  Falls back to `StoneGolem` with the generic loot
 /// table when the biome has no dedicated boss variant.
 fn spawn_dungeon_boss(commands: &mut Commands, pos: Vec2, biome: Biome) {
-    use crate::combat::boss_for_biome;
+    use crate::combat::{boss_for_biome, BossAbility, BossAbilityType};
 
     let boss_type = boss_for_biome(biome);
     let (base_health, damage, speed, aggro_range, color, size) = boss_type.stats();
@@ -638,7 +638,7 @@ fn spawn_dungeon_boss(commands: &mut Commands, pos: Vec2, biome: Biome) {
         rng.gen_range(-1.0f32..1.0),
     ).normalize_or_zero();
 
-    let entity = commands.spawn((
+    let mut entity_cmds = commands.spawn((
         DungeonEnemy,
         Enemy {
             enemy_type: boss_type,
@@ -670,7 +670,14 @@ fn spawn_dungeon_boss(commands: &mut Commands, pos: Vec2, biome: Biome) {
             ..default()
         },
         Transform::from_xyz(pos.x, pos.y, 5.0),
-    )).id();
+    ));
+
+    // Attach unique boss ability if this boss type has one
+    if let Some(ability_type) = BossAbilityType::for_enemy(boss_type) {
+        entity_cmds.insert(BossAbility::new(ability_type));
+    }
+
+    let entity = entity_cmds.id();
     spawn_health_bar_children(commands, entity, size.y);
 }
 

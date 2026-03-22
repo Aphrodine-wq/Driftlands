@@ -60,6 +60,20 @@ impl Plugin for CombatPlugin {
                 spawn_burn_zones_from_magma,
             ).run_if(not_paused))
             .add_systems(Update, (
+                boss_abilities,
+                update_vine_root_zones,
+                update_poison_pool_zones,
+                update_spore_cloud_zones,
+                update_ice_patch_zones,
+                update_tidal_waves,
+                update_shockwave_rings,
+                update_crystal_beams,
+                update_lava_rain,
+                update_sand_blast_aoe,
+                update_vine_root_trap,
+                update_desert_wyrm_burrow,
+            ).run_if(not_paused))
+            .add_systems(Update, (
                 drain_player_hit_queue,
                 apply_weapon_effects,
                 dodge_roll_input,
@@ -345,11 +359,21 @@ pub struct PlayerAttackCooldown {
     pub timer: Timer,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProjectileKind {
+    Arrow,
+    FrostBolt,
+    MagmaBall,
+    VenomSpit,
+    Generic,
+}
+
 #[derive(Component)]
 pub struct Projectile {
     pub velocity: Vec2,
     pub damage: f32,
     pub lifetime: f32,
+    pub kind: ProjectileKind,
 }
 
 /// Marker component to distinguish enemy-fired projectiles from player arrows.
@@ -393,6 +417,166 @@ pub struct Knockback {
 pub struct SlashArc {
     pub timer: f32,
     pub max_timer: f32,
+}
+
+// --- Boss Abilities ---
+
+/// The type of unique ability a boss uses.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BossAbilityType {
+    /// ForestGuardian: summon vine roots that trap the player.
+    VineRoot,
+    /// SwampBeast: leave poison pools on the ground.
+    PoisonPool,
+    /// DesertWyrm: burrow underground, emerge with AoE sand blast.
+    SandBurrow,
+    /// FrostGiant: throw ice boulders + create slippery ice patches.
+    IceBoulder,
+    /// MagmaKing: erupt with lava rain AoE across a wide area.
+    LavaRain,
+    /// FungalOverlord: release spore clouds (vision obscure + DOT).
+    SporeCloud,
+    /// CrystalSentinel: fire a crystal beam laser.
+    CrystalBeam,
+    /// TidalSerpent: create tidal waves that push the player.
+    TidalWave,
+    /// MountainTitan: stomp causing radial shockwaves.
+    Shockwave,
+}
+
+impl BossAbilityType {
+    /// Returns the ability type for each boss enemy type, or None for non-bosses.
+    pub fn for_enemy(enemy_type: EnemyType) -> Option<Self> {
+        match enemy_type {
+            EnemyType::ForestGuardian  => Some(Self::VineRoot),
+            EnemyType::SwampBeast      => Some(Self::PoisonPool),
+            EnemyType::DesertWyrm      => Some(Self::SandBurrow),
+            EnemyType::FrostGiant      => Some(Self::IceBoulder),
+            EnemyType::MagmaKing       => Some(Self::LavaRain),
+            EnemyType::FungalOverlord  => Some(Self::SporeCloud),
+            EnemyType::CrystalSentinel => Some(Self::CrystalBeam),
+            EnemyType::TidalSerpent    => Some(Self::TidalWave),
+            EnemyType::MountainTitan   => Some(Self::Shockwave),
+            _ => None,
+        }
+    }
+
+    /// Base cooldown range in seconds. Phase 1 uses the high end, Phase 2 the low end.
+    fn cooldown_range(&self, phase_2: bool) -> (f32, f32) {
+        if phase_2 { (4.0, 5.0) } else { (6.0, 8.0) }
+    }
+}
+
+/// Component attached to boss entities that tracks their unique ability state.
+#[derive(Component)]
+pub struct BossAbility {
+    pub ability_type: BossAbilityType,
+    pub cooldown_timer: f32,
+    /// True when the boss is in burrow state (DesertWyrm only).
+    pub is_burrowed: bool,
+    /// Timer for burrow duration (DesertWyrm only).
+    pub burrow_timer: f32,
+}
+
+impl BossAbility {
+    pub fn new(ability_type: BossAbilityType) -> Self {
+        Self {
+            ability_type,
+            cooldown_timer: 3.0, // Short initial delay so bosses use ability quickly
+            is_burrowed: false,
+            burrow_timer: 0.0,
+        }
+    }
+}
+
+/// Vine root hazard: traps the player in place for a duration.
+#[derive(Component)]
+pub struct VineRootZone {
+    pub radius: f32,
+    pub lifetime: f32,
+    pub trap_duration: f32,
+    pub has_trapped: bool,
+}
+
+/// Poison pool hazard: DOT zone left by SwampBeast.
+#[derive(Component)]
+pub struct PoisonPoolZone {
+    pub damage_per_sec: f32,
+    pub radius: f32,
+    pub lifetime: f32,
+}
+
+/// Spore cloud hazard: DOT + vision obscuring zone from FungalOverlord.
+#[derive(Component)]
+pub struct SporeCloudZone {
+    pub damage_per_sec: f32,
+    pub radius: f32,
+    pub lifetime: f32,
+}
+
+/// Ice patch hazard: slides the player when they step on it.
+#[derive(Component)]
+pub struct IcePatchZone {
+    pub radius: f32,
+    pub lifetime: f32,
+    pub slide_direction: Vec2,
+}
+
+/// Tidal wave entity: moves in a direction and pushes the player.
+#[derive(Component)]
+pub struct TidalWaveEntity {
+    pub direction: Vec2,
+    pub speed: f32,
+    pub damage: f32,
+    pub width: f32,
+    pub lifetime: f32,
+    pub has_hit: bool,
+}
+
+/// Shockwave ring entity: expands outward from stomp origin.
+#[derive(Component)]
+pub struct ShockwaveRing {
+    pub origin: Vec2,
+    pub current_radius: f32,
+    pub max_radius: f32,
+    pub expand_speed: f32,
+    pub damage: f32,
+    pub has_hit: bool,
+}
+
+/// Crystal beam entity: a laser that sweeps or holds for a duration.
+#[derive(Component)]
+pub struct CrystalBeamEntity {
+    pub origin: Vec2,
+    pub direction: Vec2,
+    pub damage_per_sec: f32,
+    pub width: f32,
+    pub length: f32,
+    pub lifetime: f32,
+}
+
+/// Lava rain marker: telegraph then damage at position.
+#[derive(Component)]
+pub struct LavaRainDrop {
+    pub delay: f32,
+    pub damage: f32,
+    pub radius: f32,
+    pub position: Vec2,
+}
+
+/// Sand blast AoE: delayed AoE when DesertWyrm emerges from burrow.
+#[derive(Component)]
+pub struct SandBlastAoE {
+    pub delay: f32,
+    pub damage: f32,
+    pub radius: f32,
+    pub position: Vec2,
+}
+
+/// Applied to the player when trapped by vine roots.
+#[derive(Component)]
+pub struct VineRootTrap {
+    pub timer: f32,
 }
 
 // --- Dodge Roll ---
@@ -971,6 +1155,7 @@ fn player_attack(
                 velocity: aim_dir * 400.0,
                 damage: 8.0,
                 lifetime: 2.0,
+                kind: ProjectileKind::Arrow,
             },
             Sprite {
                 color: Color::srgb(0.8, 0.7, 0.3),
@@ -1014,6 +1199,9 @@ fn player_attack(
 
     // Attack lunge: briefly scale player sprite up by 10%
     commands.entity(player_entity).insert(AttackLunge { timer: 0.05 });
+
+    // Degrade weapon durability on attack (1 point per swing)
+    inventory.use_selected_tool();
 
     // Deal damage
     let mut killed = false;
@@ -1168,6 +1356,7 @@ fn enemy_attack_player(
     mut effects: ResMut<CameraEffects>,
     mut status_events: EventWriter<ApplyStatusEvent>,
     mut death_stats: ResMut<DeathStats>,
+    mut sound_events: EventWriter<SoundEvent>,
 ) {
     let Ok((player_tf, mut health, _sprite, maybe_dodging, maybe_blocking, maybe_invuln)) = player_query.get_single_mut() else { return };
     let player_pos = player_tf.translation.truncate();
@@ -1271,10 +1460,11 @@ fn enemy_attack_player(
         }
     }
 
-    // Player hit reaction: screen shake + red damage flash
+    // Player hit reaction: screen shake + red damage flash + sound
     if took_damage {
         effects.shake.timer = 0.12;
         effects.shake.intensity = 2.5;
+        sound_events.send(SoundEvent::PlayerHurt);
         if let Ok(entity) = player_entity_query.get_single() {
             commands.entity(entity).insert(DamageFlash { timer: 0.15 });
         }
@@ -1883,6 +2073,7 @@ fn enemy_ranged_attacks(
                             velocity: dir * 220.0,
                             damage: 7.0,
                             lifetime: 1.5,
+                            kind: ProjectileKind::FrostBolt,
                         },
                         EnemyProjectile,
                         Sprite {
@@ -1925,6 +2116,7 @@ fn enemy_ranged_attacks(
                             velocity: dir * 200.0,
                             damage: 10.0,
                             lifetime: 1.3,
+                            kind: ProjectileKind::MagmaBall,
                         },
                         EnemyProjectile,
                         Sprite {
@@ -1967,6 +2159,7 @@ fn enemy_ranged_attacks(
                             velocity: dir * 280.0,
                             damage: 5.0,
                             lifetime: 1.2,
+                            kind: ProjectileKind::VenomSpit,
                         },
                         EnemyProjectile,
                         Sprite {
@@ -1994,6 +2187,7 @@ fn enemy_projectile_hit_player(
     mut effects: ResMut<CameraEffects>,
     player_entity_query: Query<Entity, With<Player>>,
     mut death_stats: ResMut<DeathStats>,
+    mut sound_events: EventWriter<SoundEvent>,
 ) {
     let Ok((player_tf, mut health, maybe_invuln)) = player_query.get_single_mut() else { return };
     // Wave 7C: Skip all projectile damage if player has respawn invulnerability
@@ -2012,8 +2206,9 @@ fn enemy_projectile_hit_player(
                 death_stats.last_damage_source = "Enemy Projectile".to_string();
             }
 
-            // Red damage flash on player
+            // Red damage flash + sound on player
             commands.entity(player_entity).insert(DamageFlash { timer: 0.15 });
+            sound_events.send(SoundEvent::PlayerHurt);
 
             floating_text_events.send(FloatingTextRequest {
                 text: fast_damage_string(proj.damage, ""),
@@ -2024,9 +2219,8 @@ fn enemy_projectile_hit_player(
             effects.shake.timer = 0.1;
             effects.shake.intensity = 2.0;
 
-            // IceWraith frost bolt applies Freeze (detect by projectile color heuristic:
-            // frost bolts are bluish). We check damage == 7 as an identifier.
-            if (proj.damage - 7.0).abs() < 0.1 {
+            // IceWraith frost bolt applies Freeze
+            if proj.kind == ProjectileKind::FrostBolt {
                 status_events.send(ApplyStatusEvent {
                     target: player_entity,
                     effect: crate::status_effects::StatusEffectType::Freeze,
@@ -2181,8 +2375,8 @@ fn spawn_burn_zones_from_magma(
     proj_query: Query<(Entity, &Transform, &Projectile), With<EnemyProjectile>>,
 ) {
     for (_entity, tf, proj) in proj_query.iter() {
-        // Magma projectiles have damage == 10.0 and are about to expire
-        if (proj.damage - 10.0).abs() < 0.1 && proj.lifetime <= 0.05 && proj.lifetime > 0.0 {
+        // Magma projectiles leave burn zones when they expire
+        if proj.kind == ProjectileKind::MagmaBall && proj.lifetime <= 0.05 && proj.lifetime > 0.0 {
             let pos = tf.translation.truncate();
             commands.spawn((
                 BurnZone {
@@ -2197,6 +2391,991 @@ fn spawn_burn_zones_from_magma(
                 },
                 Transform::from_xyz(pos.x, pos.y, 4.0),
             ));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Boss Unique Abilities
+// ---------------------------------------------------------------------------
+
+/// Main boss ability system: ticks cooldowns and fires each boss's unique
+/// attack pattern. Phase 1 fires every 6-8s, Phase 2 every 4-5s.
+fn boss_abilities(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut boss_query: Query<(Entity, &mut Enemy, &Boss, &mut BossAbility, &Transform), Without<Player>>,
+    player_query: Query<&Transform, With<Player>>,
+    mut particle_events: EventWriter<SpawnParticlesEvent>,
+    mut sound_events: EventWriter<SoundEvent>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+) {
+    let Ok(player_tf) = player_query.get_single() else { return };
+    let player_pos = player_tf.translation.truncate();
+    let dt = time.delta_secs();
+    let mut rng = rand::thread_rng();
+
+    for (_entity, mut enemy, boss, mut ability, tf) in boss_query.iter_mut() {
+        // Skip dead bosses
+        if enemy.health <= 0.0 { continue; }
+        // Only fire abilities when chasing or attacking
+        if enemy.state != EnemyState::Chase && enemy.state != EnemyState::Attack { continue; }
+        // Skip burrowed wyrms (handled by update_desert_wyrm_burrow)
+        if ability.is_burrowed { continue; }
+
+        let boss_pos = tf.translation.truncate();
+        let dist = boss_pos.distance(player_pos);
+
+        // Tick cooldown
+        ability.cooldown_timer -= dt;
+        if ability.cooldown_timer > 0.0 { continue; }
+
+        // Must be within detection range to use abilities
+        if dist > enemy.detection_range { continue; }
+
+        // Reset cooldown based on phase
+        let (lo, hi) = ability.ability_type.cooldown_range(boss.phase_2);
+        ability.cooldown_timer = rng.gen_range(lo..hi);
+
+        // Dispatch ability by type
+        match ability.ability_type {
+            BossAbilityType::VineRoot => {
+                // Spawn 2-3 vine root traps around the player
+                let count = if boss.phase_2 { 3 } else { 2 };
+                for i in 0..count {
+                    let offset_angle = (i as f32 / count as f32) * std::f32::consts::TAU
+                        + rng.gen_range(-0.3..0.3);
+                    let offset_dist = rng.gen_range(10.0..30.0);
+                    let pos = player_pos + Vec2::new(offset_angle.cos(), offset_angle.sin()) * offset_dist;
+                    commands.spawn((
+                        VineRootZone {
+                            radius: 16.0,
+                            lifetime: 4.0,
+                            trap_duration: 1.5,
+                            has_trapped: false,
+                        },
+                        Sprite {
+                            color: Color::srgba(0.15, 0.5, 0.1, 0.6),
+                            custom_size: Some(Vec2::new(32.0, 32.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(pos.x, pos.y, 4.0),
+                    ));
+                }
+                particle_events.send(SpawnParticlesEvent {
+                    position: boss_pos,
+                    color: Color::srgb(0.2, 0.6, 0.15),
+                    count: 8,
+                });
+                floating_text_events.send(FloatingTextRequest {
+                    text: "VINE ROOTS!".to_string(),
+                    position: boss_pos + Vec2::new(0.0, 20.0),
+                    color: Color::srgb(0.2, 0.7, 0.15),
+                });
+                sound_events.send(SoundEvent::Hit);
+            }
+
+            BossAbilityType::PoisonPool => {
+                // Drop 2-4 poison pools between boss and player
+                let count = if boss.phase_2 { 4 } else { 2 };
+                let dir = (player_pos - boss_pos).normalize_or_zero();
+                for i in 0..count {
+                    let t = (i as f32 + 1.0) / (count as f32 + 1.0);
+                    let pool_pos = boss_pos + dir * dist * t
+                        + Vec2::new(rng.gen_range(-15.0..15.0), rng.gen_range(-15.0..15.0));
+                    commands.spawn((
+                        PoisonPoolZone {
+                            damage_per_sec: 3.0,
+                            radius: 18.0,
+                            lifetime: 5.0,
+                        },
+                        Sprite {
+                            color: Color::srgba(0.2, 0.5, 0.1, 0.5),
+                            custom_size: Some(Vec2::new(36.0, 36.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(pool_pos.x, pool_pos.y, 3.5),
+                    ));
+                }
+                particle_events.send(SpawnParticlesEvent {
+                    position: boss_pos,
+                    color: Color::srgb(0.15, 0.45, 0.1),
+                    count: 10,
+                });
+                floating_text_events.send(FloatingTextRequest {
+                    text: "POISON POOLS!".to_string(),
+                    position: boss_pos + Vec2::new(0.0, 20.0),
+                    color: Color::srgb(0.3, 0.6, 0.1),
+                });
+                sound_events.send(SoundEvent::Hit);
+            }
+
+            BossAbilityType::SandBurrow => {
+                // Boss burrows underground — becomes invulnerable briefly,
+                // then emerges at player position with AoE sand blast.
+                ability.is_burrowed = true;
+                ability.burrow_timer = 1.5;
+                // Spawn telegraph at player position
+                commands.spawn((
+                    SandBlastAoE {
+                        delay: 1.5,
+                        damage: if boss.phase_2 { 22.0 } else { 16.0 },
+                        radius: 35.0,
+                        position: player_pos,
+                    },
+                    Sprite {
+                        color: Color::srgba(0.8, 0.65, 0.3, 0.3),
+                        custom_size: Some(Vec2::new(70.0, 70.0)),
+                        ..default()
+                    },
+                    Transform::from_xyz(player_pos.x, player_pos.y, 3.5),
+                ));
+                particle_events.send(SpawnParticlesEvent {
+                    position: boss_pos,
+                    color: Color::srgb(0.8, 0.65, 0.3),
+                    count: 12,
+                });
+                floating_text_events.send(FloatingTextRequest {
+                    text: "BURROWING!".to_string(),
+                    position: boss_pos + Vec2::new(0.0, 20.0),
+                    color: Color::srgb(0.8, 0.65, 0.3),
+                });
+                sound_events.send(SoundEvent::Hit);
+                // Make the boss visually disappear (handled by burrow update system)
+            }
+
+            BossAbilityType::IceBoulder => {
+                // Throw an ice boulder projectile at the player
+                let dir = (player_pos - boss_pos).normalize_or_zero();
+                commands.spawn((
+                    Projectile {
+                        velocity: dir * 180.0,
+                        damage: if boss.phase_2 { 20.0 } else { 14.0 },
+                        lifetime: 2.0,
+                        kind: ProjectileKind::FrostBolt,
+                    },
+                    EnemyProjectile,
+                    Sprite {
+                        color: Color::srgba(0.7, 0.85, 1.0, 0.9),
+                        custom_size: Some(Vec2::new(12.0, 12.0)),
+                        ..default()
+                    },
+                    Transform::from_xyz(boss_pos.x, boss_pos.y, 8.0),
+                ));
+                // Also spawn an ice patch at the target area
+                let patch_pos = player_pos + Vec2::new(rng.gen_range(-20.0..20.0), rng.gen_range(-20.0..20.0));
+                let slide_dir = (player_pos - boss_pos).normalize_or_zero();
+                commands.spawn((
+                    IcePatchZone {
+                        radius: 20.0,
+                        lifetime: 6.0,
+                        slide_direction: slide_dir,
+                    },
+                    Sprite {
+                        color: Color::srgba(0.6, 0.8, 1.0, 0.4),
+                        custom_size: Some(Vec2::new(40.0, 40.0)),
+                        ..default()
+                    },
+                    Transform::from_xyz(patch_pos.x, patch_pos.y, 3.5),
+                ));
+                // Phase 2: throw a second boulder offset
+                if boss.phase_2 {
+                    let offset_dir = Vec2::new(dir.y, -dir.x); // perpendicular
+                    let dir2 = (dir + offset_dir * 0.3).normalize_or_zero();
+                    commands.spawn((
+                        Projectile {
+                            velocity: dir2 * 180.0,
+                            damage: 14.0,
+                            lifetime: 2.0,
+                            kind: ProjectileKind::FrostBolt,
+                        },
+                        EnemyProjectile,
+                        Sprite {
+                            color: Color::srgba(0.7, 0.85, 1.0, 0.9),
+                            custom_size: Some(Vec2::new(10.0, 10.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(boss_pos.x, boss_pos.y, 8.0),
+                    ));
+                }
+                particle_events.send(SpawnParticlesEvent {
+                    position: boss_pos,
+                    color: Color::srgb(0.6, 0.8, 1.0),
+                    count: 8,
+                });
+                floating_text_events.send(FloatingTextRequest {
+                    text: "ICE BOULDER!".to_string(),
+                    position: boss_pos + Vec2::new(0.0, 20.0),
+                    color: Color::srgb(0.6, 0.85, 1.0),
+                });
+                sound_events.send(SoundEvent::Hit);
+            }
+
+            BossAbilityType::LavaRain => {
+                // Spawn 4-6 lava rain telegraphs around the player
+                let count = if boss.phase_2 { 6 } else { 4 };
+                for _ in 0..count {
+                    let offset = Vec2::new(
+                        rng.gen_range(-50.0..50.0),
+                        rng.gen_range(-50.0..50.0),
+                    );
+                    let pos = player_pos + offset;
+                    commands.spawn((
+                        LavaRainDrop {
+                            delay: rng.gen_range(0.6..1.4),
+                            damage: if boss.phase_2 { 14.0 } else { 10.0 },
+                            radius: 14.0,
+                            position: pos,
+                        },
+                        Sprite {
+                            color: Color::srgba(0.9, 0.3, 0.05, 0.3),
+                            custom_size: Some(Vec2::new(28.0, 28.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(pos.x, pos.y, 7.0),
+                    ));
+                }
+                particle_events.send(SpawnParticlesEvent {
+                    position: boss_pos,
+                    color: Color::srgb(0.95, 0.4, 0.1),
+                    count: 12,
+                });
+                floating_text_events.send(FloatingTextRequest {
+                    text: "LAVA RAIN!".to_string(),
+                    position: boss_pos + Vec2::new(0.0, 20.0),
+                    color: Color::srgb(0.95, 0.4, 0.1),
+                });
+                sound_events.send(SoundEvent::BossRoar);
+            }
+
+            BossAbilityType::SporeCloud => {
+                // Spawn 2-3 spore clouds around the player
+                let count = if boss.phase_2 { 3 } else { 2 };
+                for _ in 0..count {
+                    let offset = Vec2::new(
+                        rng.gen_range(-35.0..35.0),
+                        rng.gen_range(-35.0..35.0),
+                    );
+                    let pos = player_pos + offset;
+                    commands.spawn((
+                        SporeCloudZone {
+                            damage_per_sec: 2.0,
+                            radius: 22.0,
+                            lifetime: if boss.phase_2 { 5.0 } else { 4.0 },
+                        },
+                        Sprite {
+                            color: Color::srgba(0.5, 0.2, 0.6, 0.4),
+                            custom_size: Some(Vec2::new(44.0, 44.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(pos.x, pos.y, 6.0),
+                    ));
+                }
+                particle_events.send(SpawnParticlesEvent {
+                    position: boss_pos,
+                    color: Color::srgb(0.5, 0.2, 0.6),
+                    count: 10,
+                });
+                floating_text_events.send(FloatingTextRequest {
+                    text: "SPORE CLOUD!".to_string(),
+                    position: boss_pos + Vec2::new(0.0, 20.0),
+                    color: Color::srgb(0.6, 0.3, 0.7),
+                });
+                sound_events.send(SoundEvent::Hit);
+            }
+
+            BossAbilityType::CrystalBeam => {
+                // Fire a crystal beam laser toward the player
+                let dir = (player_pos - boss_pos).normalize_or_zero();
+                commands.spawn((
+                    CrystalBeamEntity {
+                        origin: boss_pos,
+                        direction: dir,
+                        damage_per_sec: if boss.phase_2 { 12.0 } else { 8.0 },
+                        width: if boss.phase_2 { 14.0 } else { 10.0 },
+                        length: 150.0,
+                        lifetime: if boss.phase_2 { 1.8 } else { 1.2 },
+                    },
+                    Sprite {
+                        color: Color::srgba(0.7, 0.5, 0.9, 0.7),
+                        custom_size: Some(Vec2::new(150.0, 10.0)),
+                        ..default()
+                    },
+                    Transform::from_xyz(
+                        boss_pos.x + dir.x * 75.0,
+                        boss_pos.y + dir.y * 75.0,
+                        9.0,
+                    ).with_rotation(Quat::from_rotation_z(dir.to_angle())),
+                ));
+                particle_events.send(SpawnParticlesEvent {
+                    position: boss_pos,
+                    color: Color::srgb(0.7, 0.5, 0.9),
+                    count: 8,
+                });
+                floating_text_events.send(FloatingTextRequest {
+                    text: "CRYSTAL BEAM!".to_string(),
+                    position: boss_pos + Vec2::new(0.0, 20.0),
+                    color: Color::srgb(0.7, 0.5, 0.9),
+                });
+                sound_events.send(SoundEvent::Hit);
+            }
+
+            BossAbilityType::TidalWave => {
+                // Create a tidal wave that moves from boss toward player
+                let dir = (player_pos - boss_pos).normalize_or_zero();
+                let wave_start = boss_pos + dir * 20.0;
+                commands.spawn((
+                    TidalWaveEntity {
+                        direction: dir,
+                        speed: 120.0,
+                        damage: if boss.phase_2 { 14.0 } else { 10.0 },
+                        width: if boss.phase_2 { 60.0 } else { 45.0 },
+                        lifetime: 2.0,
+                        has_hit: false,
+                    },
+                    Sprite {
+                        color: Color::srgba(0.2, 0.5, 0.9, 0.6),
+                        custom_size: Some(Vec2::new(45.0, 12.0)),
+                        ..default()
+                    },
+                    Transform::from_xyz(wave_start.x, wave_start.y, 7.0)
+                        .with_rotation(Quat::from_rotation_z(dir.to_angle())),
+                ));
+                // Phase 2: spawn a second wave at a slight angle
+                if boss.phase_2 {
+                    let offset_dir = Vec2::new(dir.y, -dir.x);
+                    let dir2 = (dir + offset_dir * 0.4).normalize_or_zero();
+                    let wave_start2 = boss_pos + dir2 * 20.0;
+                    commands.spawn((
+                        TidalWaveEntity {
+                            direction: dir2,
+                            speed: 120.0,
+                            damage: 10.0,
+                            width: 45.0,
+                            lifetime: 2.0,
+                            has_hit: false,
+                        },
+                        Sprite {
+                            color: Color::srgba(0.2, 0.5, 0.9, 0.6),
+                            custom_size: Some(Vec2::new(45.0, 12.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(wave_start2.x, wave_start2.y, 7.0)
+                            .with_rotation(Quat::from_rotation_z(dir2.to_angle())),
+                    ));
+                }
+                particle_events.send(SpawnParticlesEvent {
+                    position: boss_pos,
+                    color: Color::srgb(0.2, 0.5, 0.9),
+                    count: 10,
+                });
+                floating_text_events.send(FloatingTextRequest {
+                    text: "TIDAL WAVE!".to_string(),
+                    position: boss_pos + Vec2::new(0.0, 20.0),
+                    color: Color::srgb(0.2, 0.6, 0.9),
+                });
+                sound_events.send(SoundEvent::BossRoar);
+            }
+
+            BossAbilityType::Shockwave => {
+                // Stomp: expanding shockwave ring from boss position
+                commands.spawn((
+                    ShockwaveRing {
+                        origin: boss_pos,
+                        current_radius: 5.0,
+                        max_radius: if boss.phase_2 { 100.0 } else { 70.0 },
+                        expand_speed: 120.0,
+                        damage: if boss.phase_2 { 18.0 } else { 12.0 },
+                        has_hit: false,
+                    },
+                    Sprite {
+                        color: Color::srgba(0.5, 0.45, 0.35, 0.6),
+                        custom_size: Some(Vec2::new(10.0, 10.0)),
+                        ..default()
+                    },
+                    Transform::from_xyz(boss_pos.x, boss_pos.y, 5.0),
+                ));
+                // Phase 2: delayed second shockwave
+                if boss.phase_2 {
+                    // We approximate a delayed second wave by giving it a negative
+                    // current_radius that must "expand" before becoming active.
+                    commands.spawn((
+                        ShockwaveRing {
+                            origin: boss_pos,
+                            current_radius: -30.0, // delayed start
+                            max_radius: 80.0,
+                            expand_speed: 120.0,
+                            damage: 12.0,
+                            has_hit: false,
+                        },
+                        Sprite {
+                            color: Color::srgba(0.5, 0.45, 0.35, 0.0), // invisible until active
+                            custom_size: Some(Vec2::new(10.0, 10.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(boss_pos.x, boss_pos.y, 5.0),
+                    ));
+                }
+                particle_events.send(SpawnParticlesEvent {
+                    position: boss_pos,
+                    color: Color::srgb(0.5, 0.45, 0.35),
+                    count: 14,
+                });
+                floating_text_events.send(FloatingTextRequest {
+                    text: "SHOCKWAVE!".to_string(),
+                    position: boss_pos + Vec2::new(0.0, 20.0),
+                    color: Color::srgb(0.6, 0.5, 0.4),
+                });
+                sound_events.send(SoundEvent::BossRoar);
+                // Brief stall for the stomp wind-up feel
+                enemy.attack_cooldown_timer = 0.5;
+            }
+        }
+    }
+}
+
+/// DesertWyrm burrow: hide boss while burrowed, teleport to emerge position.
+fn update_desert_wyrm_burrow(
+    time: Res<Time>,
+    mut boss_query: Query<(&mut BossAbility, &Transform, &mut Sprite), With<Boss>>,
+) {
+    let dt = time.delta_secs();
+    for (mut ability, _tf, mut sprite) in boss_query.iter_mut() {
+        if !ability.is_burrowed { continue; }
+
+        ability.burrow_timer -= dt;
+
+        // While burrowed, make the boss nearly invisible and stop it from moving
+        // (the enemy_ai still runs but we override visual here)
+        let alpha = if ability.burrow_timer > 0.2 { 0.1 } else { 0.5 + (0.2 - ability.burrow_timer) * 2.5 };
+        let c = sprite.color.to_srgba();
+        sprite.color = Color::srgba(c.red, c.green, c.blue, alpha.clamp(0.0, 1.0));
+
+        if ability.burrow_timer <= 0.0 {
+            ability.is_burrowed = false;
+            // Restore full visibility
+            sprite.color = Color::srgba(c.red, c.green, c.blue, 1.0);
+            // The SandBlastAoE handles the actual emerge damage
+        }
+    }
+}
+
+/// Vine root zones: trap the player if they step on one.
+fn update_vine_root_zones(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut zone_query: Query<(Entity, &mut VineRootZone, &Transform, &mut Sprite)>,
+    player_query: Query<&Transform, With<Player>>,
+    player_entity_query: Query<Entity, With<Player>>,
+    trap_query: Query<&VineRootTrap, With<Player>>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+    mut particle_events: EventWriter<SpawnParticlesEvent>,
+) {
+    let dt = time.delta_secs();
+    let Ok(player_tf) = player_query.get_single() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    for (entity, mut zone, zone_tf, mut sprite) in zone_query.iter_mut() {
+        zone.lifetime -= dt;
+        if zone.lifetime <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+
+        // Pulse the vine visual
+        let pulse = 0.5 + 0.15 * (zone.lifetime * 4.0).sin();
+        sprite.color = Color::srgba(0.15, 0.5, 0.1, pulse);
+
+        // Check if player steps on it and isn't already trapped
+        if !zone.has_trapped && trap_query.get_single().is_err() {
+            let dist = player_pos.distance(zone_tf.translation.truncate());
+            if dist <= zone.radius {
+                zone.has_trapped = true;
+                if let Ok(pe) = player_entity_query.get_single() {
+                    commands.entity(pe).insert(VineRootTrap {
+                        timer: zone.trap_duration,
+                    });
+                }
+                floating_text_events.send(FloatingTextRequest {
+                    text: "ROOTED!".to_string(),
+                    position: player_pos + Vec2::new(0.0, 15.0),
+                    color: Color::srgb(0.2, 0.7, 0.15),
+                });
+                particle_events.send(SpawnParticlesEvent {
+                    position: player_pos,
+                    color: Color::srgb(0.15, 0.5, 0.1),
+                    count: 6,
+                });
+            }
+        }
+    }
+}
+
+/// Vine root trap on the player: prevents movement for a duration.
+/// (The player movement system in player.rs should check for this component.)
+fn update_vine_root_trap(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut trap_query: Query<(Entity, &mut VineRootTrap), With<Player>>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+    player_query: Query<&Transform, With<Player>>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut trap) in trap_query.iter_mut() {
+        trap.timer -= dt;
+        if trap.timer <= 0.0 {
+            commands.entity(entity).remove::<VineRootTrap>();
+            if let Ok(ptf) = player_query.get_single() {
+                floating_text_events.send(FloatingTextRequest {
+                    text: "FREE!".to_string(),
+                    position: ptf.translation.truncate() + Vec2::new(0.0, 15.0),
+                    color: Color::srgb(0.8, 0.9, 0.8),
+                });
+            }
+        }
+    }
+}
+
+/// Poison pool zones: deal DOT to the player standing in them.
+fn update_poison_pool_zones(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut zone_query: Query<(Entity, &mut PoisonPoolZone, &Transform, &mut Sprite)>,
+    mut player_query: Query<(&Transform, &mut Health), (With<Player>, Without<PoisonPoolZone>)>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+    player_entity_query: Query<Entity, With<Player>>,
+    mut status_events: EventWriter<ApplyStatusEvent>,
+) {
+    let dt = time.delta_secs();
+    let Ok((player_tf, mut health)) = player_query.get_single_mut() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    for (entity, mut zone, zone_tf, mut sprite) in zone_query.iter_mut() {
+        zone.lifetime -= dt;
+        if zone.lifetime <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+
+        // Bubble animation
+        let bubble = 0.4 + 0.15 * (zone.lifetime * 3.0).sin();
+        sprite.color = Color::srgba(0.2, 0.5, 0.1, bubble);
+
+        let dist = player_pos.distance(zone_tf.translation.truncate());
+        if dist <= zone.radius {
+            let damage = zone.damage_per_sec * dt;
+            health.current = (health.current - damage).max(0.0);
+            // Apply poison status periodically (every ~2 seconds)
+            if (zone.lifetime * 2.0).fract() < dt * 2.0 {
+                if let Ok(pe) = player_entity_query.get_single() {
+                    status_events.send(ApplyStatusEvent {
+                        target: pe,
+                        effect: crate::status_effects::StatusEffectType::Poison,
+                        duration: 3.0,
+                    });
+                    commands.entity(pe).insert(DamageFlash { timer: 0.1 });
+                }
+                floating_text_events.send(FloatingTextRequest {
+                    text: fast_damage_string(damage.ceil(), " POISON"),
+                    position: player_pos + Vec2::new(0.0, 12.0),
+                    color: Color::srgb(0.3, 0.6, 0.1),
+                });
+            }
+        }
+    }
+}
+
+/// Spore cloud zones: DOT + vision obscuring (darkened overlay effect).
+fn update_spore_cloud_zones(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut zone_query: Query<(Entity, &mut SporeCloudZone, &Transform, &mut Sprite)>,
+    mut player_query: Query<(&Transform, &mut Health), (With<Player>, Without<SporeCloudZone>)>,
+    player_entity_query: Query<Entity, With<Player>>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+    mut effects: ResMut<CameraEffects>,
+) {
+    let dt = time.delta_secs();
+    let Ok((player_tf, mut health)) = player_query.get_single_mut() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    for (entity, mut zone, zone_tf, mut sprite) in zone_query.iter_mut() {
+        zone.lifetime -= dt;
+        if zone.lifetime <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+
+        // Swirl/pulse the spore cloud
+        let pulse = 0.3 + 0.2 * (zone.lifetime * 5.0).sin();
+        sprite.color = Color::srgba(0.5, 0.2, 0.6, pulse);
+        // Slowly expand the cloud visual
+        let expand = 44.0 + (1.0 - zone.lifetime / 5.0) * 8.0;
+        sprite.custom_size = Some(Vec2::new(expand, expand));
+
+        let dist = player_pos.distance(zone_tf.translation.truncate());
+        if dist <= zone.radius {
+            // DOT damage
+            let damage = zone.damage_per_sec * dt;
+            health.current = (health.current - damage).max(0.0);
+
+            // Vision obscuring: darken screen via camera effect
+            effects.shake.timer = 0.05;
+            effects.shake.intensity = 0.5;
+
+            // Floating text throttled
+            if (zone.lifetime * 3.0).fract() < dt * 3.0 {
+                if let Ok(pe) = player_entity_query.get_single() {
+                    commands.entity(pe).insert(DamageFlash { timer: 0.1 });
+                }
+                floating_text_events.send(FloatingTextRequest {
+                    text: fast_damage_string(damage.ceil(), " SPORE"),
+                    position: player_pos + Vec2::new(0.0, 12.0),
+                    color: Color::srgb(0.6, 0.3, 0.7),
+                });
+            }
+        }
+    }
+}
+
+/// Ice patch zones: push/slide the player when they stand on one.
+fn update_ice_patch_zones(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut zone_query: Query<(Entity, &mut IcePatchZone, &Transform, &mut Sprite)>,
+    mut player_query: Query<(&mut Transform, Option<&Dodging>), (With<Player>, Without<IcePatchZone>)>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+) {
+    let dt = time.delta_secs();
+    let Ok((mut player_tf, maybe_dodging)) = player_query.get_single_mut() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    for (entity, mut zone, zone_tf, mut sprite) in zone_query.iter_mut() {
+        zone.lifetime -= dt;
+        if zone.lifetime <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+
+        // Shimmer effect
+        let shimmer = 0.3 + 0.15 * (zone.lifetime * 6.0).sin();
+        sprite.color = Color::srgba(0.6, 0.8, 1.0, shimmer);
+
+        // If player is dodging, they ignore ice patches
+        if maybe_dodging.is_some() { continue; }
+
+        let dist = player_pos.distance(zone_tf.translation.truncate());
+        if dist <= zone.radius {
+            // Slide the player in the patch's direction
+            let slide_speed = 80.0 * dt;
+            player_tf.translation.x += zone.slide_direction.x * slide_speed;
+            player_tf.translation.y += zone.slide_direction.y * slide_speed;
+
+            // Occasional floating text
+            if (zone.lifetime * 2.0).fract() < dt * 2.0 {
+                floating_text_events.send(FloatingTextRequest {
+                    text: "SLIDING!".to_string(),
+                    position: player_pos + Vec2::new(0.0, 12.0),
+                    color: Color::srgb(0.6, 0.85, 1.0),
+                });
+            }
+        }
+    }
+}
+
+/// Tidal waves: move forward, push player on contact.
+fn update_tidal_waves(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut wave_query: Query<(Entity, &mut TidalWaveEntity, &mut Transform, &mut Sprite)>,
+    mut player_query: Query<(&mut Transform, &mut Health), (With<Player>, Without<TidalWaveEntity>)>,
+    player_entity_query: Query<Entity, With<Player>>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+    mut effects: ResMut<CameraEffects>,
+) {
+    let dt = time.delta_secs();
+    let Ok((mut player_tf, mut health)) = player_query.get_single_mut() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    for (entity, mut wave, mut wave_tf, mut sprite) in wave_query.iter_mut() {
+        wave.lifetime -= dt;
+        if wave.lifetime <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+
+        // Move the wave forward
+        wave_tf.translation.x += wave.direction.x * wave.speed * dt;
+        wave_tf.translation.y += wave.direction.y * wave.speed * dt;
+
+        // Fade over lifetime
+        let alpha = (wave.lifetime / 2.0).clamp(0.0, 0.7);
+        sprite.color = Color::srgba(0.2, 0.5, 0.9, alpha);
+
+        // Check collision with player (perpendicular distance from wave line)
+        let wave_pos = wave_tf.translation.truncate();
+        let dist = player_pos.distance(wave_pos);
+        if !wave.has_hit && dist <= wave.width / 2.0 + 8.0 {
+            wave.has_hit = true;
+            // Deal damage
+            health.current = (health.current - wave.damage).max(0.0);
+            // Push the player in the wave direction
+            let push_dist = 40.0;
+            player_tf.translation.x += wave.direction.x * push_dist;
+            player_tf.translation.y += wave.direction.y * push_dist;
+
+            if let Ok(pe) = player_entity_query.get_single() {
+                commands.entity(pe).insert(DamageFlash { timer: 0.15 });
+            }
+            floating_text_events.send(FloatingTextRequest {
+                text: fast_damage_string(wave.damage, " WAVE!"),
+                position: player_pos + Vec2::new(0.0, 12.0),
+                color: Color::srgb(0.2, 0.6, 0.9),
+            });
+            effects.shake.timer = 0.15;
+            effects.shake.intensity = 4.0;
+        }
+    }
+}
+
+/// Shockwave rings: expand outward, damage player when the ring reaches them.
+fn update_shockwave_rings(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut ring_query: Query<(Entity, &mut ShockwaveRing, &mut Sprite, &mut Transform)>,
+    mut player_query: Query<(&Transform, &mut Health), (With<Player>, Without<ShockwaveRing>)>,
+    player_entity_query: Query<Entity, With<Player>>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+    mut effects: ResMut<CameraEffects>,
+    mut particle_events: EventWriter<SpawnParticlesEvent>,
+) {
+    let dt = time.delta_secs();
+    let Ok((player_tf, mut health)) = player_query.get_single_mut() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    for (entity, mut ring, mut sprite, mut tf) in ring_query.iter_mut() {
+        ring.current_radius += ring.expand_speed * dt;
+
+        // If radius is still negative (delayed wave), stay invisible
+        if ring.current_radius < 0.0 {
+            sprite.color = Color::srgba(0.5, 0.45, 0.35, 0.0);
+            continue;
+        }
+
+        if ring.current_radius >= ring.max_radius {
+            commands.entity(entity).despawn();
+            continue;
+        }
+
+        // Visual: expanding ring (scale the sprite)
+        let diameter = ring.current_radius * 2.0;
+        sprite.custom_size = Some(Vec2::new(diameter, diameter));
+        // Fade as it expands
+        let ratio = ring.current_radius / ring.max_radius;
+        let alpha = (1.0 - ratio) * 0.6;
+        sprite.color = Color::srgba(0.5, 0.45, 0.35, alpha);
+        // Keep centered at origin
+        tf.translation.x = ring.origin.x;
+        tf.translation.y = ring.origin.y;
+
+        // Check if the ring just passed through the player
+        let dist = player_pos.distance(ring.origin);
+        let ring_thickness = 12.0;
+        if !ring.has_hit && (dist - ring.current_radius).abs() < ring_thickness {
+            ring.has_hit = true;
+            health.current = (health.current - ring.damage).max(0.0);
+
+            // Knockback player away from origin
+            let kb_dir = (player_pos - ring.origin).normalize_or_zero();
+            if let Ok(pe) = player_entity_query.get_single() {
+                commands.entity(pe).insert(Knockback {
+                    direction: kb_dir,
+                    timer: 0.2,
+                });
+                commands.entity(pe).insert(DamageFlash { timer: 0.15 });
+            }
+
+            particle_events.send(SpawnParticlesEvent {
+                position: player_pos,
+                color: Color::srgb(0.6, 0.5, 0.4),
+                count: 6,
+            });
+            floating_text_events.send(FloatingTextRequest {
+                text: fast_damage_string(ring.damage, " QUAKE!"),
+                position: player_pos + Vec2::new(0.0, 12.0),
+                color: Color::srgb(0.6, 0.5, 0.4),
+            });
+            effects.shake.timer = 0.2;
+            effects.shake.intensity = 5.0;
+        }
+    }
+}
+
+/// Crystal beam lasers: continuous damage while the player is inside the beam.
+fn update_crystal_beams(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut beam_query: Query<(Entity, &mut CrystalBeamEntity, &mut Sprite)>,
+    mut player_query: Query<(&Transform, &mut Health), (With<Player>, Without<CrystalBeamEntity>)>,
+    player_entity_query: Query<Entity, With<Player>>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+) {
+    let dt = time.delta_secs();
+    let Ok((player_tf, mut health)) = player_query.get_single_mut() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    for (entity, mut beam, mut sprite) in beam_query.iter_mut() {
+        beam.lifetime -= dt;
+        if beam.lifetime <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+
+        // Pulse beam opacity
+        let pulse = 0.5 + 0.3 * (beam.lifetime * 10.0).sin();
+        sprite.color = Color::srgba(0.7, 0.5, 0.9, pulse);
+
+        // Check if player is within the beam rectangle:
+        // Project player position onto beam line
+        let to_player = player_pos - beam.origin;
+        let along = to_player.dot(beam.direction);
+        let perp = (to_player - beam.direction * along).length();
+
+        if along >= 0.0 && along <= beam.length && perp <= beam.width / 2.0 + 6.0 {
+            let damage = beam.damage_per_sec * dt;
+            health.current = (health.current - damage).max(0.0);
+
+            if let Ok(pe) = player_entity_query.get_single() {
+                commands.entity(pe).insert(DamageFlash { timer: 0.05 });
+            }
+
+            // Throttle floating text
+            if (beam.lifetime * 4.0).fract() < dt * 4.0 {
+                floating_text_events.send(FloatingTextRequest {
+                    text: fast_damage_string(damage.ceil(), " BEAM"),
+                    position: player_pos + Vec2::new(0.0, 12.0),
+                    color: Color::srgb(0.7, 0.5, 0.9),
+                });
+            }
+        }
+    }
+}
+
+/// Lava rain drops: telegraph then explode at position.
+fn update_lava_rain(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut rain_query: Query<(Entity, &mut LavaRainDrop, &mut Sprite)>,
+    mut player_query: Query<(&Transform, &mut Health), (With<Player>, Without<LavaRainDrop>)>,
+    player_entity_query: Query<Entity, With<Player>>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+    mut effects: ResMut<CameraEffects>,
+    mut particle_events: EventWriter<SpawnParticlesEvent>,
+) {
+    let dt = time.delta_secs();
+    let Ok((player_tf, mut health)) = player_query.get_single_mut() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    for (entity, mut rain, mut sprite) in rain_query.iter_mut() {
+        rain.delay -= dt;
+
+        // Telegraph: fade in the danger zone
+        let alpha = (1.0 - rain.delay.max(0.0)).clamp(0.2, 0.8);
+        sprite.color = Color::srgba(0.9, 0.3, 0.05, alpha);
+
+        if rain.delay <= 0.0 {
+            // Explode
+            let dist = player_pos.distance(rain.position);
+            if dist <= rain.radius {
+                health.current = (health.current - rain.damage).max(0.0);
+                if let Ok(pe) = player_entity_query.get_single() {
+                    commands.entity(pe).insert(DamageFlash { timer: 0.15 });
+                }
+                floating_text_events.send(FloatingTextRequest {
+                    text: fast_damage_string(rain.damage, " LAVA!"),
+                    position: player_pos + Vec2::new(0.0, 12.0),
+                    color: Color::srgb(0.95, 0.4, 0.1),
+                });
+                effects.shake.timer = 0.1;
+                effects.shake.intensity = 3.0;
+            }
+            // Explosion particles
+            particle_events.send(SpawnParticlesEvent {
+                position: rain.position,
+                color: Color::srgb(0.95, 0.35, 0.1),
+                count: 4,
+            });
+            // Leave a small burn zone
+            commands.spawn((
+                BurnZone {
+                    damage_per_sec: 3.0,
+                    radius: 10.0,
+                    lifetime: 2.0,
+                },
+                Sprite {
+                    color: Color::srgba(0.9, 0.25, 0.05, 0.4),
+                    custom_size: Some(Vec2::new(20.0, 20.0)),
+                    ..default()
+                },
+                Transform::from_xyz(rain.position.x, rain.position.y, 4.0),
+            ));
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// Sand blast AoE: delayed explosion when DesertWyrm emerges.
+fn update_sand_blast_aoe(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut aoe_query: Query<(Entity, &mut SandBlastAoE, &mut Sprite)>,
+    mut player_query: Query<(&Transform, &mut Health), With<Player>>,
+    player_entity_query: Query<Entity, With<Player>>,
+    mut floating_text_events: EventWriter<FloatingTextRequest>,
+    mut effects: ResMut<CameraEffects>,
+    mut particle_events: EventWriter<SpawnParticlesEvent>,
+) {
+    let dt = time.delta_secs();
+    let Ok((player_tf, mut health)) = player_query.get_single_mut() else { return };
+    let player_pos = player_tf.translation.truncate();
+
+    for (entity, mut aoe, mut sprite) in aoe_query.iter_mut() {
+        aoe.delay -= dt;
+
+        // Telegraph: pulsing sand circle
+        let alpha = (1.0 - aoe.delay.max(0.0) / 1.5).clamp(0.2, 0.8);
+        let pulse = alpha + 0.1 * (aoe.delay * 8.0).sin();
+        sprite.color = Color::srgba(0.8, 0.65, 0.3, pulse);
+
+        if aoe.delay <= 0.0 {
+            // Sand blast explosion
+            let dist = player_pos.distance(aoe.position);
+            if dist <= aoe.radius {
+                health.current = (health.current - aoe.damage).max(0.0);
+                // Knockback player away from blast
+                let kb_dir = (player_pos - aoe.position).normalize_or_zero();
+                if let Ok(pe) = player_entity_query.get_single() {
+                    commands.entity(pe).insert(Knockback {
+                        direction: kb_dir,
+                        timer: 0.2,
+                    });
+                    commands.entity(pe).insert(DamageFlash { timer: 0.15 });
+                }
+                floating_text_events.send(FloatingTextRequest {
+                    text: fast_damage_string(aoe.damage, " SAND BLAST!"),
+                    position: player_pos + Vec2::new(0.0, 12.0),
+                    color: Color::srgb(0.8, 0.65, 0.3),
+                });
+                effects.shake.timer = 0.2;
+                effects.shake.intensity = 5.0;
+            }
+            // Burst particles
+            particle_events.send(SpawnParticlesEvent {
+                position: aoe.position,
+                color: Color::srgb(0.8, 0.65, 0.3),
+                count: 14,
+            });
+            commands.entity(entity).despawn();
         }
     }
 }

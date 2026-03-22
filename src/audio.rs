@@ -46,6 +46,8 @@ pub enum SoundEvent {
     MenuOpen,
     #[allow(dead_code)]
     MenuClose,
+    Eat,
+    PlayerHurt,
     Death,
     BossRoar,
     PlaceInvalid,
@@ -70,6 +72,8 @@ fn sound_event_path(event: &SoundEvent) -> Option<&'static str> {
         SoundEvent::Pickup => Some("audio/sfx/pickup.wav"),
         SoundEvent::MenuOpen => Some("audio/sfx/menu_open.wav"),
         SoundEvent::MenuClose => Some("audio/sfx/menu_open.wav"),
+        SoundEvent::Eat => Some("audio/sfx/eat.wav"),
+        SoundEvent::PlayerHurt => Some("audio/sfx/player_hurt.wav"),
         SoundEvent::Death => Some("audio/sfx/death.wav"),
         SoundEvent::BossRoar => Some("audio/sfx/boss_roar.wav"),
         SoundEvent::PlaceInvalid => Some("audio/sfx/place_invalid.wav"),
@@ -297,6 +301,14 @@ fn generate_placeholder_sfx() {
     // Menu open: soft click, 30ms
     write_if_missing(dir, "menu_open.wav",
         synth(30, 1000.0, 1000.0, 60.0, 0.0, 2.0, 0.1));
+
+    // Eat: soft crunch, 100ms
+    write_if_missing(dir, "eat.wav",
+        synth(100, 300.0, 200.0, 25.0, 0.5, 3.0, 0.15));
+
+    // Player hurt: sharp descending sting, 120ms
+    write_if_missing(dir, "player_hurt.wav",
+        synth(120, 600.0, 200.0, 15.0, 0.3, 1.5, 0.25));
 
     // Death: low descending groan, 500ms
     write_if_missing(dir, "death.wav",

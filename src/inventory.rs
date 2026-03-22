@@ -5,7 +5,7 @@ pub struct InventoryPlugin;
 impl Plugin for InventoryPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_inventory)
-            .add_systems(Update, (toggle_inventory, hotbar_selection));
+            .add_systems(Update, (toggle_inventory, hotbar_selection, drop_item));
     }
 }
 
@@ -610,6 +610,23 @@ impl Inventory {
         }
         false
     }
+
+    /// Drop 1 item from the selected slot. Returns the item type and remaining count, or None.
+    pub fn drop_selected(&mut self) -> Option<(ItemType, u32)> {
+        let idx = self.selected_slot;
+        if let Some(ref mut slot) = self.slots[idx] {
+            let item = slot.item;
+            if slot.count > 1 {
+                slot.count -= 1;
+                Some((item, slot.count))
+            } else {
+                self.slots[idx] = None;
+                Some((item, 0))
+            }
+        } else {
+            None
+        }
+    }
 }
 
 fn setup_inventory(mut commands: Commands) {
@@ -623,6 +640,24 @@ fn toggle_inventory(
 ) {
     if keyboard.just_pressed(game_settings.keybinds.inventory) || keyboard.just_pressed(KeyCode::KeyI) {
         inventory.is_open = !inventory.is_open;
+    }
+}
+
+fn drop_item(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut inventory: ResMut<Inventory>,
+    player_query: Query<&Transform, With<crate::player::Player>>,
+    mut drop_events: EventWriter<crate::gathering::SpawnDroppedItemEvent>,
+) {
+    if !keyboard.just_pressed(KeyCode::KeyQ) { return; }
+    if !inventory.is_open { return; }
+    let Ok(player_tf) = player_query.get_single() else { return };
+    if let Some((item, _remaining)) = inventory.drop_selected() {
+        drop_events.send(crate::gathering::SpawnDroppedItemEvent {
+            item,
+            count: 1,
+            position: player_tf.translation.truncate(),
+        });
     }
 }
 

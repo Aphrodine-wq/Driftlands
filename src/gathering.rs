@@ -13,17 +13,37 @@ use crate::audio::SoundEvent;
 use crate::hud::FloatingTextRequest;
 use crate::skills::{SkillXpEvent, SkillType};
 
+/// Event to spawn a dropped item in the world (used by inventory drop, loot, etc.)
+#[derive(Event)]
+pub struct SpawnDroppedItemEvent {
+    pub item: ItemType,
+    pub count: u32,
+    pub position: Vec2,
+}
+
 pub struct GatheringPlugin;
 
 impl Plugin for GatheringPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GatheringState>()
+            .add_event::<SpawnDroppedItemEvent>()
             .add_systems(Update, (
                 gather_resources,
                 update_gathering_progress_bars,
                 cleanup_gathering_visuals,
                 pickup_dropped_items,
+                handle_spawn_dropped_items,
             ).chain().run_if(not_paused));
+    }
+}
+
+fn handle_spawn_dropped_items(
+    mut commands: Commands,
+    mut events: EventReader<SpawnDroppedItemEvent>,
+) {
+    let mut rng = rand::thread_rng();
+    for ev in events.read() {
+        spawn_dropped_item(&mut commands, ev.position, ev.item, ev.count, &mut rng);
     }
 }
 
@@ -123,6 +143,7 @@ fn gather_resources(
     mut particle_events: EventWriter<SpawnParticlesEvent>,
     mut sound_events: EventWriter<SoundEvent>,
     mut skill_xp_events: EventWriter<SkillXpEvent>,
+    mut respawn_queue: ResMut<crate::world::ResourceRespawnQueue>,
 ) {
     // Default: not gathering anything this frame
     gathering_state.target = None;
@@ -373,6 +394,8 @@ fn gather_resources(
             }
             // Consume tool durability
             inventory.use_selected_tool();
+            // Queue for respawn (trees, rocks, ores regrow over time)
+            respawn_queue.queue(object.object_type, obj_pos);
             commands.entity(target_entity).despawn();
         }
     }

@@ -4,6 +4,7 @@ use crate::hud::not_paused;
 use crate::inventory::{Inventory, ItemType};
 use crate::world::{TILE_SIZE, CHUNK_WORLD_SIZE};
 use crate::world::chunk::{Chunk, CHUNK_SIZE};
+use crate::audio::SoundEvent;
 
 pub struct PlayerPlugin;
 
@@ -176,7 +177,7 @@ fn spawn_player(
 }
 
 fn player_movement(
-    mut query: Query<(&mut Player, &Hunger, &mut Transform, &mut PlayerFacing, &mut Sprite, Option<&DamageFlash>)>,
+    mut query: Query<(&mut Player, &Hunger, &mut Transform, &mut PlayerFacing, &mut Sprite, Option<&DamageFlash>, Option<&crate::combat::VineRootTrap>)>,
     buffs_query: Query<&ActiveBuff>,
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
@@ -184,8 +185,14 @@ fn player_movement(
     building_query: Query<(&Transform, &Building, Option<&Door>), Without<Player>>,
     game_settings: Res<crate::settings::GameSettings>,
 ) {
-    let Ok((mut player, hunger, mut transform, mut facing, mut sprite, damage_flash)) = query.get_single_mut() else { return };
+    let Ok((mut player, hunger, mut transform, mut facing, mut sprite, damage_flash, vine_trap)) = query.get_single_mut() else { return };
     let dt = time.delta_secs();
+
+    // Vine root trap: freeze movement while rooted
+    if vine_trap.is_some() {
+        player.velocity = Vec2::ZERO;
+        return;
+    }
 
     let mut direction = Vec2::ZERO;
 
@@ -421,6 +428,7 @@ fn eat_food(
     building_state: Res<BuildingState>,
     mut inventory: ResMut<Inventory>,
     mut health_query: Query<(Entity, &mut Health, &mut Hunger), With<Player>>,
+    mut sound_events: EventWriter<SoundEvent>,
 ) {
     if !mouse.just_pressed(MouseButton::Right) || building_state.active {
         return;
@@ -471,6 +479,7 @@ fn eat_food(
     if let Some(value) = food_value {
         if inventory.remove_items(item, 1) {
             hunger.eat(value);
+            sound_events.send(SoundEvent::Eat);
             // US-039: Cooked foods give temporary buffs
             match item {
                 ItemType::CookedBerry => {

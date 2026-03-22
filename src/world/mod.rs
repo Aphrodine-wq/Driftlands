@@ -116,6 +116,7 @@ impl Plugin for WorldPlugin {
             .insert_resource(ChunkImageCache::default())
             .insert_resource(LoadedChunkCache::default())
             .insert_resource(TileTexturesReady::default())
+            .insert_resource(ResourceRespawnQueue::default())
             .insert_resource(ChunkGenAsync {
                 request_tx,
                 results,
@@ -125,6 +126,7 @@ impl Plugin for WorldPlugin {
             .add_systems(PostStartup, spawn_initial_chunks)
             .add_systems(Update, refresh_chunks_on_texture_load)
             .add_systems(Update, manage_chunks)
+            .add_systems(Update, tick_resource_respawns.run_if(not_paused))
             .add_systems(Update, show_interaction_hints.run_if(not_paused));
     }
 }
@@ -143,6 +145,38 @@ impl WorldState {
             loaded_chunks: HashSet::new(),
             seed,
         }
+    }
+}
+
+/// Tracks destroyed resources for respawn after a cooldown.
+#[derive(Resource, Default)]
+pub struct ResourceRespawnQueue {
+    pub entries: Vec<RespawnEntry>,
+}
+
+pub struct RespawnEntry {
+    pub object_type: WorldObjectType,
+    pub position: Vec2,
+    pub timer: f32,
+}
+
+impl ResourceRespawnQueue {
+    pub fn queue(&mut self, object_type: WorldObjectType, position: Vec2) {
+        // Trees take 120s, rocks 180s, bushes/flowers 60s, ores 300s
+        let respawn_time = match object_type {
+            WorldObjectType::OakTree | WorldObjectType::PineTree => 120.0,
+            WorldObjectType::Rock | WorldObjectType::SandstoneRock => 180.0,
+            WorldObjectType::Bush | WorldObjectType::BerryBush | WorldObjectType::AlpineFlower
+            | WorldObjectType::Mushroom | WorldObjectType::ReedClump => 60.0,
+            WorldObjectType::IronVein | WorldObjectType::CoalDeposit
+            | WorldObjectType::CrystalNode | WorldObjectType::SulfurDeposit => 300.0,
+            _ => 90.0,
+        };
+        self.entries.push(RespawnEntry {
+            object_type,
+            position,
+            timer: respawn_time,
+        });
     }
 }
 
@@ -285,6 +319,21 @@ impl WorldObjectType {
             WorldObjectType::Geyser => Color::srgb(0.75, 0.80, 0.85),
             WorldObjectType::Wildflower => Color::srgb(0.95, 0.75, 0.85),
             WorldObjectType::FallenLog => Color::srgb(0.45, 0.32, 0.22),
+        }
+    }
+
+    pub fn default_size(&self) -> Vec2 {
+        match self {
+            WorldObjectType::OakTree | WorldObjectType::PineTree | WorldObjectType::OasisPalm => Vec2::new(14.0, 20.0),
+            WorldObjectType::GiantMushroom => Vec2::new(16.0, 18.0),
+            WorldObjectType::Rock | WorldObjectType::SandstoneRock => Vec2::new(11.0, 10.0),
+            WorldObjectType::IronVein | WorldObjectType::CoalDeposit | WorldObjectType::FrozenOreDeposit => Vec2::new(12.0, 10.0),
+            WorldObjectType::Bush | WorldObjectType::BerryBush => Vec2::new(10.0, 8.0),
+            WorldObjectType::Mushroom | WorldObjectType::GlowingSpore => Vec2::new(7.0, 6.0),
+            WorldObjectType::AlpineFlower | WorldObjectType::Wildflower => Vec2::new(6.0, 7.0),
+            WorldObjectType::AncientRuin | WorldObjectType::AncientMachinery => Vec2::new(14.0, 14.0),
+            WorldObjectType::CrystalNode | WorldObjectType::CrystalCluster => Vec2::new(10.0, 12.0),
+            _ => Vec2::new(10.0, 10.0),
         }
     }
 
@@ -2110,6 +2159,45 @@ fn manage_chunks(
 }
 
 /// Shows a small interaction hint ("E") above the nearest gatherable
+/// Tick resource respawn timers and re-spawn objects when ready.
+fn tick_resource_respawns(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut queue: ResMut<ResourceRespawnQueue>,
+    player_query: Query<&Transform, With<Player>>,
+) {
+    let dt = time.delta_secs();
+    let player_pos = player_query.get_single().map(|t| t.translation.truncate()).unwrap_or(Vec2::ZERO);
+
+    queue.entries.retain_mut(|entry| {
+        entry.timer -= dt;
+        if entry.timer <= 0.0 {
+            // Only respawn if player is far enough away (>256px) to avoid pop-in
+            if player_pos.distance(entry.position) > 256.0 {
+                let color = entry.object_type.default_color();
+                let size = entry.object_type.default_size();
+                commands.spawn((
+                    WorldObject {
+                        object_type: entry.object_type,
+                        health: entry.object_type.max_health(),
+                    },
+                    Sprite {
+                        color,
+                        custom_size: Some(size),
+                        ..default()
+                    },
+                    Transform::from_xyz(entry.position.x, entry.position.y, 5.0),
+                ));
+                false // remove from queue
+            } else {
+                true // keep waiting, player too close
+            }
+        } else {
+            true // still counting down
+        }
+    });
+}
+
 /// WorldObject when the player is within 32px.  The hint entity is
 /// despawned/recreated each frame to avoid stale markers.
 fn show_interaction_hints(

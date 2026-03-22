@@ -1406,9 +1406,23 @@ fn handle_crafting_input(
     }
 
     if keyboard.just_pressed(KeyCode::Enter) && !focused_locked {
-        if crafting.craft(focused_recipe_idx, &mut inventory) {
+        // Shift+Enter = batch craft 5x, Enter = craft 1x
+        let batch = if keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight) {
+            5
+        } else {
+            1
+        };
+        let mut crafted = 0u32;
+        for _ in 0..batch {
+            if crafting.craft(focused_recipe_idx, &mut inventory) {
+                crafted += 1;
+            } else {
+                break;
+            }
+        }
+        if crafted > 0 {
             sound_events.send(SoundEvent::Craft);
-            quest_events.send(QuestProgressEvent { quest_type: QuestType::CraftItem, amount: 1 });
+            quest_events.send(QuestProgressEvent { quest_type: QuestType::CraftItem, amount: crafted });
             if let Ok(player_tf) = player_query.get_single() {
                 particle_events.send(crate::particles::SpawnParticlesEvent {
                     position: player_tf.translation.truncate(),
