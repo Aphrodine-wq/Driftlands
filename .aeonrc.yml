@@ -1,13 +1,25 @@
 # AEON Verification Config — Driftlands
-# Rust/Bevy survival crafting game: save/load, inventory, world gen
+# Rust/Bevy 0.15 survival crafting game: save/load, inventory, world gen
+# Profile: safety (all engines) — targeting Steam EA, needs stability
 profile: safety
 
 engines:
   symbolic_exec: true
+  abstract_interpretation: true
+  hoare: true
+  separation_logic: true
   numeric_safety: true
   concurrency_check: true
   verify_contracts: true
-  abstract_interpretation: true
+  ownership_types: true
+  typestate: true
+  null_safety: true
+  cross_file: true
+  error_handling: true
+  deadcode: true
+  complexity_analysis: true
+  resource_logic: true
+  size_change: true
 
 severity: warning
 
@@ -19,5 +31,7 @@ exclude:
   - "assets/**"
   - "**/*.png"
   - "**/*.ogg"
+  - "**/*.wav"
 
-parallel: false
+parallel: true
+baseline: .aeon-baseline.json
