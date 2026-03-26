@@ -2,7 +2,7 @@
 
 **Survival crafting game built with Bevy and Rust** -- Procedural world generation, combat, farming, building, and exploration.
 
-Driftlands is a 2D top-down survival crafting game where players explore procedurally generated worlds, gather resources, farm, craft tools and equipment, build structures, fight enemies, and delve into dungeons. Built from scratch in Rust using the Bevy game engine.
+Driftlands is a 2D top-down survival crafting game where players explore procedurally generated worlds, gather resources, farm, craft tools and equipment, build structures, fight enemies, and delve into dungeons. Built from scratch in Rust using the Bevy game engine. ~24K lines of Rust across 47 source files.
 
 ---
 
@@ -49,7 +49,7 @@ Driftlands is a 2D top-down survival crafting game where players explore procedu
 ```
 driftlands/
 ├── src/
-│   ├── main.rs             # App entry point, plugin registration
+│   ├── main.rs             # App entry point, plugin registration (43 plugins)
 │   ├── assets.rs           # Asset loading and handles
 │   ├── player.rs           # Player controller, stats, movement, facing
 │   ├── camera.rs           # Camera follow, dead zone, lerp, screen shake
@@ -91,28 +91,57 @@ driftlands/
 │   ├── settings.rs         # Settings menu, resolution, fullscreen, audio
 │   ├── debug_perf.rs       # Performance timing overlay
 │   ├── lore.rs             # World lore system
-│   └── experiment.rs       # Item combination workbench
+│   ├── experiment.rs       # Item combination workbench
 │   └── world/
-│       ├── mod.rs          # World plugin, WorldState, ChunkObject
-│       ├── generation.rs   # Procedural world gen (noise-based), biomes
-│       ├── chunk.rs        # Chunk loading/unloading, tile data arrays
-│       └── tile.rs         # Tile types, biome color palettes
+│       ├── mod.rs           # World plugin, WorldState, ChunkObject
+│       ├── generation.rs    # Procedural world gen (noise-based), biomes
+│       ├── chunk.rs         # Chunk loading/unloading, tile data arrays
+│       └── tile.rs          # Tile types, biome color palettes
 ├── assets/
-│   ├── shaders/            # WGSL shaders (lit_chunk.wgsl, lit_sprite.wgsl)
-│   ├── ui/                 # UI icon sprites
-│   ├── ui_extra/           # HUD background sprites
-│   ├── buildings/          # Building sprites
-│   ├── tools/              # Tool and weapon sprites
-│   ├── pets/               # Pet sprites
-│   ├── crops_raw/          # Raw crop item sprites
-│   ├── food_cooked/        # Cooked food item sprites
-│   ├── fish_items/         # Fish item sprites
-│   ├── trees_seasonal/     # Seasonal tree sprites (oak/pine x 4 seasons)
-│   ├── elite_enemies/      # Elite/boss enemy sprites
-│   ├── enchant_effects/    # Enchanted weapon aura sprites
-│   └── audio/              # Audio files (placeholder)
-├── ralph/                  # Ralph agent workspace (PRD, progress log)
-├── Cargo.toml              # Rust dependencies
+│   ├── shaders/             # WGSL shaders (lit_chunk.wgsl, lit_sprite.wgsl)
+│   ├── animations/          # Sprite animation sheets
+│   ├── armor/               # Armor sprites
+│   ├── audio/               # Audio files (placeholder)
+│   ├── bosses/              # Boss enemy sprites
+│   ├── buildings/           # Building sprites
+│   ├── buildings_extra/     # Additional building sprites
+│   ├── crops_growth/        # Crop growth stage sprites
+│   ├── crops_growth2/       # Additional crop growth sprites
+│   ├── crops_raw/           # Raw crop item sprites
+│   ├── elite_enemies/       # Elite/boss enemy sprites
+│   ├── enchant_effects/     # Enchanted weapon aura sprites
+│   ├── enemies/             # Enemy sprites
+│   ├── essences/            # Essence item sprites
+│   ├── fish_items/          # Fish item sprites
+│   ├── food_cooked/         # Cooked food item sprites
+│   ├── items_biome/         # Biome-specific item sprites
+│   ├── items_raw/           # Raw material item sprites
+│   ├── npcs/                # NPC sprites
+│   ├── objects/             # World object sprites
+│   ├── objects_extra/       # Additional world object sprites
+│   ├── particles/           # Particle effect sprites
+│   ├── pets/                # Pet sprites
+│   ├── player/              # Player sprites
+│   ├── potions/             # Potion item sprites
+│   ├── quest_icons/         # Quest indicator icons
+│   ├── quest_items/         # Quest item sprites
+│   ├── seeds/               # Seed item sprites
+│   ├── status_icons/        # Status effect icons
+│   ├── structures_world/    # World structure sprites
+│   ├── textures/            # Miscellaneous textures
+│   ├── tiles/               # Tile sprites
+│   ├── tools/               # Tool sprites
+│   ├── trees_seasonal/      # Seasonal tree sprites (oak/pine x 4 seasons)
+│   ├── ui/                  # UI icon sprites
+│   ├── ui_extra/            # HUD background sprites
+│   └── weapons/             # Weapon sprites
+├── ralph/                   # Ralph agent workspace (PRD, progress log)
+├── .planning/               # PROJECT.md and AEON scan reports
+├── .aeonrc.yml              # AEON verification config (safety profile)
+├── Driftlands_PRD_v2.md     # Product requirements document
+├── run-ralph.sh             # Ralph agent runner script
+├── Cargo.toml               # Rust dependencies
+├── Cargo.lock               # Dependency lock file
 └── README.md
 ```
 
@@ -120,7 +149,7 @@ driftlands/
 
 ## Requirements
 
-- Rust 1.75+ (2021 edition)
+- Rust 1.82+ (2021 edition) -- required by Bevy 0.15
 - Cargo
 
 ---
@@ -168,4 +197,4 @@ The `dev` feature enables `bevy/dynamic_linking`, which significantly reduces in
 
 ## License
 
-Proprietary. All rights reserved.
+MIT
