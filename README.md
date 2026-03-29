@@ -2,7 +2,7 @@
 
 **Survival crafting game built with Bevy and Rust** -- Procedural world generation, combat, farming, building, and exploration.
 
-Driftlands is a 2D top-down survival crafting game where players explore procedurally generated worlds, gather resources, farm, craft tools and equipment, build structures, fight enemies, and delve into dungeons. Built from scratch in Rust using the Bevy game engine. ~24K lines of Rust across 47 source files.
+Driftlands is a 2D top-down survival crafting game where players explore procedurally generated worlds, gather resources, farm, craft tools and equipment, build structures, fight enemies, and delve into dungeons. Built from scratch in Rust using the Bevy game engine. ~27K lines of Rust across 47 source files.
 
 ---
 
@@ -49,7 +49,7 @@ Driftlands is a 2D top-down survival crafting game where players explore procedu
 ```
 driftlands/
 ├── src/
-│   ├── main.rs             # App entry point, plugin registration (43 plugins)
+│   ├── main.rs             # App entry point, plugin registration (43 game plugins)
 │   ├── assets.rs           # Asset loading and handles
 │   ├── player.rs           # Player controller, stats, movement, facing
 │   ├── camera.rs           # Camera follow, dead zone, lerp, screen shake
@@ -136,6 +136,7 @@ driftlands/
 │   ├── ui_extra/            # HUD background sprites
 │   └── weapons/             # Weapon sprites
 ├── ralph/                   # Ralph agent workspace (PRD, progress log)
+├── generated_assets/        # Generated asset outputs
 ├── .planning/               # PROJECT.md and AEON scan reports
 ├── .aeonrc.yml              # AEON verification config (safety profile)
 ├── Driftlands_PRD_v2.md     # Product requirements document

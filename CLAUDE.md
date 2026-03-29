@@ -2,7 +2,7 @@
 
 ## What This Is
 
-2D top-down survival crafting game built in Rust with Bevy 0.15. Targeting Steam Early Access. ~24K lines across 47 source files, 43 registered Bevy plugins.
+2D top-down survival crafting game built in Rust with Bevy 0.15. Targeting Steam Early Access. ~27K lines across 47 source files, 43 registered Bevy plugins.
 
 ## Build Commands
 
@@ -17,7 +17,7 @@ The `dev` feature enables `bevy/dynamic_linking` for faster incremental compiles
 
 ## Project Structure
 
-- `src/main.rs` -- App entry point. All 43 plugins registered here in 3 `.add_plugins()` tuples (max 15 per tuple) plus individual `.add_plugins()` calls.
+- `src/main.rs` -- App entry point. All 43 plugins registered here in 3 `.add_plugins()` tuples (12, 15, 11 plugins) plus 5 individual `.add_plugins()` calls. Max 15 per tuple.
 - `src/world/` -- World generation subsystem (mod.rs, generation.rs, chunk.rs, tile.rs). Chunk-based tilemap where tiles are data arrays, NOT individual ECS entities.
 - `assets/` -- 37 sprite/asset directories plus `shaders/` with WGSL files.
 - `ralph/` -- Ralph autonomous agent workspace (PRD, progress log, CLAUDE.md for Ralph).
@@ -75,13 +75,13 @@ bevy 0.15, noise 0.9, rand 0.8, serde 1 (with derive), serde_json 1, bincode 1.
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `combat.rs` | ~3,100 | Enemy AI, damage, spawning, boss fights |
-| `hud.rs` | ~2,500 | All in-game UI, pause system, floating text |
-| `world/mod.rs` | ~2,100 | World state, chunk objects, object spawning |
-| `crafting.rs` | ~1,400 | All recipes, crafting UI, station logic |
-| `saveload.rs` | ~980 | Full world serialization |
-| `building.rs` | ~920 | Structure placement, chest UI |
-| `assets.rs` | ~850 | All asset handle loading |
+| `combat.rs` | ~3,400 | Enemy AI, damage, spawning, boss fights |
+| `hud.rs` | ~2,750 | All in-game UI, pause system, floating text |
+| `world/mod.rs` | ~2,250 | World state, chunk objects, object spawning |
+| `crafting.rs` | ~1,450 | All recipes, crafting UI, station logic |
+| `saveload.rs` | ~1,050 | Full world serialization |
+| `building.rs` | ~1,000 | Structure placement, chest UI |
+| `assets.rs` | ~900 | All asset handle loading |
 
 ## Adding New Systems
 
