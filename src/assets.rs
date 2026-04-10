@@ -240,6 +240,134 @@ pub struct GameAssets {
     pub tool_steel_fishing_rod: Handle<Image>,
     pub tool_fish_bait: Handle<Image>,
 
+    // ── Armor ────────────────────────────────────────────────────────────────
+    pub armor_iron_helmet: Handle<Image>,
+    pub armor_iron_chestplate: Handle<Image>,
+    pub armor_steel: Handle<Image>,
+    pub armor_ancient: Handle<Image>,
+    pub armor_iron_shield: Handle<Image>,
+    pub armor_wood_shield: Handle<Image>,
+
+    // ── Raw Items ────────────────────────────────────────────────────────────
+    pub item_wood: Handle<Image>,
+    pub item_stone: Handle<Image>,
+    pub item_plant_fiber: Handle<Image>,
+    pub item_stick: Handle<Image>,
+    pub item_flint: Handle<Image>,
+    pub item_wood_plank: Handle<Image>,
+    pub item_rope: Handle<Image>,
+    pub item_coal: Handle<Image>,
+    pub item_iron_ore: Handle<Image>,
+    pub item_iron_ingot: Handle<Image>,
+    pub item_steel_alloy: Handle<Image>,
+    pub item_stone_block: Handle<Image>,
+    pub item_ancient_core: Handle<Image>,
+    pub item_gemstone: Handle<Image>,
+    pub item_rare_herb: Handle<Image>,
+    pub item_brick: Handle<Image>,
+    pub item_reinforced_stone_block: Handle<Image>,
+    pub item_crystal_shard: Handle<Image>,
+
+    // ── Seeds ────────────────────────────────────────────────────────────────
+    pub seed_wheat: Handle<Image>,
+    pub seed_carrot: Handle<Image>,
+    pub seed_tomato: Handle<Image>,
+    pub seed_pumpkin: Handle<Image>,
+    pub seed_corn: Handle<Image>,
+    pub seed_potato: Handle<Image>,
+    pub seed_melon: Handle<Image>,
+    pub seed_rice: Handle<Image>,
+    pub seed_pepper: Handle<Image>,
+    pub seed_onion: Handle<Image>,
+    pub seed_flax: Handle<Image>,
+    pub seed_sugarcane: Handle<Image>,
+
+    // ── Raw Crops ────────────────────────────────────────────────────────────
+    pub crop_wheat: Handle<Image>,
+    pub crop_carrot: Handle<Image>,
+    pub crop_tomato: Handle<Image>,
+    pub crop_corn: Handle<Image>,
+    pub crop_potato: Handle<Image>,
+    pub crop_melon: Handle<Image>,
+    pub crop_rice: Handle<Image>,
+    pub crop_pepper: Handle<Image>,
+    pub crop_onion: Handle<Image>,
+    pub crop_flax: Handle<Image>,
+    pub crop_sugarcane: Handle<Image>,
+
+    // ── Cooked Food & Processed ─────────────────────────────────────────────
+    pub food_cooked_berry: Handle<Image>,
+    pub food_baked_wheat: Handle<Image>,
+    pub food_cooked_carrot: Handle<Image>,
+    pub food_cooked_tomato: Handle<Image>,
+    pub food_baked_pumpkin: Handle<Image>,
+    pub food_roasted_corn: Handle<Image>,
+    pub food_baked_potato: Handle<Image>,
+    pub food_melon_slice: Handle<Image>,
+    pub food_cooked_rice: Handle<Image>,
+    pub food_roasted_pepper: Handle<Image>,
+    pub food_cooked_onion: Handle<Image>,
+    pub food_linen_cloth: Handle<Image>,
+    pub food_sugar: Handle<Image>,
+
+    // ── Biome Items ─────────────────────────────────────────────────────────
+    pub biome_cactus_fiber: Handle<Image>,
+    pub biome_ice_shard: Handle<Image>,
+    pub biome_mushroom_cap: Handle<Image>,
+    pub biome_spore: Handle<Image>,
+    pub biome_reed: Handle<Image>,
+    pub biome_sulfur: Handle<Image>,
+    pub biome_alpine_herb: Handle<Image>,
+    pub biome_peat: Handle<Image>,
+    pub biome_obsidian_shard: Handle<Image>,
+    pub biome_sandstone_chip: Handle<Image>,
+    pub biome_shell: Handle<Image>,
+    pub biome_seaweed: Handle<Image>,
+    pub biome_bio_gel: Handle<Image>,
+    pub biome_echo_stone: Handle<Image>,
+    pub biome_frozen_ore: Handle<Image>,
+    pub biome_cave_slime: Handle<Image>,
+    pub biome_spider_silk: Handle<Image>,
+
+    // ── Potions ──────────────────────────────────────────────────────────────
+    pub potion_health: Handle<Image>,
+    pub potion_speed: Handle<Image>,
+    pub potion_strength: Handle<Image>,
+
+    // ── Essences ─────────────────────────────────────────────────────────────
+    pub essence_fire: Handle<Image>,
+    pub essence_ice: Handle<Image>,
+    pub essence_venom: Handle<Image>,
+    pub essence_life: Handle<Image>,
+
+    // ── Fish Items ───────────────────────────────────────────────────────────
+    pub fish_raw_trout: Handle<Image>,
+    pub fish_raw_salmon: Handle<Image>,
+    pub fish_raw_catfish: Handle<Image>,
+    pub fish_raw_pufferfish: Handle<Image>,
+    pub fish_raw_eel: Handle<Image>,
+    pub fish_raw_crab: Handle<Image>,
+    pub fish_cooked_trout: Handle<Image>,
+    pub fish_cooked_salmon: Handle<Image>,
+    pub fish_cooked_catfish: Handle<Image>,
+    pub fish_cooked_eel: Handle<Image>,
+    pub fish_crab_meat: Handle<Image>,
+
+    // ── Quest / Boss Drop Items ─────────────────────────────────────────────
+    pub quest_blueprint: Handle<Image>,
+    pub quest_guardian_heart: Handle<Image>,
+    pub quest_swamp_essence: Handle<Image>,
+    pub quest_wyrm_scale: Handle<Image>,
+    pub quest_frost_gem: Handle<Image>,
+    pub quest_magma_core: Handle<Image>,
+    pub quest_fungal_spore_essence: Handle<Image>,
+    pub quest_crystal_heart: Handle<Image>,
+    pub quest_journal_page: Handle<Image>,
+    pub quest_coral_essence: Handle<Image>,
+    pub quest_titan_bone: Handle<Image>,
+    pub quest_pet_collar: Handle<Image>,
+    pub quest_pet_food: Handle<Image>,
+
     // ── Animation Frames ──────────────────────────────────────────────────────
     pub wolf_walk_frames: Vec<Handle<Image>>,
     pub spider_walk_frames: Vec<Handle<Image>>,
@@ -503,6 +631,135 @@ fn load_assets(
         tool_steel_fishing_rod: asset_server.load("tools/steel_fishing_rod_00001_.png"),
         tool_fish_bait: asset_server.load("tools/fish_bait_00001_.png"),
 
+        // ── Armor ────────────────────────────────────────────────────────
+        armor_iron_helmet: asset_server.load("armor/iron_helmet_00001_.png"),
+        armor_iron_chestplate: asset_server.load("armor/iron_chestplate_00001_.png"),
+        armor_steel: asset_server.load("armor/steel_armor_00001_.png"),
+        armor_ancient: asset_server.load("armor/ancient_armor_00001_.png"),
+        armor_iron_shield: asset_server.load("armor/iron_shield_00001_.png"),
+        armor_wood_shield: asset_server.load("armor/wood_shield_00001_.png"),
+
+        // ── Raw Items ────────────────────────────────────────────────────
+        item_wood: asset_server.load("items_raw/wood_00001_.png"),
+        item_stone: asset_server.load("items_raw/stone_00001_.png"),
+        item_plant_fiber: asset_server.load("items_raw/plant_fiber_00001_.png"),
+        item_stick: asset_server.load("items_raw/stick_00001_.png"),
+        item_flint: asset_server.load("items_raw/flint_00001_.png"),
+        item_wood_plank: asset_server.load("items_raw/wood_plank_00001_.png"),
+        item_rope: asset_server.load("items_raw/rope_00001_.png"),
+        item_coal: asset_server.load("items_raw/coal_00001_.png"),
+        item_iron_ore: asset_server.load("items_raw/iron_ore_item_00001_.png"),
+        item_iron_ingot: asset_server.load("items_raw/iron_ingot_00001_.png"),
+        item_steel_alloy: asset_server.load("items_raw/steel_alloy_00001_.png"),
+        item_stone_block: asset_server.load("items_raw/stone_block_00001_.png"),
+        item_ancient_core: asset_server.load("items_raw/ancient_core_00001_.png"),
+        item_gemstone: asset_server.load("items_raw/gemstone_00001_.png"),
+        item_rare_herb: asset_server.load("items_biome/alpine_herb_00001_.png"),
+        item_brick: asset_server.load("items_raw/brick_00001_.png"),
+        item_reinforced_stone_block: asset_server.load("items_raw/stone_block_00001_.png"),
+        item_crystal_shard: asset_server.load("items_raw/crystal_shard_00001_.png"),
+
+        // ── Seeds ────────────────────────────────────────────────────────
+        seed_wheat: asset_server.load("seeds/wheat_seed_00001_.png"),
+        seed_carrot: asset_server.load("seeds/carrot_seed_00001_.png"),
+        seed_tomato: asset_server.load("seeds/tomato_seed_00001_.png"),
+        seed_pumpkin: asset_server.load("seeds/pumpkin_seed_00001_.png"),
+        seed_corn: asset_server.load("seeds/corn_seed_00001_.png"),
+        seed_potato: asset_server.load("seeds/potato_seed_00001_.png"),
+        seed_melon: asset_server.load("seeds/melon_seed_00001_.png"),
+        seed_rice: asset_server.load("seeds/rice_seed_00001_.png"),
+        seed_pepper: asset_server.load("seeds/pepper_seed_00001_.png"),
+        seed_onion: asset_server.load("seeds/onion_seed_00001_.png"),
+        seed_flax: asset_server.load("seeds/flax_seed_00001_.png"),
+        seed_sugarcane: asset_server.load("seeds/sugarcane_seed_00001_.png"),
+
+        // ── Raw Crops ────────────────────────────────────────────────────
+        crop_wheat: asset_server.load("crops_raw/wheat_item_00001_.png"),
+        crop_carrot: asset_server.load("crops_raw/carrot_item_00001_.png"),
+        crop_tomato: asset_server.load("crops_raw/tomato_item_00001_.png"),
+        crop_corn: asset_server.load("crops_raw/corn_item_00001_.png"),
+        crop_potato: asset_server.load("crops_raw/potato_item_00001_.png"),
+        crop_melon: asset_server.load("crops_raw/melon_item_00001_.png"),
+        crop_rice: asset_server.load("crops_raw/rice_item_00001_.png"),
+        crop_pepper: asset_server.load("crops_raw/pepper_item_00001_.png"),
+        crop_onion: asset_server.load("crops_raw/onion_item_00001_.png"),
+        crop_flax: asset_server.load("crops_raw/flax_item_00001_.png"),
+        crop_sugarcane: asset_server.load("crops_raw/sugarcane_item_00001_.png"),
+
+        // ── Cooked Food & Processed ─────────────────────────────────────
+        food_cooked_berry: asset_server.load("food_cooked/cooked_berry_00001_.png"),
+        food_baked_wheat: asset_server.load("food_cooked/baked_wheat_00001_.png"),
+        food_cooked_carrot: asset_server.load("food_cooked/cooked_carrot_00001_.png"),
+        food_cooked_tomato: asset_server.load("food_cooked/cooked_tomato_00001_.png"),
+        food_baked_pumpkin: asset_server.load("food_cooked/baked_pumpkin_00001_.png"),
+        food_roasted_corn: asset_server.load("food_cooked/roasted_corn_00001_.png"),
+        food_baked_potato: asset_server.load("food_cooked/baked_potato_00001_.png"),
+        food_melon_slice: asset_server.load("food_cooked/melon_slice_00001_.png"),
+        food_cooked_rice: asset_server.load("food_cooked/cooked_rice_00001_.png"),
+        food_roasted_pepper: asset_server.load("food_cooked/roasted_pepper_00001_.png"),
+        food_cooked_onion: asset_server.load("food_cooked/cooked_onion_00001_.png"),
+        food_linen_cloth: asset_server.load("food_cooked/linen_cloth_00001_.png"),
+        food_sugar: asset_server.load("food_cooked/sugar_00001_.png"),
+
+        // ── Biome Items ─────────────────────────────────────────────────
+        biome_cactus_fiber: asset_server.load("items_biome/cactus_fiber_00001_.png"),
+        biome_ice_shard: asset_server.load("items_biome/ice_shard_00001_.png"),
+        biome_mushroom_cap: asset_server.load("items_biome/mushroom_cap_00001_.png"),
+        biome_spore: asset_server.load("items_biome/spore_00001_.png"),
+        biome_reed: asset_server.load("items_biome/reed_00001_.png"),
+        biome_sulfur: asset_server.load("items_biome/sulfur_00001_.png"),
+        biome_alpine_herb: asset_server.load("items_biome/alpine_herb_00001_.png"),
+        biome_peat: asset_server.load("items_biome/peat_00001_.png"),
+        biome_obsidian_shard: asset_server.load("items_biome/obsidian_shard_00001_.png"),
+        biome_sandstone_chip: asset_server.load("items_biome/sandstone_chip_00001_.png"),
+        biome_shell: asset_server.load("items_biome/shell_00001_.png"),
+        biome_seaweed: asset_server.load("items_biome/seaweed_00001_.png"),
+        biome_bio_gel: asset_server.load("items_biome/bio_gel_00001_.png"),
+        biome_echo_stone: asset_server.load("items_biome/echo_stone_00001_.png"),
+        biome_frozen_ore: asset_server.load("items_biome/frozen_ore_00001_.png"),
+        biome_cave_slime: asset_server.load("items_biome/cave_slime_00001_.png"),
+        biome_spider_silk: asset_server.load("items_biome/spider_silk_00001_.png"),
+
+        // ── Potions ─────────────────────────────────────────────────────
+        potion_health: asset_server.load("potions/health_potion_00001_.png"),
+        potion_speed: asset_server.load("potions/speed_potion_00001_.png"),
+        potion_strength: asset_server.load("potions/strength_potion_00001_.png"),
+
+        // ── Essences ────────────────────────────────────────────────────
+        essence_fire: asset_server.load("essences/fire_essence_00001_.png"),
+        essence_ice: asset_server.load("essences/ice_essence_00001_.png"),
+        essence_venom: asset_server.load("essences/venom_essence_00001_.png"),
+        essence_life: asset_server.load("essences/life_essence_00001_.png"),
+
+        // ── Fish Items ──────────────────────────────────────────────────
+        fish_raw_trout: asset_server.load("fish_items/raw_trout_00001_.png"),
+        fish_raw_salmon: asset_server.load("fish_items/raw_salmon_00001_.png"),
+        fish_raw_catfish: asset_server.load("fish_items/raw_catfish_00001_.png"),
+        fish_raw_pufferfish: asset_server.load("fish_items/raw_pufferfish_00001_.png"),
+        fish_raw_eel: asset_server.load("fish_items/raw_eel_00001_.png"),
+        fish_raw_crab: asset_server.load("fish_items/raw_crab_00001_.png"),
+        fish_cooked_trout: asset_server.load("fish_items/cooked_trout_00001_.png"),
+        fish_cooked_salmon: asset_server.load("fish_items/cooked_salmon_00001_.png"),
+        fish_cooked_catfish: asset_server.load("fish_items/cooked_catfish_00001_.png"),
+        fish_cooked_eel: asset_server.load("fish_items/cooked_eel_00001_.png"),
+        fish_crab_meat: asset_server.load("fish_items/crab_meat_00001_.png"),
+
+        // ── Quest / Boss Drop Items ─────────────────────────────────────
+        quest_blueprint: asset_server.load("quest_items/blueprint_00001_.png"),
+        quest_guardian_heart: asset_server.load("quest_items/guardian_heart_00001_.png"),
+        quest_swamp_essence: asset_server.load("quest_items/swamp_essence_item_00001_.png"),
+        quest_wyrm_scale: asset_server.load("quest_items/wyrm_scale_00001_.png"),
+        quest_frost_gem: asset_server.load("quest_items/frost_gem_00001_.png"),
+        quest_magma_core: asset_server.load("quest_items/magma_core_item_00001_.png"),
+        quest_fungal_spore_essence: asset_server
+            .load("quest_items/fungal_spore_essence_00001_.png"),
+        quest_crystal_heart: asset_server.load("quest_items/crystal_heart_00001_.png"),
+        quest_journal_page: asset_server.load("quest_items/journal_page_00001_.png"),
+        quest_coral_essence: asset_server.load("quest_items/coral_essence_00001_.png"),
+        quest_titan_bone: asset_server.load("quest_items/titan_bone_00001_.png"),
+        quest_pet_collar: asset_server.load("quest_items/pet_collar_00001_.png"),
+        quest_pet_food: asset_server.load("quest_items/pet_food_00001_.png"),
+
         // ── Animation Frames ─────────────────────────────────────────────
         wolf_walk_frames: vec![
             asset_server.load("animations/enemies/wolf_walk/frame_01_00001_.png"),
@@ -686,7 +943,9 @@ fn build_animation_texture_atlases(
     }
 
     // Campfire
-    if game_assets.campfire_anim_atlas_image.is_none() && !game_assets.campfire_anim_frames.is_empty() {
+    if game_assets.campfire_anim_atlas_image.is_none()
+        && !game_assets.campfire_anim_frames.is_empty()
+    {
         if let Some((atlas_image, atlas_layout)) = build_horizontal_animation_atlas(
             &game_assets.campfire_anim_frames,
             &mut images,
@@ -756,7 +1015,11 @@ fn encode_normal(r: &mut [u8], i: usize, nx: f32, ny: f32, nz: f32) {
 
 fn make_image(width: u32, height: u32, data: Vec<u8>) -> Image {
     Image::new(
-        Extent3d { width, height, depth_or_array_layers: 1 },
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
         TextureDimension::D2,
         data,
         TextureFormat::Rgba8UnormSrgb,
@@ -858,7 +1121,8 @@ fn generate_zombie_normal() -> Image {
 
 /// Vignette: radial darkening from transparent center to dark edges (256x256)
 fn generate_vignette_texture() -> Image {
-    let w: u32 = 256; let h: u32 = 256;
+    let w: u32 = 256;
+    let h: u32 = 256;
     let mut data = vec![0u8; (w * h * 4) as usize];
 
     for y in 0..h {
@@ -883,12 +1147,14 @@ fn generate_vignette_texture() -> Image {
 
 /// Slash arc: white crescent shape for attack visual (20x20)
 fn generate_slash_arc_texture() -> Image {
-    let w: u32 = 20; let h: u32 = 20;
+    let w: u32 = 20;
+    let h: u32 = 20;
     let mut data = vec![0u8; (w * h * 4) as usize];
 
     for y in 0..h {
         for x in 0..w {
-            let cx = x as f32 - 10.0; let cy = y as f32 - 10.0;
+            let cx = x as f32 - 10.0;
+            let cy = y as f32 - 10.0;
             let dist = (cx * cx + cy * cy).sqrt();
             if dist > 5.0 && dist < 9.0 && cy < 2.0 {
                 let t = ((dist - 5.0) / 4.0).clamp(0.0, 1.0);

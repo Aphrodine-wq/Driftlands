@@ -1,11 +1,11 @@
-use bevy::prelude::*;
-use bevy::window::MonitorSelection;
-use bevy::input::gamepad::GamepadButton;
-use serde::{Serialize, Deserialize};
-use std::fs;
-use std::path::PathBuf;
 use crate::audio::GameAudio;
 use crate::theme::EtherealTheme;
+use bevy::input::gamepad::GamepadButton;
+use bevy::prelude::*;
+use bevy::window::MonitorSelection;
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 
 pub struct SettingsPlugin;
 
@@ -15,15 +15,18 @@ impl Plugin for SettingsPlugin {
         app.insert_resource(settings)
             .insert_resource(SettingsMenuState::default())
             .add_systems(Startup, spawn_settings_ui)
-            .add_systems(Update, (
-                settings_menu_navigation,
-                update_settings_display,
-                update_fps_counter,
-                sync_audio_from_settings,
-                apply_fullscreen,
-                toggle_fullscreen_f11,
-                apply_resolution,
-            ));
+            .add_systems(
+                Update,
+                (
+                    settings_menu_navigation,
+                    update_settings_display,
+                    update_fps_counter,
+                    sync_audio_from_settings,
+                    apply_fullscreen,
+                    toggle_fullscreen_f11,
+                    apply_resolution,
+                ),
+            );
     }
 }
 
@@ -128,36 +131,66 @@ fn de_key<'de, D: serde::Deserializer<'de>>(d: D) -> Result<KeyCode, D::Error> {
 
 fn string_to_keycode(s: &str) -> Option<KeyCode> {
     match s {
-        "A" => Some(KeyCode::KeyA), "B" => Some(KeyCode::KeyB),
-        "C" => Some(KeyCode::KeyC), "D" => Some(KeyCode::KeyD),
-        "E" => Some(KeyCode::KeyE), "F" => Some(KeyCode::KeyF),
-        "G" => Some(KeyCode::KeyG), "H" => Some(KeyCode::KeyH),
-        "I" => Some(KeyCode::KeyI), "J" => Some(KeyCode::KeyJ),
-        "K" => Some(KeyCode::KeyK), "L" => Some(KeyCode::KeyL),
-        "M" => Some(KeyCode::KeyM), "N" => Some(KeyCode::KeyN),
-        "O" => Some(KeyCode::KeyO), "P" => Some(KeyCode::KeyP),
-        "Q" => Some(KeyCode::KeyQ), "R" => Some(KeyCode::KeyR),
-        "S" => Some(KeyCode::KeyS), "T" => Some(KeyCode::KeyT),
-        "U" => Some(KeyCode::KeyU), "V" => Some(KeyCode::KeyV),
-        "W" => Some(KeyCode::KeyW), "X" => Some(KeyCode::KeyX),
-        "Y" => Some(KeyCode::KeyY), "Z" => Some(KeyCode::KeyZ),
-        "0" => Some(KeyCode::Digit0), "1" => Some(KeyCode::Digit1),
-        "2" => Some(KeyCode::Digit2), "3" => Some(KeyCode::Digit3),
-        "4" => Some(KeyCode::Digit4), "5" => Some(KeyCode::Digit5),
-        "6" => Some(KeyCode::Digit6), "7" => Some(KeyCode::Digit7),
-        "8" => Some(KeyCode::Digit8), "9" => Some(KeyCode::Digit9),
-        "Space" => Some(KeyCode::Space), "Tab" => Some(KeyCode::Tab),
-        "Enter" => Some(KeyCode::Enter), "Esc" => Some(KeyCode::Escape),
-        "Up" => Some(KeyCode::ArrowUp), "Down" => Some(KeyCode::ArrowDown),
-        "Left" => Some(KeyCode::ArrowLeft), "Right" => Some(KeyCode::ArrowRight),
-        "L-Shift" => Some(KeyCode::ShiftLeft), "R-Shift" => Some(KeyCode::ShiftRight),
-        "L-Ctrl" => Some(KeyCode::ControlLeft), "R-Ctrl" => Some(KeyCode::ControlRight),
-        "F1" => Some(KeyCode::F1), "F2" => Some(KeyCode::F2),
-        "F3" => Some(KeyCode::F3), "F4" => Some(KeyCode::F4),
-        "F5" => Some(KeyCode::F5), "F6" => Some(KeyCode::F6),
-        "F7" => Some(KeyCode::F7), "F8" => Some(KeyCode::F8),
-        "F9" => Some(KeyCode::F9), "F10" => Some(KeyCode::F10),
-        "F11" => Some(KeyCode::F11), "F12" => Some(KeyCode::F12),
+        "A" => Some(KeyCode::KeyA),
+        "B" => Some(KeyCode::KeyB),
+        "C" => Some(KeyCode::KeyC),
+        "D" => Some(KeyCode::KeyD),
+        "E" => Some(KeyCode::KeyE),
+        "F" => Some(KeyCode::KeyF),
+        "G" => Some(KeyCode::KeyG),
+        "H" => Some(KeyCode::KeyH),
+        "I" => Some(KeyCode::KeyI),
+        "J" => Some(KeyCode::KeyJ),
+        "K" => Some(KeyCode::KeyK),
+        "L" => Some(KeyCode::KeyL),
+        "M" => Some(KeyCode::KeyM),
+        "N" => Some(KeyCode::KeyN),
+        "O" => Some(KeyCode::KeyO),
+        "P" => Some(KeyCode::KeyP),
+        "Q" => Some(KeyCode::KeyQ),
+        "R" => Some(KeyCode::KeyR),
+        "S" => Some(KeyCode::KeyS),
+        "T" => Some(KeyCode::KeyT),
+        "U" => Some(KeyCode::KeyU),
+        "V" => Some(KeyCode::KeyV),
+        "W" => Some(KeyCode::KeyW),
+        "X" => Some(KeyCode::KeyX),
+        "Y" => Some(KeyCode::KeyY),
+        "Z" => Some(KeyCode::KeyZ),
+        "0" => Some(KeyCode::Digit0),
+        "1" => Some(KeyCode::Digit1),
+        "2" => Some(KeyCode::Digit2),
+        "3" => Some(KeyCode::Digit3),
+        "4" => Some(KeyCode::Digit4),
+        "5" => Some(KeyCode::Digit5),
+        "6" => Some(KeyCode::Digit6),
+        "7" => Some(KeyCode::Digit7),
+        "8" => Some(KeyCode::Digit8),
+        "9" => Some(KeyCode::Digit9),
+        "Space" => Some(KeyCode::Space),
+        "Tab" => Some(KeyCode::Tab),
+        "Enter" => Some(KeyCode::Enter),
+        "Esc" => Some(KeyCode::Escape),
+        "Up" => Some(KeyCode::ArrowUp),
+        "Down" => Some(KeyCode::ArrowDown),
+        "Left" => Some(KeyCode::ArrowLeft),
+        "Right" => Some(KeyCode::ArrowRight),
+        "L-Shift" => Some(KeyCode::ShiftLeft),
+        "R-Shift" => Some(KeyCode::ShiftRight),
+        "L-Ctrl" => Some(KeyCode::ControlLeft),
+        "R-Ctrl" => Some(KeyCode::ControlRight),
+        "F1" => Some(KeyCode::F1),
+        "F2" => Some(KeyCode::F2),
+        "F3" => Some(KeyCode::F3),
+        "F4" => Some(KeyCode::F4),
+        "F5" => Some(KeyCode::F5),
+        "F6" => Some(KeyCode::F6),
+        "F7" => Some(KeyCode::F7),
+        "F8" => Some(KeyCode::F8),
+        "F9" => Some(KeyCode::F9),
+        "F10" => Some(KeyCode::F10),
+        "F11" => Some(KeyCode::F11),
+        "F12" => Some(KeyCode::F12),
         _ => None,
     }
 }
@@ -193,18 +226,13 @@ pub struct SettingsMenuState {
     pub rebinding: bool,
 }
 
-const SETTINGS_COUNT: usize = 8;  // volume/toggle/display items (+ reset row)
+const SETTINGS_COUNT: usize = 8; // volume/toggle/display items (+ reset row)
 const KEYBIND_COUNT: usize = 13;
 const BACK_COUNT: usize = 1;
 const TOTAL_ITEMS: usize = SETTINGS_COUNT + KEYBIND_COUNT + BACK_COUNT;
 
 // Available window resolutions (width x height)
-pub const RESOLUTIONS: [(u32, u32); 4] = [
-    (1280, 720),
-    (1600, 900),
-    (1920, 1080),
-    (2560, 1440),
-];
+pub const RESOLUTIONS: [(u32, u32); 4] = [(1280, 720), (1600, 900), (1920, 1080), (2560, 1440)];
 
 // Labels for each settings row
 const ITEM_LABELS: [&str; TOTAL_ITEMS] = [
@@ -351,7 +379,10 @@ fn spawn_settings_ui(mut commands: Commands, theme: Res<EtherealTheme>) {
     commands.spawn((
         FpsText,
         Text::new(""),
-        TextFont { font_size: 12.0, ..default() },
+        TextFont {
+            font_size: 12.0,
+            ..default()
+        },
         TextColor(Color::srgba(0.6, 0.6, 0.5, 0.7)),
         Node {
             position_type: PositionType::Absolute,
@@ -373,7 +404,10 @@ fn settings_menu_navigation(
     mut state: ResMut<SettingsMenuState>,
     mut settings: ResMut<GameSettings>,
     mut panel_query: Query<&mut Node, (With<SettingsPanel>, Without<crate::hud::PauseMenuPanel>)>,
-    mut pause_panel_query: Query<&mut Node, (With<crate::hud::PauseMenuPanel>, Without<SettingsPanel>)>,
+    mut pause_panel_query: Query<
+        &mut Node,
+        (With<crate::hud::PauseMenuPanel>, Without<SettingsPanel>),
+    >,
     mut row_query: Query<(&SettingsRow, &mut BackgroundColor, &mut BorderColor)>,
     pause_state: Res<crate::hud::PauseState>,
 ) {
@@ -392,7 +426,18 @@ fn settings_menu_navigation(
             return;
         }
         for &key in keyboard.get_just_pressed() {
-            if key == KeyCode::Escape { continue; }
+            if key == KeyCode::Escape {
+                continue;
+            }
+            // Swap detection: if another keybind already uses this key, swap them
+            let old_key = get_keybind(&settings.keybinds, state.selected);
+            for other_idx in SETTINGS_COUNT..(SETTINGS_COUNT + KEYBIND_COUNT) {
+                if other_idx != state.selected && get_keybind(&settings.keybinds, other_idx) == key
+                {
+                    set_keybind(&mut settings.keybinds, other_idx, old_key);
+                    break;
+                }
+            }
             set_keybind(&mut settings.keybinds, state.selected, key);
             state.rebinding = false;
             break;
@@ -407,56 +452,84 @@ fn settings_menu_navigation(
             node.display = Display::None;
         }
         if let Ok(mut node) = pause_panel_query.get_single_mut() {
-            node.display = if pause_state.paused { Display::Flex } else { Display::None };
+            node.display = if pause_state.paused {
+                Display::Flex
+            } else {
+                Display::None
+            };
         }
         settings.save();
         return;
     }
 
     // Navigate up/down (arrow keys + D-pad)
-    if keyboard.just_pressed(KeyCode::ArrowUp) || gamepad_buttons.just_pressed(GamepadButton::DPadUp) {
+    if keyboard.just_pressed(KeyCode::ArrowUp)
+        || gamepad_buttons.just_pressed(GamepadButton::DPadUp)
+    {
         if state.selected > 0 {
             state.selected -= 1;
         }
     }
-    if keyboard.just_pressed(KeyCode::ArrowDown) || gamepad_buttons.just_pressed(GamepadButton::DPadDown) {
+    if keyboard.just_pressed(KeyCode::ArrowDown)
+        || gamepad_buttons.just_pressed(GamepadButton::DPadDown)
+    {
         if state.selected < TOTAL_ITEMS - 1 {
             state.selected += 1;
         }
     }
 
     // Adjust values (arrow keys in settings + D-pad)
-    let left = keyboard.just_pressed(KeyCode::ArrowLeft) || gamepad_buttons.just_pressed(GamepadButton::DPadLeft);
-    let right = keyboard.just_pressed(KeyCode::ArrowRight) || gamepad_buttons.just_pressed(GamepadButton::DPadRight);
+    let left = keyboard.just_pressed(KeyCode::ArrowLeft)
+        || gamepad_buttons.just_pressed(GamepadButton::DPadLeft);
+    let right = keyboard.just_pressed(KeyCode::ArrowRight)
+        || gamepad_buttons.just_pressed(GamepadButton::DPadRight);
     let enter = keyboard.just_pressed(KeyCode::Enter) || confirm_pressed;
 
     let mut do_close = false;
     match state.selected {
         0 => {
             // SFX Volume (round to nearest 5% to avoid float drift)
-            if left { settings.sfx_volume = ((settings.sfx_volume - 0.05).max(0.0) * 20.0).round() / 20.0; }
-            if right { settings.sfx_volume = ((settings.sfx_volume + 0.05).min(1.0) * 20.0).round() / 20.0; }
+            if left {
+                settings.sfx_volume = ((settings.sfx_volume - 0.05).max(0.0) * 20.0).round() / 20.0;
+            }
+            if right {
+                settings.sfx_volume = ((settings.sfx_volume + 0.05).min(1.0) * 20.0).round() / 20.0;
+            }
         }
         1 => {
             // Music Volume
-            if left { settings.music_volume = ((settings.music_volume - 0.05).max(0.0) * 20.0).round() / 20.0; }
-            if right { settings.music_volume = ((settings.music_volume + 0.05).min(1.0) * 20.0).round() / 20.0; }
+            if left {
+                settings.music_volume =
+                    ((settings.music_volume - 0.05).max(0.0) * 20.0).round() / 20.0;
+            }
+            if right {
+                settings.music_volume =
+                    ((settings.music_volume + 0.05).min(1.0) * 20.0).round() / 20.0;
+            }
         }
         2 => {
             // Screen Shake
-            if left || right || enter { settings.screen_shake = !settings.screen_shake; }
+            if left || right || enter {
+                settings.screen_shake = !settings.screen_shake;
+            }
         }
         3 => {
             // Show Minimap
-            if left || right || enter { settings.show_minimap = !settings.show_minimap; }
+            if left || right || enter {
+                settings.show_minimap = !settings.show_minimap;
+            }
         }
         4 => {
             // Show FPS
-            if left || right || enter { settings.show_fps = !settings.show_fps; }
+            if left || right || enter {
+                settings.show_fps = !settings.show_fps;
+            }
         }
         5 => {
             // Fullscreen
-            if left || right || enter { settings.fullscreen = !settings.fullscreen; }
+            if left || right || enter {
+                settings.fullscreen = !settings.fullscreen;
+            }
         }
         6 => {
             // Resolution (cycle through presets, left/right)
@@ -495,7 +568,11 @@ fn settings_menu_navigation(
             node.display = Display::None;
         }
         if let Ok(mut node) = pause_panel_query.get_single_mut() {
-            node.display = if pause_state.paused { Display::Flex } else { Display::None };
+            node.display = if pause_state.paused {
+                Display::Flex
+            } else {
+                Display::None
+            };
         }
         settings.save();
         return;
@@ -503,7 +580,11 @@ fn settings_menu_navigation(
 
     // Update visual highlights
     for (row, mut bg, mut border) in row_query.iter_mut() {
-        if row.index == state.selected {
+        if row.index == state.selected && state.rebinding {
+            // Rebinding: bright amber pulse so the player knows we're waiting for input
+            *bg = BackgroundColor(Color::srgba(0.25, 0.18, 0.04, 0.95));
+            *border = BorderColor(Color::srgba(1.0, 0.85, 0.2, 1.0));
+        } else if row.index == state.selected {
             *bg = BackgroundColor(Color::srgba(0.15, 0.13, 0.08, 0.95));
             *border = BorderColor(Color::srgba(0.9, 0.75, 0.3, 0.9));
         } else {
@@ -634,10 +715,34 @@ fn update_settings_display(
         let display = match val.index {
             0 => format!("{}%", (settings.sfx_volume * 100.0).round() as i32),
             1 => format!("{}%", (settings.music_volume * 100.0).round() as i32),
-            2 => if settings.screen_shake { "On".into() } else { "Off".into() },
-            3 => if settings.show_minimap { "On".into() } else { "Off".into() },
-            4 => if settings.show_fps { "On".into() } else { "Off".into() },
-            5 => if settings.fullscreen { "On".into() } else { "Off".into() },
+            2 => {
+                if settings.screen_shake {
+                    "On".into()
+                } else {
+                    "Off".into()
+                }
+            }
+            3 => {
+                if settings.show_minimap {
+                    "On".into()
+                } else {
+                    "Off".into()
+                }
+            }
+            4 => {
+                if settings.show_fps {
+                    "On".into()
+                } else {
+                    "Off".into()
+                }
+            }
+            5 => {
+                if settings.fullscreen {
+                    "On".into()
+                } else {
+                    "Off".into()
+                }
+            }
             6 => {
                 let idx = settings.resolution_index.min(RESOLUTIONS.len() - 1);
                 let (w, h) = RESOLUTIONS[idx];
@@ -668,7 +773,9 @@ fn update_fps_counter(
     mut query: Query<(&mut Text, &mut Node), With<FpsText>>,
     mut smoothed: Local<f32>,
 ) {
-    let Ok((mut text, mut node)) = query.get_single_mut() else { return };
+    let Ok((mut text, mut node)) = query.get_single_mut() else {
+        return;
+    };
 
     if settings.show_fps {
         node.display = Display::Flex;
@@ -706,12 +813,13 @@ fn sync_audio_from_settings(
 // Fullscreen
 // ---------------------------------------------------------------------------
 
-fn apply_fullscreen(
-    settings: Res<GameSettings>,
-    mut windows: Query<&mut Window>,
-) {
-    if !settings.is_changed() { return; }
-    let Ok(mut window) = windows.get_single_mut() else { return };
+fn apply_fullscreen(settings: Res<GameSettings>, mut windows: Query<&mut Window>) {
+    if !settings.is_changed() {
+        return;
+    }
+    let Ok(mut window) = windows.get_single_mut() else {
+        return;
+    };
     window.mode = if settings.fullscreen {
         bevy::window::WindowMode::BorderlessFullscreen(MonitorSelection::Current)
     } else {
@@ -719,10 +827,7 @@ fn apply_fullscreen(
     };
 }
 
-fn toggle_fullscreen_f11(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut settings: ResMut<GameSettings>,
-) {
+fn toggle_fullscreen_f11(keyboard: Res<ButtonInput<KeyCode>>, mut settings: ResMut<GameSettings>) {
     if keyboard.just_pressed(KeyCode::F11) {
         settings.fullscreen = !settings.fullscreen;
     }
@@ -732,12 +837,13 @@ fn toggle_fullscreen_f11(
 // Resolution
 // ---------------------------------------------------------------------------
 
-fn apply_resolution(
-    settings: Res<GameSettings>,
-    mut windows: Query<&mut Window>,
-) {
-    if !settings.is_changed() { return; }
-    let Ok(mut window) = windows.get_single_mut() else { return };
+fn apply_resolution(settings: Res<GameSettings>, mut windows: Query<&mut Window>) {
+    if !settings.is_changed() {
+        return;
+    }
+    let Ok(mut window) = windows.get_single_mut() else {
+        return;
+    };
     if !settings.fullscreen {
         let idx = settings.resolution_index.min(RESOLUTIONS.len() - 1);
         let (w, h) = RESOLUTIONS[idx];
