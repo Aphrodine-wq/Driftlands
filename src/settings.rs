@@ -66,6 +66,13 @@ impl Default for GameSettings {
 
 impl GameSettings {
     fn settings_path() -> PathBuf {
+        if let Some(config_dir) = dirs::config_dir() {
+            let dir = config_dir.join("driftlands");
+            if fs::create_dir_all(&dir).is_ok() {
+                return dir.join("settings.json");
+            }
+        }
+        // Fallback to CWD-relative path if platform config dir unavailable
         PathBuf::from("settings.json")
     }
 
